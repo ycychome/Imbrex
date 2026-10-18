@@ -23,6 +23,7 @@ export function fields(value: Record<string, unknown>, allowed: readonly string[
 
 export function string(value: unknown, maxBytes: number, code: ErrorCode = 'invalid_request', allowEmpty = false): string {
   if (typeof value !== 'string' || (!allowEmpty && !value.length)) fail(code);
+  if (!value.isWellFormed()) fail(code, 'Expected a well-formed Unicode string');
   if (Buffer.byteLength(value) > maxBytes) fail('payload_too_large');
   return value;
 }
