@@ -1,6 +1,6 @@
 # 本地开发与工程基线
 
-更新：2026-10-18。M0-01 已建立工程与依赖探针；网关宿主、业务存储、HTTP 和 OneBot 连接器尚未实现。
+统一开发基线 0.3。M0 已提供可运行宿主、事件/能力服务、HTTP 和演示插件；OneBot 与 Agent 接入在 M1 完成。验收范围见[M0 运行记录](experiments/m0-runtime.md)。
 
 ## 1. 工具链与依赖锁
 
@@ -35,8 +35,9 @@ npm run check
 | `npm test` | 重新构建，再由 Node 执行编译后的测试；单测试超时 10 秒 |
 | `npm run check` | 类型检查、构建和测试 |
 | `npm run clean` | 删除生成的 dist |
+| `npm start -- --config examples/demo.json` | 经 Linux flock 启动演示宿主；先完成构建和环境变量配置 |
 
-当前已有基础类型、输入/Schema 校验、HTTP DTO、配置与认证模块，以及相应风险测试；尚不提供网关启动命令。新增范围见[输入边界与认证验证](experiments/m0-foundation.md)。安装、编译和测试不依赖 `.private/`。node_modules、dist、coverage 和默认运行数据 data 均被 Git 忽略。
+当前代码包含核心、SQLite worker、HTTP、Cordis 宿主、演示插件和 CLI，构建也编译 examples/plugins 中的模板。安装、编译、测试和运行不依赖 `.private/`。node_modules、dist、coverage 和默认运行数据 data 均被 Git 忽略。
 
 GitHub Actions 在 PR 和 main 提交上执行 `npm ci` 与 `npm run check`，使用固定的 Node 文件、Ubuntu 24.04 和按提交 SHA 锁定的官方 Actions。
 
@@ -48,7 +49,7 @@ Cordis 4.0.0-rc.11 发布包的 `.d.ts` 使用无扩展名的相对导入。实�
 
 项目相对导入必须显式写 `.js`，确保输出在 Node ESM 下可解析。Bundler 模式不会替我们强制这条约定，代码审查及实际运行须检查；Cordis 修复发布声明后可重新核验 NodeNext。
 
-## 4. 本次验证与边界
+## 4. M0-01 前置探针记录
 
 环境：Linux x86_64、上述锁定工具链。命令：`npm ci`、`npm run check`、`npm audit`。类型检查与编译通过，4 个测试通过，审计 0 项漏洞。每个测试对应一个明确的集成风险：
 
@@ -65,4 +66,40 @@ Node 实际绑定的 SQLite 为 **3.53.4**，source id：
 2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc
 ```
 
-这些结果覆盖 T01/E01 的部分前置条件；不是完整 T01 或 M0 验收。数据库 worker、宿主实例锁、配置/权限、提交后的通知隔离及真实平台行为仍待各自实现。下一项为 M0-02：配置校验、主体绑定、单实例启动与关闭。
+以上是工程初始化时的前置结果。后续完整 M0 实现和风险验证见[运行验收](experiments/m0-runtime.md)，真实平台行为仍属 M1。
+
+<a id="m0-run"></a>
+
+## 5. 运行 M0 演示
+
+在使用锁定 Node/npm 的终端中执行：
+
+```sh
+npm ci
+npm run check
+export IMBREX_DEMO_AGENT_TOKEN="$(node --input-type=module -e "import { randomBytes } from 'node:crypto'; process.stdout.write(randomBytes(32).toString('hex'))")"
+export IMBREX_OPERATOR_TOKEN="$(node --input-type=module -e "import { randomBytes } from 'node:crypto'; process.stdout.write(randomBytes(32).toString('hex'))")"
+npm start -- --config examples/demo.json
+```
+
+环境变量由调用终端提供，程序不自动加载 .env。示例默认监听 127.0.0.1:8080，数据保存在仓库 data/；需要临时端口时将配置中的 http.port 设为 0。就绪 JSON 会输出实际 port、pid、store_id、SQLite 版本和有效 PRAGMA；日志不输出令牌或消息正文。
+
+预期首次启动：fixture 发布 message-001、message-002；transform 生成两条带 parents 的派生事件；observer 独立保存读取位置；mock 注册 mock.echo。正常重启保持 store_id 与这四条事件，重复来源身份不会产生新事件。
+
+使用同样配置了环境变量的终端调用：
+
+```sh
+curl -sS -H "Authorization: Bearer $IMBREX_DEMO_AGENT_TOKEN" http://127.0.0.1:8080/v1/info
+curl -sS -H "Authorization: Bearer $IMBREX_DEMO_AGENT_TOKEN" http://127.0.0.1:8080/v1/capabilities
+curl -sS -H "Authorization: Bearer $IMBREX_OPERATOR_TOKEN" http://127.0.0.1:8080/v1/plugins
+```
+
+从 info 取得 store_id 后，按[HTTP 契约](contracts.md)读取事件和调用 mock.echo。示例 Agent 凭据只有读取和工具权限；HTTP 发布者需另外配置 events:write 及明确 write_sources，不可在请求体伪造主体。
+
+Ctrl-C 或 SIGTERM 正常关闭；第二个进程使用同一数据目录会以 75 拒绝启动。进程崩溃后锁随实际宿主退出释放。不要直接运行内部 run.js 来跳过启动包装。
+
+## 6. 添加插件
+
+复制 [uppercase 模板](../examples/plugins/uppercase.ts)，使用绑定 API，实现实际需要的配置和资源清理。运行 npm run build 后，在配置中增加独立实例、主体和模块路径，例如从 examples/demo.json 引用 ../dist/examples/plugins/uppercase.js；同时为调用方授权该实例的完整能力 ID。初次启动按配置顺序装配，服务提供者须在依赖它的插件之前。
+
+M0 的 observer 只完成独立读取与位置保存；事件副本、Agent 决策库、真实 OneBot、SSE 和 MCP 不在当前演示范围内。下一阶段从 M1 的协议连接器与模拟验证开始。
