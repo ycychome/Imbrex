@@ -140,3 +140,30 @@ test('timed-out handlers retain the concurrency slot until the underlying operat
   await setImmediate();
   assert.equal(call(await capabilities.invoke(principal, id, 'mock.write', { text: 'fixture' }, 'after')).status, 'succeeded');
 });
+
+test('queue saturation after dispatch is storage_unavailable rather than an admission rejection', async (t) => {
+  const { capabilities, store, id, owner } = await fixture(t);
+  let sends = 0;
+  let queued = Promise.resolve();
+  capabilities.register(owner, definition(() => {
+    sends += 1;
+    queued = Promise.allSettled(Array.from({ length: 32 }, () => store.info())).then(() => {});
+    return { status: 'succeeded', result: null };
+  }));
+  await assert.rejects(capabilities.invoke(principal, id, 'mock.write', { text: 'fixture' }, 'saturated'), { code: 'storage_unavailable', status: 503 });
+  await queued;
+  assert.equal(call(await capabilities.invoke(principal, id, 'mock.write', { text: 'fixture' }, 'saturated')).status, 'in_progress');
+  assert.equal(sends, 1);
+});
+
+test('read-only and side-effectful results have the same JSON depth limit', async (t) => {
+  const { capabilities, id, owner } = await fixture(t);
+  let result: JsonValue = null;
+  for (let depth = 0; depth < 32; depth += 1) result = [result];
+  capabilities.register(owner, definition(() => result, false));
+  capabilities.register(owner, definition(() => ({ status: 'succeeded', result })));
+  const read = await capabilities.invoke(principal, id, 'mock.echo', { text: 'fixture' });
+  assert.equal(read.kind, 'result');
+  const write = call(await capabilities.invoke(principal, id, 'mock.write', { text: 'fixture' }, 'depth'));
+  assert.equal(write.status, 'succeeded'); assert.deepEqual(write.result, result);
+});

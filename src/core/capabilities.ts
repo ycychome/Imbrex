@@ -77,7 +77,7 @@ export class Capabilities {
     if (call.capabilityId !== capabilityId || !isDeepStrictEqual(call.params, params)) fail('call_conflict');
   }
   private outcome(value: unknown): CallOutcome {
-    const result = object(json(value, limits.httpBytes), 'invalid_params');
+    const result = object(value, 'invalid_params');
     if (result.status === 'succeeded') {
       fields(result, ['status', 'result'], ['status', 'result'], 'invalid_params');
       return { status: 'succeeded', result: json(result.result) };
@@ -87,6 +87,10 @@ export class Capabilities {
     const reason = object(result.reason, 'invalid_params');
     fields(reason, ['code', 'message'], ['code', 'message'], 'invalid_params');
     return { status: result.status, reason: { code: string(reason.code, 128), message: string(reason.message, 4096) } };
+  }
+  private async finish(storeId: string, callerId: string, callId: string, outcome: CallOutcome): Promise<CallRecord> {
+    try { return await this.store.finishCall(storeId, callerId, callId, outcome); }
+    catch { return fail('storage_unavailable'); }
   }
   private async execute(principal: Principal, storeId: string, id: string, input: unknown, callId?: string): Promise<InvokeResult> {
     if (this.stopped) fail('provider_unavailable');
@@ -112,7 +116,7 @@ export class Capabilities {
         const created = await this.store.createCall(storeId, { callerId: principal.id, callId: callId!, capabilityId: id, schemaVersion: entry.description.schemaVersion, params });
         if (!created.created) { this.sameIntent(created.call, id, params); return { kind: 'call', storeId, call: created.call }; }
         if (!this.available(entry)) {
-          const call = await this.store.finishCall(storeId, principal.id, callId!, { status: 'failed', reason: { code: 'provider_stopped', message: 'Provider stopped before dispatch.' } });
+          const call = await this.finish(storeId, principal.id, callId!, { status: 'failed', reason: { code: 'provider_stopped', message: 'Provider stopped before dispatch.' } });
           return { kind: 'call', storeId, call };
         }
       } else if (!this.available(entry)) fail('provider_unavailable');
@@ -126,7 +130,7 @@ export class Capabilities {
       const interrupted = new Promise<InvokeResult>((resolve, reject) => {
         abortListener = () => {
           if (!sideEffectful) { reject(new GatewayError('provider_unavailable')); return; }
-          this.store.finishCall(storeId, principal.id, callId!, { status: 'unknown', reason: { code: 'provider_interrupted', message: 'Provider outcome is not confirmed.' } })
+          this.finish(storeId, principal.id, callId!, { status: 'unknown', reason: { code: 'provider_interrupted', message: 'Provider outcome is not confirmed.' } })
             .then((call) => resolve({ kind: 'call', storeId, call }), reject);
         };
         signal.addEventListener('abort', abortListener, { once: true });
@@ -150,10 +154,10 @@ export class Capabilities {
         let outcome: CallOutcome;
         try { outcome = this.outcome(value); }
         catch { outcome = { status: 'unknown', reason: { code: 'invalid_provider_result', message: 'Provider returned an invalid result.' } }; }
-        return { kind: 'call', storeId, call: await this.store.finishCall(storeId, principal.id, callId!, outcome) };
+        return { kind: 'call', storeId, call: await this.finish(storeId, principal.id, callId!, outcome) };
       }, async (): Promise<InvokeResult> => {
         if (!sideEffectful) fail('provider_unavailable');
-        const call = await this.store.finishCall(storeId, principal.id, callId!, { status: 'unknown', reason: { code: 'provider_error', message: 'Provider outcome is not confirmed.' } });
+        const call = await this.finish(storeId, principal.id, callId!, { status: 'unknown', reason: { code: 'provider_error', message: 'Provider outcome is not confirmed.' } });
         return { kind: 'call', storeId, call };
       });
       try { return await Promise.race([completed, interrupted]); }
