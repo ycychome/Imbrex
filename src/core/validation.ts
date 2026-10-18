@@ -29,7 +29,9 @@ export function string(value: unknown, maxBytes: number, code: ErrorCode = 'inva
 
 export function uri(value: unknown, code: ErrorCode = 'invalid_event'): string {
   const text = string(value, 1024, code);
-  if (!/^[A-Za-z][A-Za-z0-9+.-]*:/.test(text) || /[\s\x00-\x1f\x7f]/.test(text) || /%(?![a-fA-F0-9]{2})/.test(text)) fail(code);
+  if (!/^[A-Za-z][A-Za-z0-9+.-]*:/.test(text) || /[^A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]/.test(text) || /%(?![a-fA-F0-9]{2})/.test(text)) fail(code);
+  const parts = /^(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#([^#]*))?$/.exec(text.slice(text.indexOf(':') + 1));
+  if (!parts || parts.slice(2).some((part) => part !== undefined && /[\[\]]/.test(part)) || (parts[1]?.split('@').length ?? 0) > 2) fail(code);
   try { new URL(text); } catch { fail(code); }
   return text;
 }
@@ -95,6 +97,12 @@ function timestamp(value: unknown): string {
   const days = [31, y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   if (m < 1 || m > 12 || d < 1 || d > (days[m - 1] ?? 0) || Number(hour) > 23 || Number(minute) > 59 || Number(second) > 60) fail('invalid_event');
   if (offset?.length === 6 && (Number(offset.slice(1, 3)) > 23 || Number(offset.slice(4)) > 59)) fail('invalid_event');
+  if (Number(second) === 60) {
+    // RFC 3339 leap seconds occur at the end of a UTC month, shifted by the supplied offset.
+    const preceding = new Date(text.toUpperCase().replace(/:60(?=[.Z+-])/, ':59'));
+    const following = new Date(preceding.getTime() + 1000);
+    if (preceding.getUTCHours() !== 23 || preceding.getUTCMinutes() !== 59 || following.getUTCDate() !== 1) fail('invalid_event');
+  }
   return text;
 }
 

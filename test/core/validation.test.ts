@@ -53,3 +53,27 @@ test('capability schemas reject unsupported execution/reference features without
   assert.equal(validate(invalid), false);
   assert.deepEqual(invalid, { text: 7, extra: true });
 });
+
+test('schema compilation supports booleans and cannot satisfy JSON properties through prototypes', () => {
+  assert.equal(compileSchema(true).validate(null), true);
+  assert.equal(compileSchema(false).validate(null), false);
+  const schema = { type: 'object', properties: { constructor: true }, required: ['constructor'] };
+  const { validate } = compileSchema(schema);
+  assert.equal(validate({}), false);
+  assert.equal(validate({ constructor: 'own value' }), true);
+  assert.throws(() => compileSchema(JSON.parse('{"type":"object","properties":{"__proto__":{"type":"integer"}}}')), { code: 'invalid_params' });
+});
+
+test('event identity rejects illegal URI characters and leap seconds respect UTC position', () => {
+  for (const source of ['imbrex://fixture/{message}', 'imbrex://fixture/back\\slash', 'imbrex://fixture/[path]', 'imbrex://fixture/#one#two']) {
+    assert.throws(() => eventInput({ event: { ...event, source } }), { code: 'invalid_event' });
+  }
+  const source = 'imbrex://fixture/%7Bmessage%7D';
+  assert.equal(eventInput({ event: { ...event, source } }).event.source, source);
+  for (const time of ['2026-10-18T12:34:60Z', '2016-12-31T23:59:60+01:00']) {
+    assert.throws(() => eventInput({ event: { ...event, time } }), { code: 'invalid_event' });
+  }
+  for (const time of ['2016-12-31T23:59:60Z', '2017-01-01T00:59:60+01:00']) {
+    assert.equal(eventInput({ event: { ...event, time } }).event.time, time);
+  }
+});
