@@ -9,6 +9,7 @@
     "npm": "11.19.1"
   },
   "scripts": {
+    "start": "node dist/src/cli/start.js",
     "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\"",
     "build": "npm run clean && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
