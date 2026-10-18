@@ -20,7 +20,6 @@ interface Runtime {
 interface HostOptions {
   report?: (code: string, fields?: Record<string, string | number | boolean>) => void;
   onFatal?: () => void;
-  lifecycleTimeoutMs?: number;
 }
 
 export class Host {
@@ -121,7 +120,7 @@ export class Host {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([promise, new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new GatewayError('internal_error', 'Plugin lifecycle timeout')), this.options.lifecycleTimeoutMs ?? limits.callTimeoutMs);
+        timer = setTimeout(() => reject(new GatewayError('internal_error', 'Plugin lifecycle timeout')), limits.callTimeoutMs);
       })]);
     } finally { clearTimeout(timer); }
   }
