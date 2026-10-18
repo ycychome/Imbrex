@@ -54,7 +54,7 @@ through_seq 只对本页有效，下一页会获得新的短事务视图。caugh
 
 ## 5. 表与索引的最小职责
 
-网关只有一个数据库文件，初始 schema_version=1，由内核拥有。建议初始结构：
+网关只有一个数据库文件，初始 schema_version=1，由内核拥有。当前实现结构如下；验证范围见[存储验证](experiments/m0-storage.md)：
 
 ```sql
 CREATE TABLE metadata (
