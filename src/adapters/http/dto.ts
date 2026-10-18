@@ -1,6 +1,8 @@
 import { fields, object, string, position, readOptions, eventInput, eventRef, json, callIdPattern } from '../../core/validation.js';
 import { fail } from '../../core/errors.js';
 import type { AppendResult, EventPage, EventRecord } from '../../core/types.js';
+import type { CallRecord } from '../../core/store.js';
+import type { InvokeResult } from '../../core/capabilities.js';
 
 function query(params: URLSearchParams, allowed: string[], required: string[]): Record<string, string> {
   const values: Record<string, string> = Object.create(null) as Record<string, string>;
@@ -52,4 +54,15 @@ export function wirePage(page: EventPage) {
 }
 export function wireAppend(result: AppendResult) {
   return { status: result.status, store_id: result.storeId, seq: result.seq.toString(), accepted_at: result.acceptedAt, event_ref: result.eventRef };
+}
+export function wireCall(call: CallRecord) {
+  return {
+    call_id: call.callId, capability_id: call.capabilityId, schema_version: call.schemaVersion, params: call.params,
+    status: call.status, ...(call.result === undefined ? {} : { result: call.result }), ...(call.reason === undefined ? {} : { reason: call.reason }),
+    created_at: call.createdAt, updated_at: call.updatedAt,
+  };
+}
+export function wireInvocation(result: InvokeResult) {
+  if (result.kind === 'call') return { store_id: result.storeId, kind: result.kind, call: wireCall(result.call) };
+  return { store_id: result.storeId, kind: result.kind, capability_id: result.capabilityId, result: result.result };
 }

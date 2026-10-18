@@ -25,6 +25,8 @@
 | 能力参数 / 结果 | 各最大 64 KiB |
 | OneBot 原始 WebSocket 帧 | 最大 1 MiB；过大帧拒绝并报告来源覆盖风险 |
 | 能力 schema / 已注册能力数 | 每份最大 16 KiB / 最多 128 个 |
+| 能力 description / schema_version | 最大 4096 / 128 UTF-8 字节 |
+| handler reason.code / reason.message | 最大 128 / 4096 UTF-8 字节 |
 | source、dataschema | 各最多 1024 UTF-8 字节 |
 | event.id、type、subject | 各最多 256 UTF-8 字节 |
 | parents | 最多 16 个，重复 EventRef 拒绝 |
