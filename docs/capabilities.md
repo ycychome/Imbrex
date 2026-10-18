@@ -22,6 +22,10 @@
 
 采用 Draft 2020-12 的有限子集：object/properties/required/additionalProperties、array/items、有界长度与数值约束、enum/const 及受控的组合。首版不支持远程引用、自定义可执行关键词或任意插件编译代码。M0 根据实际校验器锁定受支持词汇，未支持的 schema 在注册时失败，不能静默跳过。[R5](references.md#r5)
 
+当前词汇白名单为 $schema（仅 Draft 2020-12）、title、description、type、properties、required、additionalProperties、items、minItems、maxItems、uniqueItems、minLength、maxLength、minimum、maximum、exclusiveMinimum、exclusiveMaximum、multipleOf、enum、const、allOf、anyOf、oneOf、not；允许布尔 schema。其余关键词（包括 $ref、format、pattern、default）拒绝注册，不执行外部加载或静默忽略。
+
+参数校验只考虑 JSON 自有属性。锁定版 Ajv 不执行 properties 中 __proto__ 的约束，因此这种属性定义在注册时明确拒绝，避免悄悄跳过校验。
+
 ## 3. 只读能力与外部写
 
 只读能力 `is_side_effectful=false` 可直接运行并返回 JSON result，不保存持久调用记录；首版请求不携带 call_id，防止暗示它拥有写调用的去重语义。

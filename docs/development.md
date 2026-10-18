@@ -36,7 +36,7 @@ npm run check
 | `npm run check` | 类型检查、构建和测试 |
 | `npm run clean` | 删除生成的 dist |
 
-当前只有 `test/prerequisites/` 的依赖探针；`src/` 按后续实际功能创建，不提供占位网关启动命令。安装、编译和测试不依赖 `.private/`。node_modules、dist、coverage 和默认运行数据 data 均被 Git 忽略。
+当前已有基础类型、输入/Schema 校验、HTTP DTO、配置与认证模块，以及相应风险测试；尚不提供网关启动命令。新增范围见[输入边界与认证验证](experiments/m0-foundation.md)。安装、编译和测试不依赖 `.private/`。node_modules、dist、coverage 和默认运行数据 data 均被 Git 忽略。
 
 GitHub Actions 在 PR 和 main 提交上执行 `npm ci` 与 `npm run check`，使用固定的 Node 文件、Ubuntu 24.04 和按提交 SHA 锁定的官方 Actions。
 
