@@ -37,7 +37,9 @@ export async function loadModules(config: HostConfig, filename: string): Promise
       const imported: unknown = await import(specifier);
       const module = object(imported && typeof imported === 'object' ? { ...imported } : imported);
       const candidate = module.default ?? module;
-      const value = typeof candidate === 'function' ? { apply: candidate } : object(candidate);
+      const value = typeof candidate === 'function'
+        ? { apply: candidate, name: candidate.name, inject: Reflect.get(candidate, 'inject'), Config: Reflect.get(candidate, 'Config') }
+        : object(candidate);
       if (typeof value.apply !== 'function' || (value.inject !== undefined && (!Array.isArray(value.inject) || value.inject.some((item) => typeof item !== 'string')))) fail('invalid_request', 'Invalid plugin module');
       modules.set(plugin.id, value as unknown as PluginModule);
     } catch {

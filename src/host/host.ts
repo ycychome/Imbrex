@@ -39,11 +39,11 @@ export class Host {
     this.root.logger.exporter({ export: (message) => {
       if (message.type !== 'error') return;
       const fiber = message.fiber?.deref();
-      for (const runtime of this.runtimes.values()) {
-        if (runtime.fiber === fiber) {
-          runtime.errors += 1;
-          runtime.lastError = { code: 'plugin_error', message: 'Plugin reported an error.' };
-        }
+      const runtime = this.runtimeFor(fiber);
+      if (runtime) {
+        runtime.errors += 1;
+        if (fiber?.state === 5 || runtime.fiber?.state === 5 || runtime.state === 'stopping') this.stopFailed(runtime);
+        else if (!runtime.stopFailed) runtime.lastError = { code: 'plugin_error', message: 'Plugin reported an error.' };
       }
       this.report('plugin_error');
     } });
@@ -68,6 +68,21 @@ export class Host {
   }
   private report(code: string, fields?: Record<string, string | number | boolean>): void {
     try { this.options.report?.(code, fields); } catch { /* Diagnostic sinks do not control transactions or cleanup. */ }
+  }
+  private runtimeFor(fiber: Fiber | undefined): Runtime | undefined {
+    while (fiber) {
+      for (const runtime of this.runtimes.values()) if (runtime.fiber === fiber) return runtime;
+      if (fiber.parent.fiber === fiber) return;
+      fiber = fiber.parent.fiber;
+    }
+    return undefined;
+  }
+  private stopFailed(runtime: Runtime): void {
+    runtime.state = 'failed'; runtime.stopFailed = true; runtime.available = false;
+    runtime.lastError = { code: 'stop_failed', message: 'Plugin cleanup did not complete.' };
+    runtime.controller?.abort();
+    for (const dispose of runtime.cleanup) dispose();
+    this.report('stop_failed', { plugin_instance_id: runtime.config.id });
   }
   static async open(config: HostConfig, modules: Map<string, PluginModule | undefined>, options: HostOptions = {}): Promise<Host> {
     const host = new Host(config, options);
@@ -157,6 +172,7 @@ export class Host {
         name: id, inject: [...new Set(['imbrex', ...(module.inject ?? [])])],
         Config: module.Config,
         apply: (ctx: Context, config: JsonObject) => {
+          if (runtime.stopFailed) fail('internal_error', 'stop_failed');
           if (runtime.controller?.signal.aborted) { runtime.controller = new AbortController(); runtime.cleanup = new Set(); }
           runtime.available = true;
           this.api(runtime, ctx, storeId);
@@ -171,9 +187,9 @@ export class Host {
     } catch {
       runtime.controller.abort();
       for (const dispose of runtime.cleanup) dispose();
-      if (runtime.fiber) await this.bounded(runtime.fiber.dispose()).catch(() => { runtime.stopFailed = true; });
+      if (runtime.fiber) await this.bounded(runtime.fiber.dispose()).catch(() => { this.stopFailed(runtime); });
       runtime.state = 'failed'; runtime.available = false;
-      runtime.lastError = { code: 'plugin_start_failed', message: 'Plugin initialization failed.' };
+      if (!runtime.stopFailed) runtime.lastError = { code: 'plugin_start_failed', message: 'Plugin initialization failed.' };
       this.report('plugin_start_failed', { plugin_instance_id: id });
       if (runtime.config.required) fail('provider_unavailable', 'Required plugin initialization failed');
     }
@@ -191,11 +207,10 @@ export class Host {
       for (const dispose of runtime.cleanup) dispose();
       await this.bounded(this.capabilities.drain(id));
       if (runtime.fiber) await this.bounded(runtime.fiber.dispose());
-      if (runtime.errors > errors) fail('internal_error', 'stop_failed');
+      if (runtime.errors > errors || runtime.stopFailed) fail('internal_error', 'stop_failed');
       runtime.state = 'stopped';
     } catch {
-      runtime.state = 'failed'; runtime.stopFailed = true;
-      runtime.lastError = { code: 'stop_failed', message: 'Plugin cleanup did not complete.' };
+      this.stopFailed(runtime);
       throw new GatewayError('internal_error', 'stop_failed');
     }
   }

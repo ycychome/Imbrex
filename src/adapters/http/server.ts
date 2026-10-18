@@ -57,33 +57,38 @@ export async function startHttp(config: HostConfig, store: GatewayStore, events:
       if (active >= limits.queue) fail('busy');
       active += 1; counted = true;
       const principal = config.authenticate(request.headers.authorization);
-      try { decodeURIComponent(request.url ?? '/'); } catch { fail('invalid_request', 'Invalid UTF-8 request target'); }
-      const url = new URL(request.url ?? '/', 'http://localhost');
-      const path = url.pathname;
+      const target = request.url ?? '/';
+      try { decodeURIComponent(target); } catch { fail('invalid_request', 'Invalid UTF-8 request target'); }
+      if (!target.startsWith('/') || target.includes('#')) fail('invalid_request');
+      // A call ID may be "." or "..". WHATWG URL would silently normalize these path segments.
+      const boundary = target.indexOf('?');
+      const path = boundary < 0 ? target : target.slice(0, boundary);
+      const search = boundary < 0 ? '' : target.slice(boundary + 1);
+      const params = new URLSearchParams(search);
       if (request.method === 'GET' && path === '/v1/info') {
-        if (url.search) fail('invalid_request');
+        if (search) fail('invalid_request');
         const info = await store.info();
         send(200, { store_id: info.storeId, version: '0.1.0-dev', latest_seq: info.latestSeq.toString(), features: { capabilities: true, call_records: true, sse: false } });
       } else if (request.method === 'POST' && path === '/v1/events') {
-        if (url.search) fail('invalid_request');
+        if (search) fail('invalid_request');
         const value = appendBody(await body(request));
         const result = await events.append(principal, value.storeId, value.input);
         send(result.status === 'created' ? 201 : 200, wireAppend(result));
       } else if (request.method === 'GET' && path === '/v1/events') {
-        const value = readQuery(url.searchParams);
+        const value = readQuery(params);
         send(200, wirePage(await events.read(principal, value.storeId, value.options)));
       } else if (request.method === 'GET' && path === '/v1/events/lookup') {
-        const value = lookupQuery(url.searchParams);
+        const value = lookupQuery(params);
         send(200, { store_id: value.storeId, record: wireRecord(await events.lookup(principal, value.storeId, value.ref)) });
       } else if (request.method === 'GET' && path === '/v1/capabilities') {
-        if (url.search) fail('invalid_request');
+        if (search) fail('invalid_request');
         const descriptions = capabilities.list(principal);
         send(200, { store_id: (await store.info()).storeId, capabilities: descriptions.map((item) => ({
           id: item.id, plugin_instance_id: item.pluginInstanceId, description: item.description, schema_version: item.schemaVersion,
           is_side_effectful: item.isSideEffectful, input_schema: item.inputSchema,
         })) });
       } else if (request.method === 'POST' && /^\/v1\/capabilities\/[^/]+\/invoke$/.test(path)) {
-        if (url.search) fail('invalid_request');
+        if (search) fail('invalid_request');
         let id: string;
         try { id = decodeURIComponent(path.split('/')[3]!); } catch { fail('invalid_request'); }
         if (!capabilityPattern.test(id)) fail('invalid_request');
@@ -93,10 +98,10 @@ export async function startHttp(config: HostConfig, store: GatewayStore, events:
       } else if (request.method === 'GET' && /^\/v1\/calls\/[^/]+$/.test(path)) {
         let callId: string;
         try { callId = decodeURIComponent(path.split('/')[3]!); } catch { fail('invalid_request'); }
-        const storeId = storeQuery(url.searchParams);
+        const storeId = storeQuery(params);
         send(200, { store_id: storeId, kind: 'call', call: wireCall(await capabilities.getCall(principal, storeId, callId)) });
       } else if (request.method === 'GET' && path === '/v1/plugins') {
-        if (url.search) fail('invalid_request');
+        if (search) fail('invalid_request');
         requirePermission(principal, 'runtime:inspect');
         send(200, { store_id: (await store.info()).storeId, plugins: plugins() });
       } else { fail('not_found'); }

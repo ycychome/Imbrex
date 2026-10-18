@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -223,6 +223,22 @@ test('a lost HTTP response does not cancel or duplicate a persisted side-effectf
   assert.equal(result.status, 200); assert.equal(object(result.value.call).status, 'succeeded');
   assert.deepEqual(object(result.value.call).result, { id: 'fixture-result' });
   assert.equal(calls, 1);
+  for (const callId of ['.', '..']) {
+    assert.equal((await request(app, '/v1/capabilities/extra.write/invoke', { ...input, call_id: callId })).status, 200);
+    for (const segment of [callId, callId.replaceAll('.', '%2E')]) {
+      const stored = await new Promise<Record<string, unknown>>((resolve, reject) => {
+        const req = httpRequest({ host: '127.0.0.1', port: app.port, path: '/v1/calls/' + segment + '?store_id=' + storeId, headers: { authorization: 'Bearer ' + demoToken } }, (response) => {
+          const chunks: Buffer[] = [];
+          response.on('data', (chunk: Buffer) => chunks.push(chunk)); response.once('error', reject);
+          response.once('end', () => {
+            try { assert.equal(response.statusCode, 200); resolve(object(JSON.parse(Buffer.concat(chunks).toString()))); } catch (error) { reject(error); }
+          });
+        });
+        req.once('error', reject); req.end();
+      });
+      assert.equal(object(stored.call).call_id, callId);
+    }
+  }
 });
 
 test('a failed database worker shuts down the HTTP host and notifies its supervisor', async (t) => {
@@ -260,4 +276,74 @@ test('Cordis dependency unload invalidates bindings and reactivation creates fre
   await app.startPlugin('provider');
   assert.equal((await request(app, '/v1/capabilities/dependent.echo/invoke', { store_id: id, params: {} })).status, 200);
   assert.equal(bindings.length, 2);
+});
+
+test('failed dependency cleanup prevents automatic reactivation and preserves the failed state', async (t) => {
+  const { config, filename, cleanup } = await configFixture(t);
+  const modules = await loadModules(config, filename);
+  for (const id of ['provider', 'dependent']) config.plugins.push({ id, module: 'fixture-module', principalId: 'mock-provider', required: true, enabled: true, config: {} });
+  const timers: ReturnType<typeof setInterval>[] = [];
+  t.after(() => { for (const timer of timers) clearInterval(timer); });
+  let starts = 0;
+  modules.set('provider', { apply: (ctx) => { ctx.provide('fixtureService', {}); } });
+  modules.set('dependent', { inject: ['fixtureService'], apply: (ctx) => {
+    starts += 1;
+    ctx.effect(() => {
+      timers.push(setInterval(() => {}, 100).unref());
+      return () => { throw new Error('fixture cleanup failure'); };
+    });
+  } });
+  const app = await Host.open(config, modules); cleanup.push(() => app.close().catch(() => {}));
+  await app.stopPlugin('provider');
+  assert.equal(app.plugins().find((entry) => entry.id === 'dependent')?.last_error?.code, 'stop_failed');
+  await app.startPlugin('provider'); await setImmediate();
+  assert.equal(starts, 1); assert.equal(timers.length, 1);
+  assert.equal(app.plugins().find((entry) => entry.id === 'dependent')?.state, 'failed');
+  await assert.rejects(app.startPlugin('dependent'), { code: 'invalid_request' });
+  await assert.rejects(app.close());
+});
+
+test('initialization rollback cleanup failure prevents retrying the optional instance', async (t) => {
+  const timers: ReturnType<typeof setInterval>[] = [];
+  t.after(() => { for (const timer of timers) clearInterval(timer); });
+  let starts = 0;
+  const { app, close } = await fixture(t, { apply: (ctx) => {
+    starts += 1;
+    ctx.effect(() => { timers.push(setInterval(() => {}, 100).unref()); return () => { throw new Error('fixture cleanup failure'); }; });
+    throw new Error('fixture startup failure');
+  } }, false);
+  assert.equal(app.plugins().find((entry) => entry.id === 'extra')?.last_error?.code, 'stop_failed');
+  await assert.rejects(app.startPlugin('extra'), { code: 'invalid_request' });
+  assert.equal(starts, 1); assert.equal(timers.length, 1);
+  await assert.rejects(close());
+});
+
+test('nested plugin cleanup failures are attributed to their configured parent instance', async (t) => {
+  const timers: ReturnType<typeof setInterval>[] = [];
+  t.after(() => { for (const timer of timers) clearInterval(timer); });
+  let starts = 0;
+  const { app, close } = await fixture(t, { apply: async (ctx) => {
+    await ctx.plugin({ name: 'nested', apply: (child) => {
+      starts += 1;
+      child.effect(() => { timers.push(setInterval(() => {}, 100).unref()); return () => { throw new Error('fixture child cleanup failure'); }; });
+    } });
+  } });
+  await assert.rejects(app.stopPlugin('extra'), { message: 'stop_failed' });
+  await assert.rejects(app.startPlugin('extra'), { code: 'invalid_request' });
+  assert.equal(starts, 1); assert.equal(timers.length, 1);
+  await assert.rejects(close());
+});
+
+test('default function modules retain their Config validator and injected dependencies', async (t) => {
+  const { config, filename, dir, cleanup } = await configFixture(t);
+  for (const mode of ['config', 'inject']) {
+    const file = join(dir, 'default-' + mode + '.mjs');
+    const proof = join(dir, 'applied-' + mode);
+    await writeFile(file, "import { writeFileSync } from 'node:fs';\nfunction apply(ctx, config) { writeFileSync(config.proof, 'applied'); }\napply.inject = " + (mode === 'inject' ? "['missingService']" : '[]') + ";\napply.Config = { '~standard': { version: 1, vendor: 'fixture', validate: " + (mode === 'config' ? "() => ({issues:[{message:'invalid'}]})" : '(value) => ({value})') + " } };\nexport default apply;\n");
+    const next = { ...config, plugins: [...config.plugins, { id: 'extra', module: file, principalId: 'mock-provider', required: true, enabled: true, config: { proof } }] };
+    await assert.rejects(async () => {
+      const app = await Host.open(next, await loadModules(next, filename)); cleanup.push(() => app.close());
+    }, { code: 'provider_unavailable' });
+    await assert.rejects(access(proof));
+  }
 });

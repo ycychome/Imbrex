@@ -224,6 +224,8 @@ call.status 为 in_progress/succeeded/failed/unknown。succeeded 必有 result�
 
 查询参数和结果只对当前主体公开。新调用可用性与已有记录查询分别处理，原插件卸载不删除记录。
 
+call_id 是不透明标识，路径段百分号解码一次后保留原值，点号和双点号也是合法 ID。查询这类 ID 时客户端须保留实际请求路径，不能在发送前把点段归一化；服务端不将其解释成文件路径。
+
 ## 9. 插件状态
 
 `GET /v1/plugins` 返回 `{store_id,plugins}`。每项包含 id、module_name、state、required、available，以及可选的脱敏 last_error。state 为 waiting/loading/active/failed/stopping/stopped；插件实例配置、访问 token 和消息正文不返回。
