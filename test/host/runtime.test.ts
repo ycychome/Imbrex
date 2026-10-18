@@ -39,7 +39,7 @@ async function fixture(t: TestContext, extra?: PluginModule, required = true) {
     modules.set('extra', extra);
   }
   const logs: string[] = [];
-  const app = await Host.open(state.config, modules, { report: (code) => { logs.push(code); }, lifecycleTimeoutMs: 100 });
+  const app = await Host.open(state.config, modules, { report: (code) => { logs.push(code); } });
   let closed = false;
   const close = async () => { if (!closed) { closed = true; await app.close(); } };
   state.cleanup.push(close);
