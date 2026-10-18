@@ -8,6 +8,7 @@
 - 全部接口要求 bearer 认证；caller_id 不接受请求体填写。默认 loopback 部署。
 - 协议对象未知字段、重复查询参数、非法序号或超限内容返回错误；event.data 内的业务字段不由内核解释。
 - JSON 使用普通解析后的值，拒绝非有限值、非 JSON 对象和超过结构限制的值；精确 ID/大数使用字符串，不承诺原始 JSON 字节保真。
+- 身份、类型、URI、查询及配置的文本字段必须是良构 Unicode，拒绝未配对的 UTF-16 代理项，避免 UTF-8/SQLite 转码造成身份碰撞。事件 data 仍按 JSON 值透传并存为 JSON 文本。
 - 内部序号为 bigint；所有线上 seq、after_seq、through_seq、next_after_seq、latest_seq 均为规范十进制字符串，范围 0 到 9223372036854775807。
 - 服务端生成时间为 UTC 毫秒 ISO 字符串。来源 event.time 保留有效 RFC 3339 表达；未知时省略。
 - 状态性数据操作绑定 store_id：写请求放在 body，读请求放在 query。info、capabilities 和 plugins 的查询无需预先提供，但响应带当前 store_id。

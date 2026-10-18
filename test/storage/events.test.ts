@@ -75,6 +75,21 @@ test('filtered pages advance only past returned matches and enforce literal auth
   assert.equal((await events.read(scoped, id, { afterSeq: receipts[4]!.seq, limit: 100 })).records[0]?.seq, added.seq);
 });
 
+test('event identity and type queries reject malformed Unicode before SQLite can replace it', async (t) => {
+  const { store, id } = await fixture(t);
+  const events = new Events(store);
+  for (const bad of ['id-\ud800', 'id-\ud801']) {
+    await assert.rejects(events.append(principal, id, input(bad)), { code: 'invalid_event' });
+    await assert.rejects(events.lookup(principal, id, { source: 'imbrex://fixture/messages', id: bad }), { code: 'invalid_event' });
+    assert.throws(() => events.read(principal, id, { afterSeq: 0n, limit: 10, type: bad }), { code: 'invalid_request' });
+    await assert.rejects(events.append(principal, id, { event: { ...input('type').event, type: bad } }), { code: 'invalid_event' });
+  }
+  for (const valid of ['id-\ufffd', 'id-😀', 'id-e\u0301']) {
+    assert.equal((await events.append(principal, id, input(valid))).status, 'created');
+    assert.equal((await events.lookup(principal, id, { source: 'imbrex://fixture/messages', id: valid })).event.id, valid);
+  }
+});
+
 test('worker persists identity, reads large sequences, and fails writes without false success', async (t) => {
   const { store, path, id } = await fixture(t);
   await store.close();

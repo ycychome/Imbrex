@@ -16,3 +16,5 @@ Node 24.22.0 / npm 11.19.1 下执行 npm run check，新增 6 项针对持久化
 SQLite 3.53.4 的 WAL、FULL、foreign_keys=ON、busy_timeout=5000 均在打开时读回核验。编译 lib 使用 ES2024 以声明 Node 24 已提供的 Promise.withResolvers；仍输出 ES2023/ESM。
 
 不由这些测试推出断电耐久、来源完整或外部动作恰好一次。正式启动入口仍须在打开数据库前取得数据目录锁。
+
+独立审核复现 SQLite 将未配对代理项替换为 U+FFFD 后导致事件身份碰撞。已在公共文本校验中统一拒绝这种输入，并增加写入、lookup、type 查询与合法 Unicode 的回归测试。
