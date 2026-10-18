@@ -112,11 +112,11 @@ export class Database {
       if (options.afterSeq > throughSeq) fail('position_ahead');
       const clauses = ['seq > ?', 'seq <= ?'];
       const args: SQLInputValue[] = [options.afterSeq, throughSeq];
-      if (options.sourcePrefix !== undefined) { clauses.push('substr(source,1,length(?)) = ? COLLATE BINARY'); args.push(options.sourcePrefix, options.sourcePrefix); }
+      if (options.sourcePrefix !== undefined) { clauses.push('substr(CAST(source AS BLOB),1,length(CAST(? AS BLOB))) = CAST(? AS BLOB)'); args.push(options.sourcePrefix, options.sourcePrefix); }
       if (options.type !== undefined) { clauses.push('event_type = ? COLLATE BINARY'); args.push(options.type); }
       const scopes = sources.map((rule) => {
         if ('exact' in rule) { args.push(rule.exact); return 'source = ? COLLATE BINARY'; }
-        args.push(rule.prefix, rule.prefix); return 'substr(source,1,length(?)) = ? COLLATE BINARY';
+        args.push(rule.prefix, rule.prefix); return 'substr(CAST(source AS BLOB),1,length(CAST(? AS BLOB))) = CAST(? AS BLOB)';
       });
       clauses.push(scopes.length ? '(' + scopes.join(' OR ') + ')' : '0');
       args.push(options.limit + 1);

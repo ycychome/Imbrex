@@ -61,6 +61,10 @@ test('filtered pages advance only past returned matches and enforce literal auth
   assert.equal(second.caughtUp, true); assert.equal(second.nextAfterSeq, receipts[4]!.seq);
   const empty = await events.read(scoped, id, { afterSeq: 0n, limit: 2, type: 'missing' });
   assert.equal(empty.records.length, 0); assert.equal(empty.nextAfterSeq, receipts[4]!.seq);
+  const nulFilter = await events.read(scoped, id, { afterSeq: 0n, limit: 2, sourcePrefix: 'imbrex://A/\0denied' });
+  assert.equal(nulFilter.records.length, 0);
+  const nulScope = await events.read({ ...principal, readSources: [{ prefix: 'imbrex://A/\0denied' }] }, id, { afterSeq: 0n, limit: 2 });
+  assert.equal(nulScope.records.length, 0);
   await assert.rejects(events.read(scoped, 'another-store', { afterSeq: 0n, limit: 2 }), { code: 'store_mismatch' });
   await assert.rejects(events.read(scoped, id, { afterSeq: 1000n, limit: 2 }), { code: 'position_ahead' });
   await assert.rejects(events.lookup(scoped, id, { source: 'imbrex://a/%25_', id: 'd' }), { code: 'forbidden' });
