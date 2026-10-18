@@ -1,0 +1,155 @@
+# 固定版本、技术依据与证据范围
+
+统一开发基线 0.3 · 核对日期：2026-10-18。以下区分官方来源观察、版本候选与运行验证。**本次未安装运行依赖或连接真实 OneBot 服务。**
+
+<a id="r1"></a>
+
+## R1 · Node 与 SQLite 绑定
+
+参考 Node 版本为 24.22.0；读取了固定版本的 `doc/api/sqlite.md` 与 `globals.md`。SQLite 模块文档标为 Stability 1.2 / release candidate，提供同步数据库接口、BigInt 读取设置和 backup。同步调用放到专用 worker 是本方案的选择。
+
+本次重新读取固定 Node SQLite 头文件，版本为 3.53.4，source id 为 `2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc`；实际二进制仍需 M0 查询版本和 source id。不能只检查系统 sqlite 命令。
+
+```text
+https://github.com/nodejs/node/blob/v24.22.0/doc/api/sqlite.md
+https://github.com/nodejs/node/blob/v24.22.0/doc/api/globals.md#queuemicrotaskcallback
+https://github.com/nodejs/node/blob/v24.22.0/deps/sqlite/sqlite3.h
+```
+
+queueMicrotask 的异常不会自动被吞掉。通知需要处理同步错误和异步拒绝，不能只靠调度方式。
+
+<a id="r2"></a>
+
+## R2 · Cordis
+
+源码观察提交：`5dac6953d2d993d345d1de9fb0a5926f6d78a7e7`，其 package.json 声明 4.0.0-rc.11。本次也核对 npm 中该版本存在；它是首个运行探针，不声称是最新版本或全部组合已兼容。
+
+registry.ts 包含插件注册和依赖声明；fiber.ts 包含生命周期、effect 和清理；events.ts 的 emit 直接调用监听器，parallel 收集结果并报告错误。清理与副作用恢复是不同机制，Cordis 不替代调用表或应用状态。
+
+```text
+https://github.com/cordiverse/cordis/blob/5dac6953d2d993d345d1de9fb0a5926f6d78a7e7/packages/core/package.json
+https://github.com/cordiverse/cordis/blob/5dac6953d2d993d345d1de9fb0a5926f6d78a7e7/packages/core/src/registry.ts
+https://github.com/cordiverse/cordis/blob/5dac6953d2d993d345d1de9fb0a5926f6d78a7e7/packages/core/src/fiber.ts
+https://github.com/cordiverse/cordis/blob/5dac6953d2d993d345d1de9fb0a5926f6d78a7e7/packages/core/src/events.ts
+https://registry.npmjs.org/cordis/4.0.0-rc.11
+```
+
+npm 包与 Git 提交显示相同版本号，不证明包内每个字节对应此提交。M0 的 lockfile/integrity 与实际安装结果是运行基线。
+
+<a id="r3"></a>
+
+## R3 · SQLite 事务、序号和备份
+
+官方文档支持 AUTOINCREMENT 的非复用与非连续语义、WAL 下的短事务读取视图、同步配置和一致备份机制。WAL 是持久状态的一部分，不能在活跃状态下只复制主库文件。在线文档观察日期为本文件日期。
+
+```text
+https://sqlite.org/autoinc.html
+https://sqlite.org/isolation.html
+https://sqlite.org/wal.html
+https://sqlite.org/pragma.html#pragma_synchronous
+https://sqlite.org/backup.html
+```
+
+这些资料不证明本机断电耐久，也不提供应用检查点或外部动作的共同事务。实际环境与测试记录必须另外保存。
+
+<a id="r4"></a>
+
+## R4 · CloudEvents
+
+沿用规范 v1.0.2；线上 specversion=1.0。身份由 source+id 组合，time、subject、dataschema 等是事件属性。本方案自己的 JSON-only 子集、外层 parents、HTTP 回执和位置不属于 CloudEvents 自带投递协议。
+
+```text
+https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md
+https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/formats/json-format.md
+```
+
+<a id="r5"></a>
+
+## R5 · JSON Schema 与 Ajv
+
+使用 Draft 2020-12 的受控子集。首个校验器探针 Ajv 8.17.1；核对其 options 文档，removeAdditional/useDefaults/coerceTypes 的默认关闭行为，并明确在配置中关闭。无需使用 loadSchema 加载远端 schema。
+
+```text
+https://json-schema.org/draft/2020-12
+https://github.com/ajv-validator/ajv/blob/v8.17.1/docs/options.md
+https://registry.npmjs.org/ajv/8.17.1
+```
+
+词汇支持、2020-12 入口、错误映射和与工具接口的兼容须 M0 验证；schema 不是权限或语义正确性的证明。JSON Schema 链接作为规范入口，具体选项依据为 Ajv 固定源码。文档示例检查不代替 Ajv 集成验证。
+
+<a id="r6"></a>
+
+## R6 · NapCat：OneBot 服务实现之一
+
+源码观察提交：`810052c605feb5044a080adfe99ba2fa69b7b351`。本次读取 SendMsg.ts 与 SendGroupMsg.ts，能定位参数、目标选择、消息发送及 message_id 返回路径。
+
+```text
+https://github.com/NapNeko/NapCatQQ/blob/810052c605feb5044a080adfe99ba2fa69b7b351/packages/napcat-onebot/action/msg/SendMsg.ts
+https://github.com/NapNeko/NapCatQQ/blob/810052c605feb5044a080adfe99ba2fa69b7b351/packages/napcat-onebot/action/group/SendGroupMsg.ts
+```
+
+这些路径说明该实现中可定位的发送行为，不是 Imbrex 的插件 API，也不要求引入其 SDK。M1 记录实际服务版本、客户端/账号模式、连接配置和覆盖范围；历史入口存在不证明断线消息已补回。
+
+<a id="r7"></a>
+
+## R7 · OneBot 11
+
+参考提交：`d4456ee706f9ada9c2dfde56a2bcfc69752600e4`。已读取正向/反向 WS、认证及公开动作约定：正向通用连接提供动作与事件，认证可通过 Authorization 头，get_version_info/get_login_info 用于元数据与账号核对。WS echo 用于请求与响应对应；发送 API 返回 message_id，不提供“重复 echo 即去重发送”的保证。
+
+```text
+https://github.com/botuniverse/onebot-11/blob/d4456ee706f9ada9c2dfde56a2bcfc69752600e4/communication/ws.md
+https://github.com/botuniverse/onebot-11/blob/d4456ee706f9ada9c2dfde56a2bcfc69752600e4/communication/ws-reverse.md
+https://github.com/botuniverse/onebot-11/blob/d4456ee706f9ada9c2dfde56a2bcfc69752600e4/communication/authorization.md
+https://github.com/botuniverse/onebot-11/blob/d4456ee706f9ada9c2dfde56a2bcfc69752600e4/api/public.md
+```
+
+<a id="r8"></a>
+
+## R8 · 首次依赖探针清单
+
+| 项 | 参考版本 | 观察结果 |
+| --- | --- | --- |
+| Node | 24.22.0 | 固定 API/源码已读；实际二进制未运行 |
+| Cordis | 4.0.0-rc.11 | npm 版本元数据存在；依赖含 cosmokit 与 standard-schema/spec |
+| TypeScript | 5.9.3 | npm 元数据存在，声明 Node >=14.17 |
+| Ajv | 8.17.1 | npm 元数据与官方选项源码已核对 |
+| ws | 8.18.3 | npm 元数据存在，声明 Node >=10 |
+
+```text
+https://registry.npmjs.org/typescript/5.9.3
+https://registry.npmjs.org/ws/8.18.3
+```
+
+本方案不要求浮动 latest；M0 锁定完整传递依赖、Node 类型与 ws 类型依赖，记录运行测试。如果参考组合不可用或有已知问题，按具体证据选替代版本并更新本表。引擎范围符合不等于类型、打包和运行都已兼容。
+
+<a id="r9"></a>
+
+## R9 · 证据范围
+
+正式开发选择与取舍集中在[决策记录](decisions.md)。本文件保留支撑当前设计的公开来源及固定版本，不收录讨论记录或无关调研。
+
+机制观察、官方声明和本项目运行验证是不同层次的证据，不能用其中一项冒充另一项。
+
+<a id="r10"></a>
+
+## R10 · Linux 单实例锁
+
+读取 util-linux v2.40 的 flock 官方手册源码：nonblock 在无法取得锁时失败，no-fork 让被执行命令继续持锁；文件描述符关闭释放锁，需要避免后代进程意外持续持有。
+
+```text
+https://github.com/util-linux/util-linux/blob/v2.40/sys-utils/flock.1.adoc
+```
+
+实际目标环境的 util-linux 版本、锁竞争、崩溃释放及启动包装在 M0 记录并验证；手册观察不等于运行测试通过。
+
+<a id="r11"></a>
+
+## R11 · SnowLuma：OneBot 服务实现之一
+
+核对官方仓库 `SnowLuma/SnowLuma` 提交 `38fc636088b98aa35a969b2aabe240d57b04dbf0` 的 README。项目说明它把 QQ 会话转换为 OneBot v11 动作与事件，并提供 WebSocket 服务端/客户端、HTTP 等入口。
+
+```text
+https://github.com/SnowLuma/SnowLuma/blob/38fc636088b98aa35a969b2aabe240d57b04dbf0/README.md
+```
+
+这支持把 SnowLuma 纳入同一个 onebot-v11 插件的候选服务，不证明其全部行为与 NapCat 相同，也不构成两者成熟度或可靠性的排名。未在本项目安装、登录或运行兼容测试；实际服务版本与支持项在 T09 记录。

@@ -1,0 +1,11 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log
+
+# Local private material and archived design drafts
+/.private/
+
+# Default runtime data (events, calls, and plugin state)
+/data/
