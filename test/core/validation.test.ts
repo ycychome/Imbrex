@@ -65,11 +65,12 @@ test('schema compilation supports booleans and cannot satisfy JSON properties th
 });
 
 test('event identity rejects illegal URI characters and leap seconds respect UTC position', () => {
-  for (const source of ['imbrex://fixture/{message}', 'imbrex://fixture/back\\slash', 'imbrex://fixture/[path]', 'imbrex://fixture/#one#two']) {
+  for (const source of ['imbrex://fixture/{message}', 'imbrex://fixture/back\\slash', 'imbrex://fixture/[path]', 'imbrex://fixture/#one#two', 'imbrex://user[name]@fixture/messages', 'imbrex://user:pass[word]@fixture/messages']) {
     assert.throws(() => eventInput({ event: { ...event, source } }), { code: 'invalid_event' });
   }
   const source = 'imbrex://fixture/%7Bmessage%7D';
   assert.equal(eventInput({ event: { ...event, source } }).event.source, source);
+  for (const source of ['imbrex://[::1]/messages', 'imbrex://user%5Bname%5D@fixture/messages']) assert.equal(eventInput({ event: { ...event, source } }).event.source, source);
   for (const time of ['2026-10-18T12:34:60Z', '2016-12-31T23:59:60+01:00']) {
     assert.throws(() => eventInput({ event: { ...event, time } }), { code: 'invalid_event' });
   }

@@ -32,6 +32,8 @@ export function uri(value: unknown, code: ErrorCode = 'invalid_event'): string {
   if (!/^[A-Za-z][A-Za-z0-9+.-]*:/.test(text) || /[^A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]/.test(text) || /%(?![a-fA-F0-9]{2})/.test(text)) fail(code);
   const parts = /^(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#([^#]*))?$/.exec(text.slice(text.indexOf(':') + 1));
   if (!parts || parts.slice(2).some((part) => part !== undefined && /[\[\]]/.test(part)) || (parts[1]?.split('@').length ?? 0) > 2) fail(code);
+  const authority = parts[1]?.split('@');
+  if (authority?.length === 2 && /[\[\]]/.test(authority[0]!)) fail(code);
   try { new URL(text); } catch { fail(code); }
   return text;
 }
