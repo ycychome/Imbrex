@@ -1,0 +1,28 @@
+{
+  "name": "imbrex",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@11.19.1",
+  "engines": {
+    "node": "24.22.0",
+    "npm": "11.19.1"
+  },
+  "scripts": {
+    "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test --test-timeout=10000 \"dist/test/**/*.test.js\"",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "cordis": "4.0.0-rc.11",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/ws": "8.18.2",
+    "typescript": "5.9.3"
+  }
+}

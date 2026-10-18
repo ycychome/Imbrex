@@ -1,6 +1,6 @@
 # 固定版本、技术依据与证据范围
 
-统一开发基线 0.3 · 核对日期：2026-10-18。以下区分官方来源观察、版本候选与运行验证。**本次未安装运行依赖或连接真实 OneBot 服务。**
+统一开发基线 0.3 · 核对日期：2026-10-18。以下区分官方来源观察与运行验证。**M0-01 已安装锁定依赖并运行前置探针；未连接真实 OneBot 服务。** 结果见[工程基线](development.md)。
 
 <a id="r1"></a>
 
@@ -8,7 +8,7 @@
 
 参考 Node 版本为 24.22.0；读取了固定版本的 `doc/api/sqlite.md` 与 `globals.md`。SQLite 模块文档标为 Stability 1.2 / release candidate，提供同步数据库接口、BigInt 读取设置和 backup。同步调用放到专用 worker 是本方案的选择。
 
-本次重新读取固定 Node SQLite 头文件，版本为 3.53.4，source id 为 `2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc`；实际二进制仍需 M0 查询版本和 source id。不能只检查系统 sqlite 命令。
+固定 Node SQLite 头文件版本为 3.53.4，source id 为 `2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc`；M0-01 查询官方 Linux x64 二进制绑定得到相同结果。不能只检查系统 sqlite 命令。
 
 ```text
 https://github.com/nodejs/node/blob/v24.22.0/doc/api/sqlite.md
@@ -34,7 +34,7 @@ https://github.com/cordiverse/cordis/blob/5dac6953d2d993d345d1de9fb0a5926f6d78a7
 https://registry.npmjs.org/cordis/4.0.0-rc.11
 ```
 
-npm 包与 Git 提交显示相同版本号，不证明包内每个字节对应此提交。M0 的 lockfile/integrity 与实际安装结果是运行基线。
+npm 包与 Git 提交显示相同版本号，不证明包内每个字节对应此提交。package-lock.json 的 integrity 与实际安装结果是运行基线。M0-01 已验证加载/卸载及异步 effect 清理；发布声明的 NodeNext 扩展名问题与编译选择见[工程基线](development.md)。
 
 <a id="r3"></a>
 
@@ -67,15 +67,15 @@ https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/formats/json-format.
 
 ## R5 · JSON Schema 与 Ajv
 
-使用 Draft 2020-12 的受控子集。首个校验器探针 Ajv 8.17.1；核对其 options 文档，removeAdditional/useDefaults/coerceTypes 的默认关闭行为，并明确在配置中关闭。无需使用 loadSchema 加载远端 schema。
+使用 Draft 2020-12 的受控子集。校验器锁定 Ajv 8.20.0，替代存在安全公告的原候选 8.17.1；removeAdditional/useDefaults/coerceTypes 显式关闭。M0-01 使用 Ajv2020 入口验证非法输入不会被强转、补默认值或删字段。无需使用 loadSchema 加载远端 schema。
 
 ```text
 https://json-schema.org/draft/2020-12
-https://github.com/ajv-validator/ajv/blob/v8.17.1/docs/options.md
-https://registry.npmjs.org/ajv/8.17.1
+https://github.com/ajv-validator/ajv/blob/v8.20.0/docs/options.md
+https://registry.npmjs.org/ajv/8.20.0
 ```
 
-词汇支持、2020-12 入口、错误映射和与工具接口的兼容须 M0 验证；schema 不是权限或语义正确性的证明。JSON Schema 链接作为规范入口，具体选项依据为 Ajv 固定源码。文档示例检查不代替 Ajv 集成验证。
+业务词汇子集、错误映射和工具接口兼容仍须 M0-03/M0-05 验证；schema 不是权限或语义正确性的证明。JSON Schema 链接作为规范入口，具体选项依据为 Ajv 固定源码；本次仅验证基础集成。
 
 <a id="r6"></a>
 
@@ -105,22 +105,26 @@ https://github.com/botuniverse/onebot-11/blob/d4456ee706f9ada9c2dfde56a2bcfc6975
 
 <a id="r8"></a>
 
-## R8 · 首次依赖探针清单
+## R8 · M0-01 锁定依赖与替换依据
 
-| 项 | 参考版本 | 观察结果 |
+| 项 | 锁定版本 | 实际验证 |
 | --- | --- | --- |
-| Node | 24.22.0 | 固定 API/源码已读；实际二进制未运行 |
-| Cordis | 4.0.0-rc.11 | npm 版本元数据存在；依赖含 cosmokit 与 standard-schema/spec |
-| TypeScript | 5.9.3 | npm 元数据存在，声明 Node >=14.17 |
-| Ajv | 8.17.1 | npm 元数据与官方选项源码已核对 |
-| ws | 8.18.3 | npm 元数据存在，声明 Node >=10 |
+| Node / npm | 24.22.0 / 11.19.1 | 官方 Linux x64 发行版，下载 SHA256 已核验，运行探针通过 |
+| Cordis | 4.0.0-rc.11 | 加载/卸载等待异步清理，重载不残留监听器 |
+| TypeScript | 5.9.3 | ESNext/Bundler 下完整类型检查与编译通过 |
+| Ajv | 8.20.0 | Ajv2020 入口与输入不变性验证通过 |
+| ws | 8.22.0 | 超限帧拒绝验证通过，未连接真实 OneBot 服务 |
+| @types/node / @types/ws | 24.19.2 / 8.18.2 | 与上述依赖共同通过类型检查 |
 
 ```text
 https://registry.npmjs.org/typescript/5.9.3
-https://registry.npmjs.org/ws/8.18.3
+https://registry.npmjs.org/ws/8.22.0
+https://github.com/advisories/GHSA-2g4f-4pwh-qvx6
+https://github.com/advisories/GHSA-58qx-3vcg-4xpx
+https://github.com/advisories/GHSA-96hv-2xvq-fx4p
 ```
 
-本方案不要求浮动 latest；M0 锁定完整传递依赖、Node 类型与 ws 类型依赖，记录运行测试。如果参考组合不可用或有已知问题，按具体证据选替代版本并更新本表。引擎范围符合不等于类型、打包和运行都已兼容。
+原候选 Ajv 8.17.1 命中 `$data` ReDoS 公告；ws 8.18.3 命中未初始化内存泄露与碎片内存耗尽公告，因此替换为表中的修复版本。完整传递依赖和 integrity 已锁定，核验日 `npm audit` 为 0 项漏洞。具体复现命令与有限测试范围见[工程基线](development.md)；引擎范围符合不等于所有业务集成都已兼容。
 
 <a id="r9"></a>
 

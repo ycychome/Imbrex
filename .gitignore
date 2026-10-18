@@ -9,3 +9,9 @@
 
 # Default runtime data (events, calls, and plugin state)
 /data/
+
+# Installed dependencies and generated output
+node_modules/
+/dist/
+/coverage/
+*.tsbuildinfo
