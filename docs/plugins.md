@@ -1,6 +1,6 @@
 # 插件开发契约与演示模板
 
-统一开发基线 0.3 · 2026-10-18。使用标准 Cordis 插件形式，Imbrex 提供绑定后的业务 API。**下列 Imbrex API 是待实现的本方案契约，不是 Cordis 已内置的方法，也不是已发布 SDK。**
+统一开发基线 0.3。使用 Cordis 插件形式，Imbrex 提供已实现的绑定 API；类型见 src/host/plugin-api.ts，尚未独立发布 SDK 包。
 
 ## 1. 插件是什么
 
@@ -33,7 +33,7 @@ Cordis 的 apply、inject、Context 与 effect 负责依赖和作用域。本方
 
 ## 3. 一个最小只读工具插件
 
-以下代码在 M0 提供 Context 类型扩展和业务 API 后，应成为可编译的模板：
+以下形式已由内置 mock 插件编译并运行；另有可直接复制的 [uppercase 模板](../examples/plugins/uppercase.ts)，通过实际配置加载及 HTTP 调用验证：
 
 ```typescript
 import type { Context } from 'cordis';
@@ -96,6 +96,8 @@ required 指插件模块与初始化必须成功，不保证外部平台一直�
 
 host.startPlugin/stopPlugin 是受信内部控制入口，首版用于生命周期测试和本地集成；普通部署通过配置与宿主重启管理。停止未完成则报告失败，禁止同实例重复启动后台循环。
 
+初次装配按配置顺序进行，提供被依赖服务的插件应排在消费者前；缺少服务时初始化失败。模块支持命名导出的 apply 或默认 apply 函数/对象，可带 Config（Cordis Standard Schema）与字符串数组 inject。内置四个演示插件的 config 为空对象。加载/停止期间的重复管理操作拒绝；生命周期等待默认上限 15 秒。运行中依赖卸载使用 Cordis 原生作用域，宿主同步撤销旧绑定与能力，依赖恢复后重新建立绑定。
+
 ## 7. 首版插件清单
 
 | 插件 | 输入与输出 | 验证价值 |
@@ -103,7 +105,7 @@ host.startPlugin/stopPlugin 是受信内部控制入口，首版用于生命周�
 | fixture | 有限可重复的 fixture.message.created 事件 | 无需账号验证事件发布与重复身份 |
 | transform | 读取 fixture，发布稳定派生事件 | 验证应用可同时消费和生产 |
 | mock | 注册 mock.echo；测试环境另配可控副作用提供者 | 验证发现、schema、授权与调用记录 |
-| observer | 按范围读取并保存小型事件副本/位置 | 验证第二消费者和暂停恢复 |
+| observer | M0 按范围读取并保存位置；事件副本在 M2 完成 | 验证第二消费者最小读取和暂停恢复 |
 | onebot-v11 | 通过标准 v11 接口接纳 QQ 事实与封装 reply | 验证不同服务实现可复用同一插件 |
 
 前四种为演示与测试提供稳定入口；onebot-v11 在 M1 接入实际服务。全部走相同业务 API，不能给演示插件开放绕过权限或事务的“测试捷径”。测试专用故障点只在受控测试构建中使用。

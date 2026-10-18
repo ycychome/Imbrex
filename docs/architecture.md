@@ -99,7 +99,7 @@ examples/agent/     独立参考 Agent
 test/              对应 T01—T09 的必要测试
 ```
 
-目前已创建 test/prerequisites；其余目录由实际功能推进时创建。不预先发布多个包，不实现可插拔存储后端、分布式服务发现或第二套插件运行时。需要时由真实功能推动拆分。
+M0 已实现 core、storage、host、adapters/http、plugins、cli 及对应测试；examples/plugins 提供编译模板，examples/demo.json 提供运行配置。独立 clients 和 examples/agent 随后续需求创建。不预先发布多个包，不实现可插拔存储后端、分布式服务发现或第二套插件运行时。
 
 ## 8. 协议连接器与具体实现
 

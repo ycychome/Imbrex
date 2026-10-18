@@ -1,0 +1,125 @@
+{
+  "config_version": 1,
+  "data_dir": "../data",
+  "http": {
+    "host": "127.0.0.1",
+    "port": 8080
+  },
+  "external_writes_enabled": false,
+  "principals": [
+    {
+      "id": "demo-agent",
+      "token_env": "IMBREX_DEMO_AGENT_TOKEN",
+      "permissions": [
+        "events:read",
+        "capabilities:list",
+        "capabilities:invoke",
+        "calls:read"
+      ],
+      "read_sources": [
+        {
+          "prefix": "imbrex://fixture/"
+        }
+      ],
+      "write_sources": [],
+      "invoke_capabilities": [
+        "mock.echo"
+      ]
+    },
+    {
+      "id": "fixture-source",
+      "permissions": [
+        "events:write"
+      ],
+      "read_sources": [],
+      "write_sources": [
+        {
+          "exact": "imbrex://fixture/messages"
+        }
+      ],
+      "invoke_capabilities": []
+    },
+    {
+      "id": "transform-app",
+      "permissions": [
+        "events:read",
+        "events:write"
+      ],
+      "read_sources": [
+        {
+          "exact": "imbrex://fixture/messages"
+        }
+      ],
+      "write_sources": [
+        {
+          "exact": "imbrex://fixture/derived"
+        }
+      ],
+      "invoke_capabilities": []
+    },
+    {
+      "id": "observer-app",
+      "permissions": [
+        "events:read"
+      ],
+      "read_sources": [
+        {
+          "prefix": "imbrex://fixture/"
+        }
+      ],
+      "write_sources": [],
+      "invoke_capabilities": []
+    },
+    {
+      "id": "mock-provider",
+      "permissions": [],
+      "read_sources": [],
+      "write_sources": [],
+      "invoke_capabilities": []
+    },
+    {
+      "id": "operator",
+      "token_env": "IMBREX_OPERATOR_TOKEN",
+      "permissions": [
+        "runtime:inspect"
+      ],
+      "read_sources": [],
+      "write_sources": [],
+      "invoke_capabilities": []
+    }
+  ],
+  "plugins": [
+    {
+      "id": "fixture",
+      "module": "builtin:fixture",
+      "principal_id": "fixture-source",
+      "required": true,
+      "enabled": true,
+      "config": {}
+    },
+    {
+      "id": "transform",
+      "module": "builtin:transform",
+      "principal_id": "transform-app",
+      "required": true,
+      "enabled": true,
+      "config": {}
+    },
+    {
+      "id": "observer",
+      "module": "builtin:observer",
+      "principal_id": "observer-app",
+      "required": false,
+      "enabled": true,
+      "config": {}
+    },
+    {
+      "id": "mock",
+      "module": "builtin:mock",
+      "principal_id": "mock-provider",
+      "required": true,
+      "enabled": true,
+      "config": {}
+    }
+  ]
+}

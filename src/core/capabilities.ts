@@ -29,7 +29,7 @@ export class Capabilities {
   private registrations = new Map<string, Registration>();
   private active = 0;
   private stopped = false;
-  private responses = new Set<Promise<InvokeResult>>();
+  private responses = new Map<Promise<InvokeResult>, string>();
   private controllers = new Set<AbortController>();
 
   constructor(private store: GatewayStore, private events: Events, private writesEnabled: boolean, private timeoutMs: number = limits.callTimeoutMs) {}
@@ -68,7 +68,7 @@ export class Capabilities {
   }
   invoke(principal: Principal, storeId: string, id: string, input: unknown, callId?: string): Promise<InvokeResult> {
     const response = this.execute(principal, storeId, id, input, callId);
-    this.responses.add(response);
+    this.responses.set(response, id.split('.')[0]!);
     response.then(() => this.responses.delete(response), () => this.responses.delete(response));
     return response;
   }
@@ -169,5 +169,7 @@ export class Capabilities {
     } finally { if (!dispatched) this.active -= 1; }
   }
   stop(): void { this.stopped = true; for (const controller of this.controllers) controller.abort(); }
-  async drain(): Promise<void> { await Promise.allSettled([...this.responses]); }
+  async drain(instanceId?: string): Promise<void> {
+    await Promise.allSettled([...this.responses].filter(([, owner]) => instanceId === undefined || owner === instanceId).map(([response]) => response));
+  }
 }

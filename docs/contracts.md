@@ -1,6 +1,6 @@
 # HTTP 契约与示例
 
-统一开发基线 0.3 · 2026-10-18。**本文件规定本方案的线上表达。接口尚未实现。** 事件行为见 [事件与存储](storage-and-recovery.md)，能力行为见 [能力契约](capabilities.md)。
+统一开发基线 0.3。**本文件规定 M0 已实现的线上表达，SSE 等后续接口仍未启用。** 事件行为见 [事件与存储](storage-and-recovery.md)，能力行为见 [能力契约](capabilities.md)。
 
 ## 1. 公共约定
 
@@ -223,6 +223,8 @@ handler 和私有配置不出网关。列表结果不保证下一瞬间仍在线
 call.status 为 in_progress/succeeded/failed/unknown。succeeded 必有 result；failed/unknown 必有 reason；in_progress 没有终结结果。GET 查询成功总是 200；POST 得到 in_progress 时为 202，其余已记录状态为 200。200 不等于远端发送成功。
 
 查询参数和结果只对当前主体公开。新调用可用性与已有记录查询分别处理，原插件卸载不删除记录。
+
+call_id 是不透明标识，路径段百分号解码一次后保留原值，点号和双点号也是合法 ID。查询这类 ID 时客户端须保留实际请求路径，不能在发送前把点段归一化；服务端不将其解释成文件路径。
 
 ## 9. 插件状态
 
