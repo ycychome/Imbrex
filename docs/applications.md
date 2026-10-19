@@ -1,6 +1,6 @@
 # 应用消费、ACP Consumer 与恢复
 
-统一开发基线 0.3 · 2026-10-19。M0 演示消费者与 M1-04 ACP Consumer 已实现，模拟链路与故障验证见[运行记录](experiments/m1-acp.md)，真实模型轮次仍待配置后验证。Agent 协议分工见 [Agent 接入](agent-integration.md)，读取规则见[事件与存储](storage-and-recovery.md)，动作结果见[能力契约](capabilities.md)。
+统一开发基线 0.3 · 2026-10-19。M0 演示消费者与 M1-04 ACP Consumer 已实现，模拟链路与故障验证见[运行记录](experiments/m1-acp.md)，真实模型与指定群的单次自动回复已通过，范围见[实测记录](experiments/m1-live.md)。Agent 协议分工见 [Agent 接入](agent-integration.md)，读取规则见[事件与存储](storage-and-recovery.md)，动作结果见[能力契约](capabilities.md)。
 
 ## 1. 三种消费方式
 

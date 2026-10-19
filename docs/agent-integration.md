@@ -1,6 +1,6 @@
 # Agent 接入：MCP 与 ACP
 
-统一开发基线 0.3 · 2026-10-19。**M1-01 OneBot、M1-02 MCP 与 M1-04 ACP Consumer 已实现，协议模拟与故障路径通过验证；真实模型轮次和 QQ 闭环仍待配置后验证。** M0 现有 HTTP 与插件 API 继续有效；具体任务见[开发计划](development-plan.md#m1)。
+统一开发基线 0.3 · 2026-10-19。**M1-01 OneBot、M1-02 MCP 与 M1-04 ACP Consumer 已实现，协议模拟与故障路径通过验证；真实模型与指定 QQ 群的单次自动回复已通过，扩展范围见[实测记录](experiments/m1-live.md)。** M0 现有 HTTP 与插件 API 继续有效；具体任务见[开发计划](development-plan.md#m1)。
 
 ## 1. 模块与协议职责
 
@@ -94,7 +94,7 @@ Linux 实现依赖 PATH 中的 tini 0.19.0，以 tini -s 包裹监督进程；�
 
 ## 4. pi 的 MCP 配置与两阶段演示
 
-已实际运行 pi 1.3.0 的 MCP 发现与 pi-acp 0.0.34 的 initialize。配置、可执行连接检查、回复/不回复演示材料和已验证范围见[pi 接入记录](experiments/m1-pi.md)。当前缺少模型配置，尚未把工具发现记为模型轮次完成。
+已实际运行 pi 1.3.0 的 MCP 发现与 pi-acp 0.0.34 的 initialize。配置、可执行连接检查、回复/不回复演示材料和已验证范围见[pi 接入记录](experiments/m1-pi.md)。后续已通过指定真实模型的模拟平台回复/不回复，以及指定 QQ 群的单次 ACP 自动回复，见[实测记录](experiments/m1-live.md)。
 
 先运行小型 OneBot 模拟服务、Imbrex 与人工驱动的真实 pi，证明事件查询和 reply 能经过 MCP 到达 OneBot Action；再加入 ACP Consumer 自动触发。模拟服务提供已知事件和可核验的 Action 接收记录，不模拟整个聊天产品。
 

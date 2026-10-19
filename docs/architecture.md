@@ -1,6 +1,6 @@
 # 系统设计
 
-统一开发基线 0.3 · 2026-10-19。本文规定本方案的架构；M0、M1-01 OneBot、M1-02 MCP 与 M1-04 ACP Consumer 已实现，真实 pi 模型轮次与 OneBot 服务仍待验证。状态与阅读顺序见[入口](README.md)。
+统一开发基线 0.3 · 2026-10-19。本文规定本方案的架构；M0、M1-01 OneBot、M1-02 MCP 与 M1-04 ACP Consumer 已实现，真实 pi/模型与 SnowLuma 指定群的单次自动回复已通过，实际范围见[实测记录](experiments/m1-live.md)。状态与阅读顺序见[入口](README.md)。
 
 ## 1. 产品目标
 
@@ -79,7 +79,7 @@ ACP Consumer 在提交 prompt 前持久保存 in_flight；未确认结束时暂�
 | 数据库 | node:sqlite，WAL、FULL 同步 | worker 串行短事务；启用整数读取控制 |
 | Schema | Ajv 8.20.0、Draft 2020-12 的限定子集 | 输入不变性探针通过；不启用网络取 schema |
 | 编译器 | TypeScript 5.9.3 | 与 Node/ws 类型依赖一起锁定并通过检查 |
-| OneBot WS 客户端 | ws 8.22.0 | 连接器超时、释放、接收限额及发送结果分类通过协议模拟；真实服务待验证 |
+| OneBot WS 客户端 | ws 8.22.0 | 超时、释放、限额及发送结果分类通过模拟；SnowLuma 指定群正常单次收发通过 |
 | 单实例启动 | Linux util-linux flock 包装 | 非阻塞排他锁、实际宿主持锁，验证崩溃后释放 |
 
 上述组合已通过 M0-01 的类型检查、编译和 4 项依赖风险探针，实际版本及范围见[工程基线](development.md)。后续宿主与内核验证见[M0 运行验收](experiments/m0-runtime.md)，不代表 OneBot 或 Agent 接入已验证。node:sqlite 在参考 Node 文档中仍标为 release candidate。来源与限制见[技术依据](references.md)。后续发现兼容问题时，在保持契约的前提下处理具体依赖问题。

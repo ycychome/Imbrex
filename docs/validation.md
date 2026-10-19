@@ -1,6 +1,6 @@
 # 验证与验收
 
-统一开发基线 0.3。**M0 的 T01—T03 与 T05/T06 公共部分已验证；M1 的 OneBot、MCP、ACP 协议模拟和人工恢复已验证，真实 pi 模型轮次、T04/T07/T09 的真实 QQ 范围与 M2 的 T08 完整范围仍待执行。** 已执行证据见[M0 运行验收](experiments/m0-runtime.md)、[OneBot](experiments/m1-onebot.md)、[MCP](experiments/m1-mcp.md)、[ACP](experiments/m1-acp.md)与[恢复记录](experiments/m1-operations.md)。阶段与任务见 [开发计划](development-plan.md)。
+统一开发基线 0.3。**M0 的 T01—T03 与 T05/T06 公共部分已验证；M1 的协议模拟与人工恢复已验证，真实 pi/模型通过模拟平台回复及不回复，T04/T07/T09 的指定 SnowLuma 群正常单次闭环已通过。真实多会话/重启/unknown 故障扩展场景，以及 M2 的 T08 完整范围仍待执行。** 证据见[M0](experiments/m0-runtime.md)、[OneBot](experiments/m1-onebot.md)、[MCP](experiments/m1-mcp.md)、[ACP](experiments/m1-acp.md)、[恢复](experiments/m1-operations.md)与[真实闭环](experiments/m1-live.md)。阶段与任务见 [开发计划](development-plan.md)。
 
 ## 1. 验证方式
 
