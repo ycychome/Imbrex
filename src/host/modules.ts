@@ -18,6 +18,7 @@ const builtins: Record<string, URL> = {
   observer: new URL('../plugins/observer.js', import.meta.url),
   mock: new URL('../plugins/mock.js', import.meta.url),
   'onebot-v11': new URL('../plugins/onebot-v11/index.js', import.meta.url),
+  'acp-consumer': new URL('../plugins/acp-consumer/index.js', import.meta.url),
 };
 
 export async function loadModules(config: HostConfig, filename: string): Promise<Map<string, PluginModule | undefined>> {

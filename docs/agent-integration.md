@@ -1,6 +1,6 @@
 # Agent 接入：MCP 与 ACP
 
-统一开发基线 0.3 · 2026-10-19。**M1-01 OneBot 与 M1-02 MCP 已实现并通过协议验证，pi 联调与 ACP Consumer 仍待后续任务验证。** M0 现有 HTTP 与插件 API 继续有效；具体任务见[开发计划](development-plan.md#m1)。
+统一开发基线 0.3 · 2026-10-19。**M1-01 OneBot、M1-02 MCP 与 M1-04 ACP Consumer 已实现，协议模拟与故障路径通过验证；真实模型轮次和 QQ 闭环仍待配置后验证。** M0 现有 HTTP 与插件 API 继续有效；具体任务见[开发计划](development-plan.md#m1)。
 
 ## 1. 模块与协议职责
 
@@ -75,6 +75,8 @@ POST 的 Accept 须包含 application/json 与 text/event-stream；初始化后�
 响应完成或客户端断开后关闭该请求的协议实例。已经开始的核心调用继续保存结果，占用的请求预算在收尾完成后释放；断开不触发自动重试或回滚。宿主停用时沿用核心 drain 与 HTTP 关闭流程。
 
 ## 3. ACP stdio 接入
+
+当前使用官方 @agentclientprotocol/sdk 1.9.0 的 ACP v1 接口，运行配置与验证证据见 [ACP Consumer 记录](experiments/m1-acp.md)。
 
 M1 由 acp-consumer 使用配置中的可执行文件、参数和工作目录启动 ACP 程序，通过 stdio 交换 JSON-RPC。首接程序为 pi-acp，复用其到 `pi --mode rpc` 的适配。ACP 官方传输资料列有 stdio，Streamable HTTP 仍为草案；没有当前消费者就不预建 HTTP 传输类或可替换传输框架。[R13](references.md#r13) [R14](references.md#r14)
 

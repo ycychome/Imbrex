@@ -184,7 +184,7 @@ https://agentclientprotocol.com/protocol/session-setup
 https://agentclientprotocol.com/protocol/prompt-turn
 ```
 
-上述为观察时的在线规范，实际协议库、版本和支持项在 M1-04 记录；未将草案或可选能力算作已实现。
+M1-04 使用官方 @agentclientprotocol/sdk 1.9.0 的 ACP v1 stdio 接口，并用独立逐行 JSON Agent 核验协议、持久状态与生命周期。真实 pi-acp 握手、基础 pi RPC 和验证范围见[运行记录](experiments/m1-acp.md)；模型轮次仍待配置，未将草案或可选能力算作已实现。
 
 <a id="r14"></a>
 

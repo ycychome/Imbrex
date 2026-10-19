@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Context, type Fiber } from 'cordis';
 import { Capabilities } from '../core/capabilities.js';
 import { Events } from '../core/events.js';
+import { requirePermission } from '../core/access.js';
 import { fail, GatewayError, publicError } from '../core/errors.js';
 import { limits, namespacePattern, readOptions } from '../core/validation.js';
 import { SqliteStore } from '../storage/store.js';
@@ -136,6 +137,7 @@ export class Host {
     const api: PluginApi = {
       storeId, instanceId: runtime.config.id, dataDir: join(this.config.dataDir, 'plugins', runtime.config.id), signal: controller.signal,
       events: {
+        readScope: () => { ensure(); requirePermission(principal, 'events:read'); return { principalId: principal.id, sources: structuredClone(principal.readSources) }; },
         info: async () => { ensure(); const info = await this.store.info(); return { storeId: info.storeId, latestSeq: info.latestSeq }; },
         append: (input) => { ensure(); return this.events.append(principal, storeId, input); },
         read: (options) => { ensure(); return this.events.read(principal, storeId, readOptions(options)); },

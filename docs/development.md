@@ -14,6 +14,7 @@
 | Ajv | 8.20.0 | Draft 2020-12 校验探针 |
 | ws | 8.22.0 | 帧接收限额探针，后续 OneBot 传输 |
 | @modelcontextprotocol/sdk | 1.32.1 | M1-02 Streamable HTTP Server 与互通测试客户端 |
+| @agentclientprotocol/sdk | 1.9.0 | M1-04 ACP v1 stdio 客户端 |
 | @types/node / @types/ws | 24.19.2 / 8.18.2 | 与当前依赖一起通过类型检查的声明 |
 
 `package.json` 使用精确版本，`package-lock.json` 保存完整依赖树、下载地址与 integrity。`.npmrc` 启用 `save-exact` 和 `engine-strict`；安装时拒绝不符合 `engines` 的工具链。`private: true` 防止误发布，许可证与分发方式仍按 Q05 待定。

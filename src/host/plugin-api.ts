@@ -1,8 +1,9 @@
 import type { Context } from 'cordis';
 import type { CapabilityDefinition, InvokeResult } from '../core/capabilities.js';
-import type { AppendResult, EventPage, EventRecord, EventRef, JsonValue, ReadOptions } from '../core/types.js';
+import type { AppendResult, EventPage, EventRecord, EventRef, JsonValue, ReadOptions, SourceRule } from '../core/types.js';
 import type { CallRecord } from '../core/store.js';
 
+export interface ReadScope { principalId: string; sources: SourceRule[] }
 export interface PluginApi {
   readonly storeId: string;
   readonly instanceId: string;
@@ -10,6 +11,7 @@ export interface PluginApi {
   readonly signal: AbortSignal;
   events: {
     info(): Promise<{ storeId: string; latestSeq: bigint }>;
+    readScope(): ReadScope;
     append(input: unknown): Promise<AppendResult>;
     read(options: Omit<ReadOptions, 'limit'> & { limit?: number }): Promise<EventPage>;
     lookup(ref: EventRef): Promise<EventRecord>;

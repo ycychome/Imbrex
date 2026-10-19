@@ -28,6 +28,7 @@ Cordis 的 apply、inject、Context 与 effect 负责依赖和作用域。本方
 | `api.capabilities.invoke(id, params, {callId?})` | 使用绑定主体；遵循能力契约中的只读/外部写规则 |
 | `api.capabilities.getCall(callId)` | 查询本主体有权查看的记录 |
 | `api.setAvailable(boolean, reason?)` | 更新该插件对外服务可用性，不伪造业务成功 |
+| `api.events.readScope()` | 需要 events:read；返回绑定主体的 principalId 与 sources 副本，用于将本地进度绑定到实际读取范围；不返回凭据 |
 
 所有公开对象使用 JSON 值与基本领域类型，只有内部位置使用 bigint。API 不暴露网关 SQL、全局 token、其他应用状态或任意主体 impersonation。需要恢复的插件启动后先核对自己保存的 store_id，再继续调用绑定客户端。
 
