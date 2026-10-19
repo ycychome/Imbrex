@@ -4,6 +4,8 @@
 
 验证环境采用仓库锁定 Node.js 24.22.0、npm 11.19.1 与 ws 8.22.0。执行 npm run check（类型检查、构建和全部测试）。新增用例验证两组独立字面量夹具（数值 ID/数组消息与字符串 ID/CQ 消息）、可信引用与 caller 权限、显式文本 Action、重复输入/调用、unknown/failed、身份变化、超限帧、队列溢出与停用重启。既有核心测试继续覆盖外部写开关和调用持久化。
 
+本次完整检查 53/53 通过。实际启动模拟器和公开 CLI 后，group 输入得到 succeeded、native_message_id=1001；同一 call_id 重复调用复用结果。CI 首次运行发现旧能力测试默认 100 ms 与 Worker I/O 竞争，已将非超时用例的测试预算改为 5 秒；专门的超时用例仍显式使用短预算。
+
 ## 本地模拟操作
 
 先 npm ci && npm run build。终端一执行 node dist/examples/onebot/simulator.js。它仅监听本地 6700，命令 group/private 推送固定测试输入，重复执行会推送同一事件；actions 显示收到的 Action；disconnect 模拟断线，quit 退出。

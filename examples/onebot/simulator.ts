@@ -55,4 +55,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.once('SIGINT', () => input.close()); process.once('SIGTERM', () => input.close());
   });
   await simulator.close();
+  process.stdin.destroy();
 }

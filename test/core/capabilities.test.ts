@@ -15,7 +15,7 @@ const principal: Principal = { id: 'caller', permissions: ['capabilities:invoke'
 const schema = { type: 'object', properties: { text: { type: 'string' } }, required: ['text'], additionalProperties: false };
 const definition = (handler: CapabilityDefinition['handler'], sideEffectful = true): CapabilityDefinition => ({ localName: sideEffectful ? 'write' : 'echo', description: 'fixture', schemaVersion: '1', isSideEffectful: sideEffectful, inputSchema: schema, handler });
 function call(result: InvokeResult): CallRecord { assert.equal(result.kind, 'call'); if (result.kind !== 'call') throw new Error('Expected call'); return result.call; }
-async function fixture(t: TestContext, timeout = 100) {
+async function fixture(t: TestContext, timeout = 5000) {
   const dir = await mkdtemp(join(tmpdir(), 'imbrex-calls-'));
   const store = await SqliteStore.open(join(dir, 'gateway.db'));
   const events = new Events(store);
