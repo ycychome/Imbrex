@@ -184,7 +184,7 @@ https://agentclientprotocol.com/protocol/session-setup
 https://agentclientprotocol.com/protocol/prompt-turn
 ```
 
-上述为观察时的在线规范，实际协议库、版本和支持项在 M1-04 记录；未将草案或可选能力算作已实现。
+M1-04 使用官方 @agentclientprotocol/sdk 1.9.0 的 ACP v1 stdio 接口，并用独立逐行 JSON Agent 核验协议、持久状态与生命周期。真实 pi-acp 握手、基础 pi RPC 和验证范围见[运行记录](experiments/m1-acp.md)；模型轮次仍待配置，未将草案或可选能力算作已实现。
 
 <a id="r14"></a>
 
@@ -200,3 +200,16 @@ https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md
 ```
 
 这些链接是当日读取的上游入口，尚未成为 Imbrex 的锁定运行依赖。M1-03/M1-04 必须固定实际版本、验证 MCP/ACP 接缝、权限请求和后代进程清理；不由此承诺任意 ACP Agent 可直接替换或已有运行兼容。
+
+<a id="r15"></a>
+
+## R15 · Linux tini subreaper
+
+观察日期：2026-10-19，版本 v0.19.0。官方说明 -s 将 tini 注册为 subreaper，接管并回收孤儿后代；主子进程退出后 tini 跟随退出。因此 Imbrex 让监督进程在所有后代已清理前保持运行，再结束专属 tini。只杀 Agent 原进程组不足以覆盖 detached 子进程。
+
+```text
+https://github.com/krallin/tini/blob/v0.19.0/README.md
+https://github.com/krallin/tini/releases/tag/v0.19.0
+```
+
+Linux x86_64 验证使用官方 tini-static-amd64，SHA-256 为 c5b0666b4cb676901f90dfcb37106783c5fe2077b04590973b885950611b30ee。此固定文件与 CI 一致。

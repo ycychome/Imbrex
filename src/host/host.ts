@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Context, type Fiber } from 'cordis';
 import { Capabilities } from '../core/capabilities.js';
 import { Events } from '../core/events.js';
+import { requirePermission } from '../core/access.js';
 import { fail, GatewayError, publicError } from '../core/errors.js';
 import { limits, namespacePattern, readOptions } from '../core/validation.js';
 import { SqliteStore } from '../storage/store.js';
@@ -33,6 +34,7 @@ export class Host {
   private closing = false;
   private failed = false;
   private closeTask?: Promise<void>;
+  private ready = Promise.withResolvers<void>();
   private constructor(private config: HostConfig, private options: HostOptions) {
     this.root.logger.bufferSize = 0;
     this.root.logger.exporter({ export: (message) => {
@@ -99,6 +101,7 @@ export class Host {
       for (const plugin of config.plugins) if (plugin.enabled) await host.startPlugin(plugin.id);
       if (host.failed) fail('storage_unavailable');
       host.http = await startHttp(config, host.store, host.events, host.capabilities, () => host.plugins(), (code, requestId) => host.report(code, { request_id: requestId }));
+      host.ready.resolve();
       return host;
     } catch (error) {
       await host.close().catch(() => {});
@@ -135,7 +138,9 @@ export class Host {
     };
     const api: PluginApi = {
       storeId, instanceId: runtime.config.id, dataDir: join(this.config.dataDir, 'plugins', runtime.config.id), signal: controller.signal,
+      whenReady: async () => { ensure(); await this.ready.promise; ensure(); },
       events: {
+        readScope: () => { ensure(); requirePermission(principal, 'events:read'); return { principalId: principal.id, sources: structuredClone(principal.readSources) }; },
         info: async () => { ensure(); const info = await this.store.info(); return { storeId: info.storeId, latestSeq: info.latestSeq }; },
         append: (input) => { ensure(); return this.events.append(principal, storeId, input); },
         read: (options) => { ensure(); return this.events.read(principal, storeId, readOptions(options)); },
@@ -218,6 +223,7 @@ export class Host {
   close(): Promise<void> {
     return this.closeTask ??= (async () => {
       this.closing = true;
+      this.ready.resolve();
       let failure = this.failed;
       const httpClosed = this.http?.close().catch(() => { failure = true; });
       this.capabilities?.stop();

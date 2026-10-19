@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline';
+import { randomInt } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import WebSocket, { WebSocketServer } from 'ws';
@@ -42,10 +43,15 @@ export async function startSimulator(port = 0, token?: string) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const simulator = await startSimulator(6700, process.env.IMBREX_ONEBOT_TOKEN);
   const input = createInterface({ input: process.stdin });
-  process.stdout.write('OneBot fixture on ws://127.0.0.1:6700/; commands: group, private, disconnect, actions, quit\n');
+  let liveId = randomInt(100000, 1000000000);
+  process.stdout.write('OneBot fixture on ws://127.0.0.1:6700/; commands: group, private, live-group, live-private, disconnect, actions, quit\n');
   input.on('line', (line) => {
     if (line === 'group') simulator.broadcast(numericFixture);
     if (line === 'private') simulator.broadcast(stringFixture);
+    if ((line === 'live-group' || line === 'live-private') && liveId <= 2147483647) {
+      simulator.broadcast({ ...(line === 'live-group' ? numericFixture : stringFixture), message_id: liveId, time: Math.floor(Date.now() / 1000) });
+      process.stdout.write(JSON.stringify({ live_message_id: String(liveId++) }) + '\n');
+    }
     if (line === 'disconnect') for (const socket of simulator.server.clients) socket.terminate();
     if (line === 'actions') process.stdout.write(JSON.stringify(simulator.actions, null, 2) + '\n');
     if (line === 'quit') input.close();

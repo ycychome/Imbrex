@@ -1,6 +1,6 @@
 # Agent 接入：MCP 与 ACP
 
-统一开发基线 0.3 · 2026-10-19。**M1-01 OneBot 与 M1-02 MCP 已实现并通过协议验证，pi 联调与 ACP Consumer 仍待后续任务验证。** M0 现有 HTTP 与插件 API 继续有效；具体任务见[开发计划](development-plan.md#m1)。
+统一开发基线 0.3 · 2026-10-19。**M1-01 OneBot、M1-02 MCP 与 M1-04 ACP Consumer 已实现，协议模拟与故障路径通过验证；真实模型轮次和 QQ 闭环仍待配置后验证。** M0 现有 HTTP 与插件 API 继续有效；具体任务见[开发计划](development-plan.md#m1)。
 
 ## 1. 模块与协议职责
 
@@ -76,6 +76,8 @@ POST 的 Accept 须包含 application/json 与 text/event-stream；初始化后�
 
 ## 3. ACP stdio 接入
 
+当前使用官方 @agentclientprotocol/sdk 1.9.0 的 ACP v1 接口，运行配置与验证证据见 [ACP Consumer 记录](experiments/m1-acp.md)。
+
 M1 由 acp-consumer 使用配置中的可执行文件、参数和工作目录启动 ACP 程序，通过 stdio 交换 JSON-RPC。首接程序为 pi-acp，复用其到 `pi --mode rpc` 的适配。ACP 官方传输资料列有 stdio，Streamable HTTP 仍为草案；没有当前消费者就不预建 HTTP 传输类或可替换传输框架。[R13](references.md#r13) [R14](references.md#r14)
 
 先完成 initialize 与能力协商，仅声明真正实现的客户端能力。通过 `session/new` 获得 Agent 分配的 sessionId，再用 `session/prompt` 提交 prompt 内容块数组；`session/update` 是过程更新，最终响应的 `end_turn` 才是正常一轮结束。[R13](references.md#r13)
@@ -87,6 +89,8 @@ M1 由 acp-consumer 使用配置中的可执行文件、参数和工作目录启
 ACP 权限交互不构成整个 Agent 的沙箱。pi-acp 当前说明 pi 直接使用本地文件与执行能力；MCP 授权只约束 Imbrex 能力，部署时需选择合适的 Agent 工作目录与执行权限，不宣称 Consumer 能拦截全部本地工具。[R14](references.md#r14)
 
 插件拥有自己创建的进程、标准流、计时器和监听器。响应 api.signal 时停止投递，取消/结束当前请求并保留未决标记，关闭资源、终止并回收拥有的进程。验证 pi-acp 及其 pi 后代的退出行为与升级终止路径，不将“已发 SIGTERM/SIGKILL”当作全部清理完成；锁描述符不得泄漏给后代。stderr 可用于脱敏日志，不仅因它有输出就认定进程失败。
+
+Linux 实现依赖 PATH 中的 tini 0.19.0，以 tini -s 包裹监督进程；孤儿后代会被专属 subreaper 接管，避免只追踪原进程组而遗漏 detached 子进程。监督进程确认清理结束后才退出；包括 tini 在内的进程均不继承实例锁。ACP SDK 的过程通知被过滤，错误信封与未知响应 ID 被拒绝，不让库的默认异常日志输出原始数据。[R15](references.md#r15)
 
 ## 4. pi 的 MCP 配置与两阶段演示
 

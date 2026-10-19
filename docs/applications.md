@@ -1,6 +1,6 @@
 # 应用消费、ACP Consumer 与恢复
 
-统一开发基线 0.3 · M1 方案更新于 2026-10-19。M0 演示消费者已实现，本文的 ACP Consumer 尚待 M1 实现。Agent 协议分工见 [Agent 接入](agent-integration.md)，读取规则见[事件与存储](storage-and-recovery.md)，动作结果见[能力契约](capabilities.md)。
+统一开发基线 0.3 · 2026-10-19。M0 演示消费者与 M1-04 ACP Consumer 已实现，模拟链路与故障验证见[运行记录](experiments/m1-acp.md)，真实模型轮次仍待配置后验证。Agent 协议分工见 [Agent 接入](agent-integration.md)，读取规则见[事件与存储](storage-and-recovery.md)，动作结果见[能力契约](capabilities.md)。
 
 ## 1. 三种消费方式
 
@@ -93,3 +93,19 @@ M0 已提供 fixture-transform 与 observer 的位置持久化和读取循环；
 M1 要验证当前存储中的事件续读、正常自动触发、未决输入阻止自动重放，以及同一调用意图的核心去重。接受结果不确定时需要人工处置，也可能最终没有回复。
 
 这不证明来源离线窗口完整采集、平台端恰好一次、Agent 工具完全受控或状态删除/回滚后仍不重复。对应 T03、T06、T07、T08；实际状态见[验收](validation.md)。
+
+## 9. M1-04 配置与状态格式
+
+builtin:acp-consumer 的配置包括 input_id、source_prefix、max_event_age_seconds、agent，另可指定 turn_timeout_ms。source_prefix 必须是规范的 imbrex://qq/<account>/<namespace>/；只触发该范围内可信的 qq.message.group/private 原始入站事件。最大年龄须显式给出，范围 1—86400 秒，示例为 300；超过当前时间 5 秒的来源时间也跳过。未提供来源时间时使用 accepted_at。
+
+agent 包含 command、args、绝对 cwd 和可选 env_vars。启动时解析实际可执行文件与真实工作目录并保存绑定；env_vars 指定从宿主传给 Agent 的环境变量名称，缺失时拒绝启动。PATH、HOME、USER、LOGNAME、LANG、LC_ALL、TMPDIR 随进程基础环境传递；env_vars 的值不写状态文件，凭据应通过该通道提供而不是写进 command/args。Agent 自身历史与配置被人工更换时必须按恢复规则处理。
+
+一次只处理一个输入，补查间隔 1 秒；握手/会话操作超时 5 秒，prompt 默认超时 120 秒，turn_timeout_ms 范围 10—600000。最多保留 32 个会话关联；状态文件最多 256 KiB，ACP 单帧最多 32 MiB，为较大的 MCP 上下文和 pi-acp 转发的原始工具输出预留容量。达到上限暂停并报告，不自动丢弃历史关联。客户端不声明文件或终端委托，权限请求一律有界返回 cancelled。
+
+consumer-state.json 使用 version=1，包含 input_id、store_id、last_seq、selection、reader、agent、agent_info、sessions、in_flight。selection 保存 source_prefix、event_types 与最大年龄；reader 保存 api.events.readScope() 得到的主体与来源范围；agent 保存实际 command、args、cwd、env_vars 名称；agent_info 保存已观察的名称/版本或 null。sessions 是完整可信会话 source 到 ACP sessionId 的映射，in_flight 为 source/id/seq/conversation/session_id 或 null。位置全部为十进制字符串。
+
+读取范围、主体、Agent 程序/工作目录等绑定改变时暂停；in_flight 非空时不启动 Agent 重投。新进程只有成功协商并执行 session/load 后才可使用旧会话。正文不写本地消费状态；诊断输出 input_id 和事件引用摘要，消息、凭据与远端异常正文不进入日志。
+
+Linux stdio 使用 tini 0.19.0 的 subreaper 模式包裹监督进程，再通过显式标准流与 IPC 启动 Agent。Agent 异常退出或其后代脱离原进程组时，孤儿进程由专属 tini 接管，监督进程清理并检查所有后代，tini 负责回收。宿主控制通道关闭后也继续清理；缺少 tini 时拒绝启动该 Consumer。终止与升级终止后检查进程已经退出，清理未完成则报告 stop_failed。部署仍以受信 Agent 和既有本地权限为前提，不提供恶意代码隔离。
+
+Consumer 等待 api.whenReady() 确认 HTTP/MCP 已监听后才读取并投递，避免较晚初始化的插件拖延监听使首轮失败。ACP 过程通知不参与消费确认，直接丢弃；无效报文和未知响应 ID 在 SDK 前拒绝，阻断 SDK 将原始通知或 ID 写入异常日志的路径。
