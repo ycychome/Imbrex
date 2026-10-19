@@ -4,7 +4,7 @@
 
 Imbrex 是一个面向个人数字生活与 AI Agent 的可扩展事件与能力网关。它以现代插件系统为骨骼、以轻量有序日志为血液，将分散在聊天平台、开发工具和本地系统的异构数据汇聚为一条不可变的事实流，并为外部 AI 和应用提供标准、受控的动作工具调用通道。
 
-**当前状态：M0 核心原型与 M1 协议代码可运行，模拟与故障验证通过。** 已提供 SQLite 事件日志、能力调用、HTTP、Cordis 宿主、OneBot 插件、MCP 适配、ACP 消费插件与离线恢复工具。真实 pi 模型轮次和 QQ 闭环仍待模型、服务与允许会话配置。安装见[开发指南](docs/development.md)，实际接入步骤与验证边界见[M1 运行记录](docs/experiments/m1-operations.md)。
+**当前状态：M0 核心原型可运行，M1 指定范围的真实 QQ → Agent → 回复闭环已验证。** 已提供 SQLite 事件日志、能力调用、HTTP、Cordis 宿主、OneBot 插件、MCP 适配、ACP 消费插件与离线恢复工具。真实 pi/模型通过模拟平台回复与不回复，并在 SnowLuma 的指定群完成一次自动回复；实际范围与未覆盖项见[真实验证记录](docs/experiments/m1-live.md)。安装见[开发指南](docs/development.md)，恢复步骤见[M1 运行记录](docs/experiments/m1-operations.md)。
 
 ---
 
@@ -97,7 +97,7 @@ flowchart LR
 
 ## 参与开发与协作
 
-M0 已完成，M1 的连接器、Agent 协议适配和恢复工具已实现；真实模型与 QQ 验收仍待配置。工具链、启动命令和当前验证范围见[本地开发指南](docs/development.md)。
+M0 已完成，M1 的连接器、Agent 协议适配和恢复工具已实现；指定群的真实单次闭环通过，扩展真实场景与 M2 仍按开发计划推进。工具链、启动命令和当前验证范围见[本地开发指南](docs/development.md)。
 
 本项目遵循规范的工程规范与 Git PR 协作流程：
 - 编码前请查阅 **[协作与开发规范 (AGENTS.md)](AGENTS.md)**。

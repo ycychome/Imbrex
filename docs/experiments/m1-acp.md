@@ -1,6 +1,6 @@
 # M1-04 ACP Consumer 验证与运行
 
-2026-10-19。实现 builtin:acp-consumer、官方 ACP SDK 1.9.0 的 v1 stdio 接入、持久消费状态和 Linux 进程清理。验证环境为 Node.js 24.22.0 / npm 11.19.1、tini 0.19.0、Linux、systemd 作为 PID 1。模型与真实 QQ 凭据仍缺，本文区分模拟 Agent、真实协议握手与尚未完成的模型轮次。
+2026-10-19。实现 builtin:acp-consumer、官方 ACP SDK 1.9.0 的 v1 stdio 接入、持久消费状态和 Linux 进程清理。验证环境为 Node.js 24.22.0 / npm 11.19.1、tini 0.19.0、Linux、systemd 作为 PID 1。本文保留初始模拟 Agent、故障与握手证据；后来已完成真实模型和指定 QQ 群的单次自动回复，见[真实记录](m1-live.md)。
 
 ## 已验证范围
 
@@ -21,9 +21,9 @@ test/host/acp-consumer.test.ts 在真实 Host/SQLite/HTTP 上启动独立的逐�
 
 ## 真实 pi 的准备验证
 
-通过当前 AcpAgent 与监督进程启动 pi-acp 0.0.34，initialize 得到协议版本 1，正常关闭后退出与清理成功。单独运行隔离配置下的 pi 1.3.0 --mode rpc --no-themes，get_state、get_available_models 均成功，available_models=0；这证明所用基础 RPC 命令可用，同时确认本次环境没有可用模型。
+通过当前 AcpAgent 与监督进程启动 pi-acp 0.0.34，initialize 得到协议版本 1，正常关闭后退出与清理成功。单独运行隔离配置下的 pi 1.3.0 --mode rpc --no-themes，get_state、get_available_models 均成功，available_models=0；这证明所用基础 RPC 命令可用；该探针使用的是初始空模型配置。
 
-没有实际执行 pi 的模型 prompt 或真实 QQ 发送。pi 的 MCP 配置与手动阶段见 [M1-03](m1-pi.md)。pi-acp 使用 pi 自己的 MCP 配置，ACP mcpServers 保持空数组。
+初始探针没有执行模型 prompt；后续配置 personal/deepseek/deepseek-flash 后，已通过真实群单轮 ACP 自动触发、MCP 回复和平台查询核验。pi 的 MCP 配置与手动阶段见 [M1-03](m1-pi.md)。pi-acp 使用 pi 自己的 MCP 配置，ACP mcpServers 保持空数组。
 
 ## 启动配置
 
@@ -52,4 +52,4 @@ test/host/acp-consumer.test.ts 在真实 Host/SQLite/HTTP 上启动独立的逐�
 
 本地状态位于 data_dir/plugins/<instance>/consumer-state.json，格式、绑定和故障规则见 [应用消费](../applications.md)。in_flight 非空时重启仍暂停，不启动 Agent 重投。诊断的 event_ref_hash 用于关联日志，完整引用只保存在受限的本地状态与已授权事件中。
 
-人工处置前用原 Agent 主体与真实 call_id 查询调用记录并核验平台证据，再停止整个宿主，确认其 Agent 已退出。已提供离线恢复 CLI，持锁核对状态并先保存含原因的备份，再处置当前未决输入；恢复能力不足时显式选择新会话。unknown 不换 ID 自动补发。命令与模拟恢复结果见 [M1-05](m1-operations.md)，真实服务和模型轮次仍待配置后执行。
+人工处置前用原 Agent 主体与真实 call_id 查询调用记录并核验平台证据，再停止整个宿主，确认其 Agent 已退出。已提供离线恢复 CLI，持锁核对状态并先保存含原因的备份，再处置当前未决输入；恢复能力不足时显式选择新会话。unknown 不换 ID 自动补发。命令与模拟恢复结果见 [M1-05](m1-operations.md)，指定群单次真实闭环已通过；真实服务扩展故障与恢复演练仍未执行。

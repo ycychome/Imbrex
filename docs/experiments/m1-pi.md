@@ -2,7 +2,7 @@
 
 2026-10-19。实际运行 pi 1.3.0、pi-acp 0.0.34、Node.js 24.22.0、npm 11.19.1。在独立配置目录中，真实 pi mcp list --json 已连接 Imbrex 的 /v1/mcp，返回 connected、六个预期工具和空 errors。MCP 配置确实被 pi 读取，未仅依靠上游文档声明。
 
-另以官方 ACP SDK 1.9.0 对真实 pi-acp 0.0.34 执行 initialize，确认协议版本 1、loadSession=true、mcpCapabilities.http/sse=false；握手后进程正常退出（exit 0）。没有执行 session/new、模型 prompt 或真实 QQ 发送；用户目前尚无模型配置与 OneBot 服务。
+另以官方 ACP SDK 1.9.0 对真实 pi-acp 0.0.34 执行 initialize，确认协议版本 1、loadSession=true、mcpCapabilities.http/sse=false；握手后进程正常退出（exit 0）。这是初始握手探针的范围；之后已补充真实模型与指定群单次自动回复验证，见[真实记录](m1-live.md)。
 
 ## 准备运行环境
 
@@ -44,14 +44,14 @@ Agent 是独立程序，不作为网关的运行时依赖。MCP 参考配置位�
 
 固定模拟事件和 call_id 用于可核验的演示。已有数据中的同一身份保持原内容；需要新实验时选择独立数据目录和明确意图，不能通过清空状态绕过 unknown。pi 1.3.0 的 HTTP 客户端可能对网络错误重试同一请求，网关依靠相同 call_id 去重；模型生成新 call_id 仍是新意图，提示中明确禁止自动这样做。
 
-## 尚未完成的验收
+## 当前验收范围
 
 | 项目 | 当前证据 |
 | --- | --- |
 | 真实 pi 读取配置、连接 MCP 并发现工具 | 已通过，六个工具全部可见 |
-| pi-acp 的真实 initialize 与退出 | 已通过；没有创建模型会话 |
-| 模型读取模拟输入并通过 MCP 发出 reply | 待模型配置后验证 |
-| 模型选择不回复，模拟器无新增 Action | 待模型配置后验证 |
-| 真实 QQ → Agent → reply | 待 OneBot 服务、授权会话与模型配置后验证 |
+| pi-acp 的真实 initialize 与退出 | 已通过；后续真实 ACP 模型会话也已验证 |
+| 模型读取模拟输入并通过 MCP 发出 reply | 已通过，使用 deepseek/deepseek-flash；见真实记录 |
+| 模型选择不回复，模拟器无新增 Action | 已通过，使用 deepseek/deepseek-flash；见真实记录 |
+| 真实 QQ → Agent → reply | 已通过 SnowLuma 指定群的单次自动回复；扩展场景未验证 |
 
-前两项不代替后三项。M1-04 可继续实现 ACP 自动消费与故障恢复的独立模拟验证；M1-03 的模型轮次保持待验收。
+上述模型工具调用和真实群回复均有独立于握手的实际记录。M1-04 的故障、会话隔离与恢复保留原模拟证据；真实多会话、重启与 unknown 演练尚未执行。

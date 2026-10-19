@@ -16,6 +16,6 @@
 
 请求使用 Authorization: Bearer 和 Content-Type: application/json。成功时 call.status=succeeded，result.native_message_id 为字符串；终端一 actions 应显示 send_group_msg、group_id=987654 和 reply/text 数组。重复同一 call_id/参数不增加 Action。使用 GET /v1/calls/manual-intent-001?store_id=… 查询本主体记录；unknown 需要人工核验，不更换 ID 自动补发。
 
-## 真实接入前仍需的证据
+## 后续真实接入证据
 
-用户目前没有 OneBot 服务及许可测试会话，也没有提供模型配置。实际接入必须补齐实现版本、完整通用 WS 地址、认证环境变量、账号、允许群聊/私聊、identity_namespace，并采用新的插件实例与匹配来源权限。外部写只针对这些已授权会话打开。真实账号的收发、自发回流、断线缺口、实现切换与未知结果恢复仍未验证；后续 M1-05 记录真实证据。Token、真实会话内容不写入仓库。
+本记录初始阶段没有实际服务环境。后续用户已提供 SnowLuma 1.11.1-node / v11、模型与指定测试范围，并完成一次真实群入站 → Agent → 回复及平台查询核验，见[实测记录](m1-live.md)。外部写只针对该次获准输入；其他私聊/群、自发回流、断线缺口、实现切换和真实未知结果恢复仍未验证。实际接入继续要求匹配的账号/identity_namespace、允许范围与来源权限。Token、真实身份与会话内容不写入仓库。
