@@ -1,6 +1,6 @@
 # Imbrex 开发文档
 
-**统一开发基线：0.3。状态：M0 核心原型与运行验收已完成；M1 已选定 OneBot 插件、MCP adapter 与 ACP Consumer，尚未实现；M2 的完整第二消费者交付尚未完成。**
+**统一开发基线：0.3。状态：M0 核心原型与运行验收已完成；M1-01 OneBot 插件已实现并通过协议模拟，MCP adapter 与 ACP Consumer 待实现，真实 QQ 链路待验证；M2 的完整第二消费者交付尚未完成。**
 
 安装、构建与运行见[本地开发与工程基线](development.md)，实际 M0 覆盖范围见[运行验收](experiments/m0-runtime.md)。
 

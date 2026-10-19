@@ -25,7 +25,7 @@ M1 计划在同一监听上增加 `/v1/mcp`，采用 MCP Streamable HTTP 而非�
 | HTTP 请求体 | 最大 256 KiB；首版不接压缩请求体 |
 | 序列化 `{event,parents}` | UTF-8 最大 64 KiB；普通 JSON 表示，不是 JCS |
 | 能力参数 / 结果 | 各最大 64 KiB |
-| OneBot 原始 WebSocket 帧 | 最大 1 MiB；过大帧拒绝并报告来源覆盖风险 |
+| OneBot 原始 WebSocket 帧 | 最大 64 KiB；过大帧拒绝并报告来源覆盖风险 |
 | 能力 schema / 已注册能力数 | 每份最大 16 KiB / 最多 128 个 |
 | 能力 description / schema_version | 最大 4096 / 128 UTF-8 字节 |
 | handler reason.code / reason.message | 最大 128 / 4096 UTF-8 字节 |
