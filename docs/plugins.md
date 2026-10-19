@@ -31,6 +31,8 @@ Cordis 的 apply、inject、Context 与 effect 负责依赖和作用域。本方
 
 所有公开对象使用 JSON 值与基本领域类型，只有内部位置使用 bigint。API 不暴露网关 SQL、全局 token、其他应用状态或任意主体 impersonation。需要恢复的插件启动后先核对自己保存的 store_id，再继续调用绑定客户端。
 
+reason 可携带匹配 /^[a-z][a-z0-9_]{0,63}$/ 的常量 code，作为 setAvailable 的 last_error.code；其余对象回落为公共错误码。last_error.message 始终使用宿主固定文案，不输出远端响应、Token 或任意异常正文。插件不可在 code 中拼接私有数据。
+
 ## 3. 一个最小只读工具插件
 
 以下形式已由内置 mock 插件编译并运行；另有可直接复制的 [uppercase 模板](../examples/plugins/uppercase.ts)，通过实际配置加载及 HTTP 调用验证：
