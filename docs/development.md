@@ -13,6 +13,7 @@
 | Cordis | 4.0.0-rc.11 | 插件生命周期探针，后续宿主装配 |
 | Ajv | 8.20.0 | Draft 2020-12 校验探针 |
 | ws | 8.22.0 | 帧接收限额探针，后续 OneBot 传输 |
+| @modelcontextprotocol/sdk | 1.32.1 | M1-02 Streamable HTTP Server 与互通测试客户端 |
 | @types/node / @types/ws | 24.19.2 / 8.18.2 | 与当前依赖一起通过类型检查的声明 |
 
 `package.json` 使用精确版本，`package-lock.json` 保存完整依赖树、下载地址与 integrity。`.npmrc` 启用 `save-exact` 和 `engine-strict`；安装时拒绝不符合 `engines` 的工具链。`private: true` 防止误发布，许可证与分发方式仍按 Q05 待定。
@@ -48,6 +49,8 @@ Cordis 4.0.0-rc.11 发布包的 `.d.ts` 使用无扩展名的相对导入。实�
 当前采用 `module: ESNext`、`moduleResolution: Bundler`，保留 `strict`、`noUncheckedIndexedAccess` 和完整声明检查，不使用 `skipLibCheck` 或修改 node_modules。这里只使用 TypeScript 的解析模式，没有添加打包器；编译产物由 Node 直接运行。
 
 项目相对导入必须显式写 `.js`，确保输出在 Node ESM 下可解析。Bundler 模式不会替我们强制这条约定，代码审查及实际运行须检查；Cordis 修复发布声明后可重新核验 NodeNext。
+
+M1-02 增加 DOM 类型库以满足官方 MCP SDK 对 HeadersInit 等 Web API 类型的引用；运行时仍为 Node，保留 strict 和完整依赖声明检查。未通过跳过类型检查绕过 SDK 的声明要求。
 
 ## 4. M0-01 前置探针记录
 

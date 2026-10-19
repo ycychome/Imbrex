@@ -2,7 +2,7 @@ import { fields, object, string, position, readOptions, eventInput, eventRef, js
 import { fail } from '../../core/errors.js';
 import type { AppendResult, EventPage, EventRecord } from '../../core/types.js';
 import type { CallRecord } from '../../core/store.js';
-import type { InvokeResult } from '../../core/capabilities.js';
+import type { CapabilityDescription, InvokeResult } from '../../core/capabilities.js';
 
 function query(params: URLSearchParams, allowed: string[], required: string[]): Record<string, string> {
   const values: Record<string, string> = Object.create(null) as Record<string, string>;
@@ -65,4 +65,10 @@ export function wireCall(call: CallRecord) {
 export function wireInvocation(result: InvokeResult) {
   if (result.kind === 'call') return { store_id: result.storeId, kind: result.kind, call: wireCall(result.call) };
   return { store_id: result.storeId, kind: result.kind, capability_id: result.capabilityId, result: result.result };
+}
+export function wireCapability(item: CapabilityDescription) {
+  return {
+    id: item.id, plugin_instance_id: item.pluginInstanceId, description: item.description, schema_version: item.schemaVersion,
+    is_side_effectful: item.isSideEffectful, input_schema: item.inputSchema,
+  };
 }

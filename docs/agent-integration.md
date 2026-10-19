@@ -1,6 +1,6 @@
 # Agent 接入：MCP 与 ACP
 
-统一开发基线 0.3 · 2026-10-19。**本文件规定 M1 的已选方案，协议适配与 pi 联调尚未实现。** M0 现有 HTTP 与插件 API 继续有效；具体任务见[开发计划](development-plan.md#m1)。
+统一开发基线 0.3 · 2026-10-19。**M1-01 OneBot 与 M1-02 MCP 已实现并通过协议验证，pi 联调与 ACP Consumer 仍待后续任务验证。** M0 现有 HTTP 与插件 API 继续有效；具体任务见[开发计划](development-plan.md#m1)。
 
 ## 1. 模块与协议职责
 
@@ -30,7 +30,7 @@ Consumer 是已有应用消费角色的具体插件；不再增加 Runner 或通
 
 M1 在现有 HTTP 监听上提供 `/v1/mcp` Streamable HTTP 端点。adapter 在进程内直接复用 core 的 events、capabilities、access，保持 core 不依赖 MCP、Cordis 或 HTTP 框架。上下文与动作使用同一个 MCP Server。
 
-首版只实现这条已有消费者需要的传输，MCP stdio 和 MCP→Imbrex HTTP 回环桥接不列入 M1。MCP 传输即使使用 SSE，也不等于新增网关事件订阅或 ACK。采用现成协议 SDK；M1-02 核验并锁定所用版本，在实现中同步补齐具体工具/资源名称、schema 和错误映射。[R12](references.md#r12)
+首版只实现这条已有消费者需要的传输，MCP stdio 和 MCP→Imbrex HTTP 回环桥接不列入 M1。使用官方 @modelcontextprotocol/sdk 1.32.1，SDK 处理初始化、版本协商与 JSON-RPC；MCP 传输不新增网关事件订阅或 ACK。具体工具和运行证据见下文与[MCP 验证记录](experiments/m1-mcp.md)。[R12](references.md#r12)
 
 | 交互 | 复用的责任边界 |
 | --- | --- |
@@ -46,6 +46,33 @@ M1 在现有 HTTP 监听上提供 `/v1/mcp` Streamable HTTP 端点。adapter 在
 外部写的 MCP 调用必须携带 store_id、稳定 call_id 与能力参数，结果回显可查询的调用身份与核心状态。MCP 请求 ID 不充当 call_id，收到协议成功响应不等于动作成功；响应丢失后查原调用，unknown 不换 ID 自动补发。
 
 实现遵守传输的初始化、版本协商和 Origin 校验，复用既有限额并有界清理连接/会话。M1 的静态凭据部署不包含通用 OAuth 授权服务；远程部署仍遵守现有 TLS 与凭据要求。
+
+### 2.1 已实现的工具
+
+tools/list 按每次请求的主体权限过滤以下工具。能力清单由 imbrex_list_capabilities 返回，只包含当前获授权且可用的核心注册，保留其完整 input_schema；schema 的根可以是数组、标量或对象。使用固定调用工具避免修改核心能力名称约束，也无需为每个插件手写 MCP schema。
+
+| MCP 工具 | 必填参数 | 可选参数 / 对应结果 |
+| --- | --- | --- |
+| imbrex_info | 无 | 与 HTTP info 一致的 store_id、latest_seq 和 features |
+| imbrex_read_events | store_id、after_seq | limit、source_prefix、type；与 HTTP 读取页一致 |
+| imbrex_lookup_event | store_id、source、id | 返回 store_id、record |
+| imbrex_list_capabilities | 无 | 返回 store_id、capabilities，字段与 HTTP 能力发现一致 |
+| imbrex_invoke | store_id、capability_id、params | 外部写必填 call_id，只读能力省略；返回核心 result 或 call |
+| imbrex_get_call | store_id、call_id | 返回本主体的核心 call；原插件离线后仍可查 |
+
+参数 schema 由 tools/list 提供，未知业务参数拒绝；store_id 为字符串，位置是规范十进制字符串，limit 是 1—100 的整数。字符串、JSON 大小与深度限制沿用 HTTP 契约。SDK 转换前检查原始工具请求，业务 schema 校验使用保留的原始 arguments，不因 SDK 删除字段而放行非法请求。工具发现只是一份当前视图，执行重新检查权限、存储身份、参数与提供者状态，不凭模型提示授权。没有事件写入、原始 OneBot Action 或任意收件人工具。
+
+工具响应的 content 文本与 structuredContent 提供相同 JSON。核心错误返回 isError=true 和 error.code/message、request_id；外部写结果为 failed、unknown 或 in_progress 时也标记 isError=true，并保留完整 call。查询未知调用成功仅表示查询成功，必须继续检查 call.status；不能从 MCP 协议成功或查询的 isError=false 推断远端发送成功。
+
+### 2.2 传输、认证与清理
+
+采用官方 SDK 的 stateless 模式，每次 POST 创建独立 Server/transport，返回 JSON。客户端正常执行 initialize、notifications/initialized 和后续工具请求；SDK 协商初始化版本，校验后续 MCP-Protocol-Version，未携带版本时使用 SDK 的 2025-03-26 兼容默认。服务端不保存客户端初始化状态，不生成 MCP session ID，身份始终来自当前请求的 Bearer 凭据。
+
+POST 的 Accept 须包含 application/json 与 text/event-stream；初始化后的通知返回 202。GET、DELETE 等其他方法返回 405/Allow: POST；MCP session ID、Last-Event-ID 与批请求拒绝，不提供恢复流、资源订阅或 MCP Tasks。鉴权、Origin、HTTP 请求体失败沿用 HTTP 错误结构；SDK 处理的协议失败使用 JSON-RPC 错误，业务失败使用上节的工具结果。
+
+无 Origin 的本地 CLI 请求可用；携带 Origin 时必须精确等于配置监听地址与实际端口构成的 HTTP origin，不能借请求 Host 头放行其他网站。首接 CLI 不需要额外浏览器跨域配置。请求体最多 256 KiB、JSON 深度最多 32、活跃 HTTP 数据请求最多 32、核心并发 handler 最多 8，所有限制与 REST 共用。
+
+响应完成或客户端断开后关闭该请求的协议实例。已经开始的核心调用继续保存结果，占用的请求预算在收尾完成后释放；断开不触发自动重试或回滚。宿主停用时沿用核心 drain 与 HTTP 关闭流程。
 
 ## 3. ACP stdio 接入
 

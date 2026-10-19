@@ -168,7 +168,7 @@ M1 补充核对日期：2026-10-19。读取 MCP 2025-11-25 的传输规范：Str
 https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
 ```
 
-M1 选择在既有监听上挂载 /v1/mcp，直接复用内核授权、事件与调用服务。协议 SDK 版本、具体 Tools/Resources 映射和运行互通在 M1-02/M1-03 锁定并验证；当前来源观察不构成已支持 MCP 的声明。
+M1-02 锁定官方 @modelcontextprotocol/sdk 1.32.1；核对其 stateless Streamable HTTP 示例、Node 传输、初始化与协议版本处理源码，并用同版本 SDK Client 对实际监听端口验证。既有监听上的 /v1/mcp 直接复用内核授权、事件与调用服务，具体工具和结果见[MCP 记录](experiments/m1-mcp.md)。pi 的真实工具调用仍按 M1-03 验证，不能由 SDK 互通代替。
 
 <a id="r13"></a>
 

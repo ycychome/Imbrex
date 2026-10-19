@@ -8,7 +8,8 @@ import type { Capabilities } from '../../core/capabilities.js';
 import type { Events } from '../../core/events.js';
 import type { GatewayStore } from '../../core/store.js';
 import type { HostConfig } from '../../host/config.js';
-import { appendBody, invokeBody, lookupQuery, readQuery, storeQuery, wireAppend, wireCall, wireInvocation, wirePage, wireRecord } from './dto.js';
+import { appendBody, invokeBody, lookupQuery, readQuery, storeQuery, wireAppend, wireCall, wireCapability, wireInvocation, wirePage, wireRecord } from './dto.js';
+import { serveMcp } from '../mcp/server.js';
 
 function body(request: IncomingMessage): Promise<unknown> {
   if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers['content-type'] ?? '')) fail('invalid_request', 'Expected UTF-8 application/json');
@@ -65,7 +66,14 @@ export async function startHttp(config: HostConfig, store: GatewayStore, events:
       const path = boundary < 0 ? target : target.slice(0, boundary);
       const search = boundary < 0 ? '' : target.slice(boundary + 1);
       const params = new URLSearchParams(search);
-      if (request.method === 'GET' && path === '/v1/info') {
+      if (path === '/v1/mcp') {
+        if (search) fail('invalid_request');
+        const address = server.address();
+        if (!address || typeof address === 'string') fail('provider_unavailable');
+        const hostname = config.http.host.includes(':') ? '[' + config.http.host + ']' : config.http.host;
+        const origin = new URL('http://' + hostname + ':' + address.port).origin;
+        await serveMcp(request, response, { principal, store, events, capabilities, requestId, origin, report: (code) => report(code, requestId) }, () => body(request));
+      } else if (request.method === 'GET' && path === '/v1/info') {
         if (search) fail('invalid_request');
         const info = await store.info();
         send(200, { store_id: info.storeId, version: '0.1.0-dev', latest_seq: info.latestSeq.toString(), features: { capabilities: true, call_records: true, sse: false } });
@@ -83,10 +91,7 @@ export async function startHttp(config: HostConfig, store: GatewayStore, events:
       } else if (request.method === 'GET' && path === '/v1/capabilities') {
         if (search) fail('invalid_request');
         const descriptions = capabilities.list(principal);
-        send(200, { store_id: (await store.info()).storeId, capabilities: descriptions.map((item) => ({
-          id: item.id, plugin_instance_id: item.pluginInstanceId, description: item.description, schema_version: item.schemaVersion,
-          is_side_effectful: item.isSideEffectful, input_schema: item.inputSchema,
-        })) });
+        send(200, { store_id: (await store.info()).storeId, capabilities: descriptions.map(wireCapability) });
       } else if (request.method === 'POST' && /^\/v1\/capabilities\/[^/]+\/invoke$/.test(path)) {
         if (search) fail('invalid_request');
         let id: string;
@@ -108,6 +113,7 @@ export async function startHttp(config: HostConfig, store: GatewayStore, events:
     } catch (cause) {
       const error = publicError(cause);
       report(error.code, requestId);
+      if (response.headersSent) { response.destroy(); return; }
       response.setHeader('connection', 'close');
       send(error.status, { error: { code: error.code, message: error.message }, request_id: requestId });
     } finally { if (counted) active -= 1; }

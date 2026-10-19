@@ -2,7 +2,7 @@
 
 统一开发基线 0.3。**本文件规定 M0 已实现的线上表达，SSE 等后续接口仍未启用。** 事件行为见 [事件与存储](storage-and-recovery.md)，能力行为见 [能力契约](capabilities.md)。
 
-M1 计划在同一监听上增加 `/v1/mcp`，采用 MCP Streamable HTTP 而非本文件的 REST 路由表达；共用领域授权、类型与调用语义，见 [Agent 接入](agent-integration.md)。该端点目前未实现，也不代表事件订阅 SSE 已启用。
+M1-02 已在同一监听提供 `/v1/mcp`，采用 MCP Streamable HTTP 而非本文件的 REST 路由表达；共用领域授权、类型与调用语义，具体工具、参数及错误映射见 [Agent 接入](agent-integration.md)。此端点不启用事件订阅 SSE。
 
 ## 1. 公共约定
 
