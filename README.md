@@ -4,7 +4,7 @@
 
 Imbrex 是一个面向个人数字生活与 AI Agent 的可扩展事件与能力网关。它以现代插件系统为骨骼、以轻量有序日志为血液，将分散在聊天平台、开发工具和本地系统的异构数据汇聚为一条不可变的事实流，并为外部 AI 和应用提供标准、受控的动作工具调用通道。
 
-**当前状态：M0 核心原型可运行。** 已提供 SQLite 事件日志、能力调用、HTTP、Cordis 宿主和本地演示插件；真实 OneBot/QQ 与 Agent 接入属于下一阶段 M1。安装与运行见[开发指南](docs/development.md#m0-run)，保证范围见[M0 验收](docs/experiments/m0-runtime.md)。
+**当前状态：M0 核心原型可运行。** 已提供 SQLite 事件日志、能力调用、HTTP、Cordis 宿主和本地演示插件；下一阶段 M1 实现 OneBot 插件、MCP 适配与 ACP 消费插件，复用 pi/pi-acp 完成 Agent 接入。安装与运行见[开发指南](docs/development.md#m0-run)，保证范围见[M0 验收](docs/experiments/m0-runtime.md)。
 
 ---
 
@@ -13,12 +13,12 @@ Imbrex 是一个面向个人数字生活与 AI Agent 的可扩展事件与能力
 - **不可变事实流（Event Stream）**
   记录客观发生的事实（如收到消息、提交代码）。事件只追加、不修改，通过递增序号回溯与独立重读；产生外部动作时使用单独的能力调用与稳定调用 ID。
 - **统一能力面（Capability / Tool Registry）**
-  为只读工具和外部动作提供统一的注册与调用通道。通过 JSON Schema 描述参数，保存写调用状态；结果未知时停止自动重发。模型工具协议和 MCP 适配按实际接入需求实现。
+  为只读工具和外部动作提供统一的注册与调用通道。通过 JSON Schema 描述参数，保存写调用状态；结果未知时停止自动重发。M1 的 MCP 适配复用同一能力与授权服务。
 - **现代插件体系（Cordis Powered）**
   基于 Cordis 提供依赖注入与生命周期管理。业务插件通过受信入口启停并显式清理资源；内核和 HTTP 是宿主必需组件，配置通常通过重启生效。
 - **轻重双轨消费模型**
   - **进程内轻量插件**：通过事件钩子实时响应，几十行代码即可实现群消息过滤或简单转发。
-  - **进程外独立应用**：后台 Python / TS Agent、归档服务通过 HTTP 主动读取事件并调用工具，自行管理状态和恢复；SSE 后续按需加入。
+  - **进程外独立应用**：应用可通过 HTTP 主动读取并调用工具；M1 的 Agent 通过 MCP 使用网关，ACP 消费插件负责事件触发，Agent 自己管理模型循环和历史。
 - **轻量极简，拒绝过度设计**
   无分布式中间件依赖，使用单机 SQLite (WAL)，提供可运行的本地配置与演示。
 
@@ -43,11 +43,13 @@ flowchart LR
         end
         
         HttpServer["HTTP 接口层"]
+        McpServer["MCP 适配层 (M1)"]
+        AcpConsumer["ACP 消费插件 (M1)"]
         InProcessPlugins["进程内轻量规则插件"]
     end
 
     subgraph Consumers ["外部独立应用 / AI Agent"]
-        Agent["后台 AI Agent<br/>(理解消息 · 决策回复)"]
+        Agent["现成 AI Agent<br/>(首接 pi / pi-acp)"]
         Archive["独立归档 / 前台服务"]
     end
 
@@ -58,7 +60,11 @@ flowchart LR
     EventLog <--> HttpServer
     Capabilities <--> HttpServer
 
-    Agent <-->|拉取事件 & 调用工具| HttpServer
+    EventLog <--> McpServer
+    Capabilities <--> McpServer
+    AcpConsumer -->|读取触发输入| EventLog
+    AcpConsumer <-->|ACP / stdio| Agent
+    Agent <-->|MCP 上下文与工具| McpServer
     Archive -->|独立拉取事件| HttpServer
 ```
 
@@ -83,6 +89,7 @@ flowchart LR
 - **[存储与持久化](docs/storage-and-recovery.md)**：SQLite 表结构设计、事务边界与运维备份。
 - **[Cordis 插件开发指南](docs/plugins.md)**：插件开发规范、服务注入与连接器模板。
 - **[OneBot 与 Agent 接入](docs/onebot-and-agent.md)**：OneBot v11 协议连接与 Agent 闭环指南。
+- **[Agent 协议接入](docs/agent-integration.md)**：MCP 工具与上下文、ACP 事件触发，以及 pi/pi-acp 复用边界。
 - **[配置与运维指南](docs/operations.md)**：主体鉴权、权限配置、单实例启动与优雅停机。
 
 ---

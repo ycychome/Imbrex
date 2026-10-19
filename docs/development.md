@@ -102,4 +102,4 @@ Ctrl-C 或 SIGTERM 正常关闭；第二个进程使用同一数据目录会以 
 
 复制 [uppercase 模板](../examples/plugins/uppercase.ts)，使用绑定 API，实现实际需要的配置和资源清理。运行 npm run build 后，在配置中增加独立实例、主体和模块路径，例如从 examples/demo.json 引用 ../dist/examples/plugins/uppercase.js；同时为调用方授权该实例的完整能力 ID。初次启动按配置顺序装配，服务提供者须在依赖它的插件之前。
 
-M0 的 observer 只完成独立读取与位置保存；事件副本、Agent 决策库、真实 OneBot、SSE 和 MCP 不在当前演示范围内。下一阶段从 M1 的协议连接器与模拟验证开始。
+M0 的 observer 只完成独立读取与位置保存；M2 的事件副本、M1 的 OneBot/MCP/ACP Consumer 和事件订阅 SSE 均不在当前演示范围内。下一阶段从 [M1 的协议连接器与模拟验证](development-plan.md#m1)开始，Agent 复用 pi/pi-acp。
