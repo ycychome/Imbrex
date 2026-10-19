@@ -40,6 +40,7 @@ function skipReason(record: EventRecord, config: ConsumerConfig): string | undef
     const time = Date.parse(event.time ?? record.acceptedAt);
     const age = Date.now() - time;
     if (!Number.isFinite(time) || age < -5000 || age > config.maxAgeSeconds * 1000) return 'consumer_skip_age';
+    if (config.filter && !(kind === 'group' ? config.filter.group_ids : config.filter.private_user_ids).includes(conversation)) return 'consumer_skip_filter';
   } catch { return 'consumer_skip_invalid'; }
 }
 

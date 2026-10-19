@@ -21,6 +21,7 @@
       "id": "agent", "module": "builtin:acp-consumer", "principal_id": "qq-consumer", "required": true, "enabled": true,
       "config": {
         "input_id": "qq-inbound", "source_prefix": "imbrex://qq/123456/main/", "max_event_age_seconds": 300, "turn_timeout_ms": 120000,
+        "filter": { "group_ids": ["987654"], "private_user_ids": ["654321"] },
         "agent": { "command": "pi-acp", "args": [], "cwd": "/absolute/path/to/imbrex-agent-workspace", "env_vars": ["PI_CODING_AGENT_DIR", "IMBREX_QQ_AGENT_TOKEN"] }
       }
     }
