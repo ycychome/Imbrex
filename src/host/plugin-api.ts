@@ -9,6 +9,7 @@ export interface PluginApi {
   readonly instanceId: string;
   readonly dataDir: string;
   readonly signal: AbortSignal;
+  whenReady(): Promise<void>;
   events: {
     info(): Promise<{ storeId: string; latestSeq: bigint }>;
     readScope(): ReadScope;

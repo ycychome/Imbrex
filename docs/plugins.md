@@ -19,6 +19,7 @@ Cordis 的 apply、inject、Context 与 effect 负责依赖和作用域。本方
 | `api.storeId` | 当前绑定存储的只读 string |
 | `api.instanceId` / `api.dataDir` | 宿主分配的实例与私有目录 |
 | `api.signal` | 停止时触发的 AbortSignal；不等于远端撤销 |
+| `api.whenReady()` | 后台任务等待所有启动插件完成及 HTTP/MCP 监听就绪；关闭时拒绝继续工作 |
 | `api.events.info()` | 返回 storeId 与 latestSeq: bigint |
 | `api.events.append({event, parents?})` | 使用绑定主体与 storeId，返回接纳回执；seq 为 bigint |
 | `api.events.read({afterSeq, limit?, sourcePrefix?, type?})` | 返回 records、throughSeq、nextAfterSeq、caughtUp |
@@ -33,6 +34,8 @@ Cordis 的 apply、inject、Context 与 effect 负责依赖和作用域。本方
 所有公开对象使用 JSON 值与基本领域类型，只有内部位置使用 bigint。API 不暴露网关 SQL、全局 token、其他应用状态或任意主体 impersonation。需要恢复的插件启动后先核对自己保存的 store_id，再继续调用绑定客户端。
 
 reason 可携带匹配 /^[a-z][a-z0-9_]{0,63}$/ 的常量 code，作为 setAvailable 的 last_error.code；其余对象回落为公共错误码。last_error.message 始终使用宿主固定文案，不输出远端响应、Token 或任意异常正文。插件不可在 code 中拼接私有数据。
+
+依赖 MCP 的后台消费循环先等待 api.whenReady() 再投递输入。不要在插件 apply 的初始化返回前等待此方法，否则会阻塞宿主完成启动；Consumer 将等待放在受生命周期管理的后台任务中。停止或启动失败时等待者被唤醒并拒绝继续调用。
 
 ## 3. 一个最小只读工具插件
 

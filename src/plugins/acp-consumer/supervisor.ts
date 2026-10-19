@@ -5,16 +5,17 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fields, json, object, string } from '../../core/validation.js';
 
 export interface StartAgent { type: 'start'; command: string; args: string[]; cwd: string; env: Record<string, string> }
-interface ProcessEntry { pid: number; parent: number; group: number; state: string; started: string }
+interface ProcessEntry { pid: number; parent: number; state: string; started: string }
 
 async function processEntry(pid: number): Promise<ProcessEntry | undefined> {
   try {
     const stat = await readFile('/proc/' + pid + '/stat', 'utf8');
     const parts = stat.slice(stat.lastIndexOf(')') + 2).trim().split(' ');
-    return { pid, parent: Number(parts[1]), group: Number(parts[2]), state: parts[0]!, started: parts[19]! };
+    return { pid, parent: Number(parts[1]), state: parts[0]!, started: parts[19]! };
   } catch { return; }
 }
-async function ownedProcesses(root: number, known: Map<number, ProcessEntry>): Promise<ProcessEntry[]> {
+const reaper = process.ppid;
+async function ownedProcesses(known: Map<number, ProcessEntry>): Promise<ProcessEntry[]> {
   const all: ProcessEntry[] = [];
   for (const name of await readdir('/proc')) {
     if (!/^[0-9]+$/.test(name)) continue;
@@ -22,7 +23,10 @@ async function ownedProcesses(root: number, known: Map<number, ProcessEntry>): P
     if (entry) all.push(entry);
   }
   const owned = new Map<number, ProcessEntry>();
-  for (const entry of all) if (entry.group === root || known.get(entry.pid)?.started === entry.started) owned.set(entry.pid, entry);
+  for (const entry of all) {
+    if (entry.pid === process.pid) continue;
+    if (entry.parent === process.pid || entry.parent === reaper || known.get(entry.pid)?.started === entry.started) owned.set(entry.pid, entry);
+  }
   let changed = true;
   while (changed) {
     changed = false;
@@ -83,7 +87,7 @@ async function cleanup(): Promise<boolean> {
     const sent = new Set<string>();
     const deadline = Date.now() + 500;
     for (;;) {
-      const descendants = (await ownedProcesses(pid, known)).filter((entry) => entry.pid !== pid);
+      const descendants = (await ownedProcesses(known)).filter((entry) => entry.pid !== pid);
       if (!descendants.length) break;
       for (const entry of descendants.reverse()) {
         const identity = entry.pid + ':' + entry.started;
@@ -101,8 +105,11 @@ async function cleanup(): Promise<boolean> {
   await Promise.race([closed, delay(1000)]);
   const deadline = Date.now() + 1000;
   for (;;) {
-    const remaining = await ownedProcesses(pid, known);
-    if (!remaining.length) return childClosed;
+    const remaining = await ownedProcesses(known);
+    // Reparenting can race the /proc scan. Once the Agent is closed, every
+    // surviving descendant must still be below a child of this dedicated tini.
+    const adopted = (await readFile('/proc/' + reaper + '/task/' + reaper + '/children', 'utf8')).trim().split(/\s+/).filter(Boolean).map(Number);
+    if (!remaining.length && childClosed && adopted.every((pid) => pid === process.pid)) return true;
     for (const entry of remaining) await signalProcess(entry, 'SIGKILL');
     if (Date.now() >= deadline) return false;
     await delay(25);

@@ -1,6 +1,6 @@
 # M1-04 ACP Consumer 验证与运行
 
-2026-10-19。实现 builtin:acp-consumer、官方 ACP SDK 1.9.0 的 v1 stdio 接入、持久消费状态和 Linux 进程清理。验证环境为 Node.js 24.22.0 / npm 11.19.1、Linux、systemd 作为 PID 1。模型与真实 QQ 凭据仍缺，本文区分模拟 Agent、真实协议握手与尚未完成的模型轮次。
+2026-10-19。实现 builtin:acp-consumer、官方 ACP SDK 1.9.0 的 v1 stdio 接入、持久消费状态和 Linux 进程清理。验证环境为 Node.js 24.22.0 / npm 11.19.1、tini 0.19.0、Linux、systemd 作为 PID 1。模型与真实 QQ 凭据仍缺，本文区分模拟 Agent、真实协议握手与尚未完成的模型轮次。
 
 ## 已验证范围
 
@@ -13,8 +13,9 @@ test/host/acp-consumer.test.ts 在真实 Host/SQLite/HTTP 上启动独立的逐�
 - 未支持的权限请求返回 cancelled，文件请求拒绝；合法的大型工具更新可通过，超限数据使输入保持未确认。
 - OneBot 模拟服务 → 自动 ACP → MCP → reply Action 实际联通。成功、unknown 与回复后 Agent 崩溃三条路径均不自动补发；end_turn 与平台发送状态分别判断。
 - 忽略 SIGTERM 的 Agent 及其后代被回收。公开 CLI 的实际宿主被 SIGKILL 后，监督进程继续清理；实例锁未传给后代，同一目录可以重启且原未决输入保持暂停。
+- 独立审查后的回归：Agent 立即退出留下的 detached 后代由 tini 接管并回收；后续插件延迟初始化时首轮等待 MCP 监听；无效通知、报文和未知响应 ID 不进入 SDK 原始异常日志。
 
-针对这些风险运行类型检查、构建和编译后的 ACP 集成测试。更新到包含 M1-03 的主线后，npm run check 的类型检查、构建和84/84测试通过。
+针对这些风险运行类型检查、构建和编译后的 ACP 集成测试。更新到包含 M1-03 的主线并修复独立审查问题后，npm run check 的类型检查、构建和90/90测试通过，其中 ACP 风险测试含子测试共30项。
 
 另外实际启动公开 Imbrex CLI 与 OneBot 模拟器 CLI，使用 live-group 产生当前时间的新输入，经模拟 ACP Agent 和 MCP 得到一次 send_group_msg，call.status=succeeded、native_message_id=1001；退出时进程与连接正常清理。此证据仍是模拟 Agent 与模拟平台，不等于真实模型或 QQ 验收。
 
@@ -26,7 +27,7 @@ test/host/acp-consumer.test.ts 在真实 Host/SQLite/HTTP 上启动独立的逐�
 
 ## 启动配置
 
-模板为 examples/agent/acp.json，默认禁止外部写。先按 M1-03 安装锁定的 pi/pi-acp，并设置同一个 IMBREX_QQ_AGENT_TOKEN、IMBREX_OPERATOR_TOKEN、PI_CODING_AGENT_DIR。在 PI_CODING_AGENT_DIR 对应的 pi 配置中完成模型配置与 Imbrex MCP 配置。
+模板为 examples/agent/acp.json，默认禁止外部写。先确认 PATH 中有 tini 0.19.0，再按 M1-03 安装锁定的 pi/pi-acp，并设置同一个 IMBREX_QQ_AGENT_TOKEN、IMBREX_OPERATOR_TOKEN、PI_CODING_AGENT_DIR。在 PI_CODING_AGENT_DIR 对应的 pi 配置中完成模型配置与 Imbrex MCP 配置。
 
 从仓库根目录生成本地配置与独立 Agent 工作目录：
 

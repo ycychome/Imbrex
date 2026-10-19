@@ -73,6 +73,7 @@ class Consumer {
     }
     if (!isDeepStrictEqual(this.state.agent_info, observed)) await this.commit({ ...this.state, agent_info: observed });
     if (!this.agent.available) throw new ConsumerError('consumer_agent_disconnected');
+    await this.api.whenReady();
     if (this.stopped || this.api.signal.aborted) return;
     this.initialized = true;
     this.api.setAvailable(true);

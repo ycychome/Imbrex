@@ -84,7 +84,7 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
     await app!.close(); app = await Host.open(config, modules);
     await setControl({ mcp_url: 'http://127.0.0.1:' + app.port + '/v1/mcp' });
   };
-  return { directory, fake, sim, host, config, raw, filename, values, status, state, stateFile, logs, setControl, input, append, writer: () => writer, restart };
+  return { directory, fake, sim, host, config, modules, raw, filename, values, status, state, stateFile, logs, setControl, input, append, writer: () => writer, restart };
 }
 
 test('consumer starts at now, filters inputs, saves before prompting and keeps platform sessions separate', async (t) => {
@@ -141,6 +141,40 @@ test('large valid tool updates forwarded by an Agent do not interrupt a complete
   assert.equal((await f.state()).in_flight, null); assert.equal(f.status().available, true);
 });
 
+test('malformed Agent notifications and messages never enter the SDK raw logging paths', async (t) => {
+  for (const mode of ['invalid-update', 'invalid-message', 'unknown-response']) await t.test(mode, async (t) => {
+    const logged: unknown[][] = [];
+    t.mock.method(console, 'error', (...args: unknown[]) => { logged.push(args); });
+    const f = await fixture(t, mode);
+    await f.append(24);
+    if (mode === 'invalid-update') await until(async () => (await f.state()).last_seq === '1');
+    else {
+      await until(() => f.status().last_error?.code === 'consumer_in_flight_unconfirmed');
+      assert.equal(object((await f.state()).in_flight).id, 'message:24');
+    }
+    assert.deepEqual(logged, []);
+  });
+});
+
+test('inputs arriving during a later plugin initialization wait until MCP is listening', async (t) => {
+  const f = await fixture(t, 'reply', false);
+  f.config.http.port = f.host().port;
+  await f.host().close();
+  f.config.plugins.find((plugin) => plugin.id === 'agent')!.enabled = true;
+  f.modules.set('writer', { name: 'slow-writer', apply: async (ctx) => {
+    const api = ctx.imbrex.forPlugin(ctx);
+    await until(async () => { try { return (await f.state()).agent_info !== null; } catch { return false; } });
+    await api.events.append(f.input(25));
+    await delay(200);
+    assert.equal((await f.logs('prompt')).length, 0);
+  } });
+  await f.restart();
+  await until(async () => (await f.state()).last_seq === '1');
+  assert.equal((await f.logs('prompt')).length, 1);
+  assert.equal(f.sim.actions.length, 1);
+  assert.equal((await f.logs('call'))[0]?.status, 'succeeded');
+});
+
 test('session creation failure pauses before in_flight and can continue once the Agent is configured', async (t) => {
   const f = await fixture(t, 'new-fail');
   await f.append(23);
@@ -163,6 +197,19 @@ test('a process tree that ignores termination is reaped when the consumer stops'
   assert.throws(() => process.kill(agentPid, 0), { code: 'ESRCH' });
   assert.throws(() => process.kill(descendantPid, 0), { code: 'ESRCH' });
   assert.equal(object((await f.state()).in_flight).id, 'message:31');
+  assert.equal(f.status().state, 'stopped');
+});
+
+test('an Agent that exits immediately after spawning a detached child leaves no orphan', async (t) => {
+  const f = await fixture(t, 'orphan');
+  await f.append(32);
+  await until(async () => (await f.logs('descendant')).length === 1);
+  const descendantPid = (await f.logs('descendant'))[0]!.pid as number;
+  t.after(() => { try { process.kill(descendantPid, 'SIGKILL'); } catch { /* Already reaped. */ } });
+  await until(() => f.status().last_error?.code === 'consumer_in_flight_unconfirmed');
+  await f.host().stopPlugin('agent');
+  assert.throws(() => process.kill(descendantPid, 0), { code: 'ESRCH' });
+  assert.equal(object((await f.state()).in_flight).id, 'message:32');
   assert.equal(f.status().state, 'stopped');
 });
 
@@ -310,6 +357,8 @@ test('killing the public host releases its lock, reaps the Agent tree, and resta
   await until(async () => { try { await access(join(f.fake, 'descendant.ready')); return true; } catch { return false; } });
   const boot = (await f.logs('boot')).at(-1)!;
   const agentPid = boot.pid as number, supervisorPid = boot.parent as number;
+  const supervisorStat = await readFile('/proc/' + supervisorPid + '/stat', 'utf8');
+  const reaperPid = Number(supervisorStat.slice(supervisorStat.lastIndexOf(')') + 2).split(' ')[1]);
   const descendantPid = (await f.logs('descendant')).at(-1)!.pid as number;
   const links = async (pid: number) => {
     const results = await Promise.allSettled((await readdir('/proc/' + pid + '/fd')).map((fd) => readlink('/proc/' + pid + '/fd/' + fd)));
@@ -317,11 +366,11 @@ test('killing the public host releases its lock, reaps the Agent tree, and resta
   };
   const lock = join(f.config.dataDir, '.lock');
   assert.ok((await links(first.value.pid as number)).includes(lock));
-  for (const pid of [agentPid, supervisorPid, descendantPid]) assert.ok(!(await links(pid)).includes(lock));
+  for (const pid of [agentPid, supervisorPid, reaperPid, descendantPid]) assert.ok(!(await links(pid)).includes(lock));
   process.kill(first.value.pid as number, 'SIGKILL'); await first.ended;
   const second = await startCli();
   await until(async () => (await second.plugins()).some((plugin) => plugin.id === 'agent' && object(plugin.last_error).code === 'consumer_in_flight_unconfirmed'));
-  await until(() => [agentPid, supervisorPid, descendantPid].every((pid) => { try { process.kill(pid, 0); return false; } catch { return true; } }));
+  await until(() => [agentPid, supervisorPid, reaperPid, descendantPid].every((pid) => { try { process.kill(pid, 0); return false; } catch { return true; } }));
   assert.equal(object((await f.state()).in_flight).id, 'message:81');
   assert.equal((await f.state()).last_seq, '0'); assert.equal((await f.logs('prompt')).length, 1);
   assert.ok(!first.stderr().includes('fixture-private-agent-error'));

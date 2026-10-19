@@ -77,10 +77,11 @@ async function handle(line: string) {
     const flight = object(saved.in_flight);
     log('prompt', { session_id: params.sessionId, source: ref.source, id: ref.id, seq: input.seq,
       disk_confirmed: flight.source === ref.source && flight.id === ref.id && flight.seq === input.seq && flight.session_id === params.sessionId });
-    if (mode === 'tree' && !descendant) {
-      descendant = spawn(process.execPath, ['-e', 'process.on("SIGTERM",()=>{}); process.on("SIGINT",()=>{}); require("node:fs").writeFileSync(process.env.IMBREX_FAKE_AGENT_DIR+"/descendant.ready","ready"); setInterval(()=>{},1000);'], { stdio: 'ignore' });
+    if ((mode === 'tree' || mode === 'orphan') && !descendant) {
+      descendant = spawn(process.execPath, ['-e', 'process.on("SIGTERM",()=>{}); process.on("SIGINT",()=>{}); require("node:fs").writeFileSync(process.env.IMBREX_FAKE_AGENT_DIR+"/descendant.ready","ready"); setInterval(()=>{},1000);'], { stdio: 'ignore', detached: true });
       descendant.on('exit', () => log('descendant_exit'));
       log('descendant', { pid: descendant.pid });
+      if (mode === 'orphan') process.exit(2);
     }
     send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'fixture update' } } } });
     if (mode === 'hold' || mode === 'tree') return;
@@ -88,6 +89,11 @@ async function handle(line: string) {
     if (mode === 'large-update') send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId,
       update: { sessionUpdate: 'tool_call_update', toolCallId: 'large-context', status: 'completed', rawOutput: { content: 'x'.repeat(1024 * 1024) } },
     } });
+    if (mode === 'invalid-update') send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId,
+      update: { sessionUpdate: 'tool_call', title: 'fixture-private-notification' },
+    } });
+    if (mode === 'invalid-message') send({ jsonrpc: '2.0', private_data: 'fixture-private-invalid-message' });
+    if (mode === 'unknown-response') send({ jsonrpc: '2.0', id: 'fixture-private-response-id', result: {} });
     if (mode === 'error') { failure(message.id); return; }
     if (mode === 'permission') {
       const allowed = await clientRequest('session/request_permission', { sessionId: params.sessionId,

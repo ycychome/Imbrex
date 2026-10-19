@@ -106,4 +106,6 @@ consumer-state.json 使用 version=1，包含 input_id、store_id、last_seq、s
 
 读取范围、主体、Agent 程序/工作目录等绑定改变时暂停；in_flight 非空时不启动 Agent 重投。新进程只有成功协商并执行 session/load 后才可使用旧会话。正文不写本地消费状态；诊断输出 input_id 和事件引用摘要，消息、凭据与远端异常正文不进入日志。
 
-Linux stdio 启动辅助进程通过显式标准流与 IPC 启动 Agent，宿主控制通道关闭后也负责退出清理。终止与升级终止后检查拥有的进程已经退出，不仅以信号发送成功作为证据；清理未完成则报告 stop_failed。部署仍以受信 Agent 和既有本地权限为前提，不提供恶意代码隔离。
+Linux stdio 使用 tini 0.19.0 的 subreaper 模式包裹监督进程，再通过显式标准流与 IPC 启动 Agent。Agent 异常退出或其后代脱离原进程组时，孤儿进程由专属 tini 接管，监督进程清理并检查所有后代，tini 负责回收。宿主控制通道关闭后也继续清理；缺少 tini 时拒绝启动该 Consumer。终止与升级终止后检查进程已经退出，清理未完成则报告 stop_failed。部署仍以受信 Agent 和既有本地权限为前提，不提供恶意代码隔离。
+
+Consumer 等待 api.whenReady() 确认 HTTP/MCP 已监听后才读取并投递，避免较晚初始化的插件拖延监听使首轮失败。ACP 过程通知不参与消费确认，直接丢弃；无效报文和未知响应 ID 在 SDK 前拒绝，阻断 SDK 将原始通知或 ID 写入异常日志的路径。

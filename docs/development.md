@@ -15,6 +15,7 @@
 | ws | 8.22.0 | 帧接收限额探针，后续 OneBot 传输 |
 | @modelcontextprotocol/sdk | 1.32.1 | M1-02 Streamable HTTP Server 与互通测试客户端 |
 | @agentclientprotocol/sdk | 1.9.0 | M1-04 ACP v1 stdio 客户端 |
+| tini（Linux 系统工具） | 0.19.0 | ACP Agent 的孤儿进程接管与回收 |
 | @types/node / @types/ws | 24.19.2 / 8.18.2 | 与当前依赖一起通过类型检查的声明 |
 
 `package.json` 使用精确版本，`package-lock.json` 保存完整依赖树、下载地址与 integrity。`.npmrc` 启用 `save-exact` 和 `engine-strict`；安装时拒绝不符合 `engines` 的工具链。`private: true` 防止误发布，许可证与分发方式仍按 Q05 待定。
@@ -26,6 +27,7 @@
 ```sh
 node --version  # v24.22.0
 npm --version   # 11.19.1
+tini --version  # 0.19.0；运行 ACP 与其测试前安装并放入 PATH
 npm ci
 npm run check
 ```
@@ -42,6 +44,8 @@ npm run check
 当前代码包含核心、SQLite worker、HTTP、Cordis 宿主、演示插件和 CLI，构建也编译 examples/plugins 中的模板。安装、编译、测试和运行不依赖 `.private/`。node_modules、dist、coverage 和默认运行数据 data 均被 Git 忽略。
 
 GitHub Actions 在 PR 和 main 提交上执行 `npm ci` 与 `npm run check`，使用固定的 Node 文件、Ubuntu 24.04 和按提交 SHA 锁定的官方 Actions。
+
+ACP 的 tini 依赖用于接管脱离进程组或父进程先退出的后代，是当前进程清理保证的必要条件。Linux 开发机可从发行版安装 tini 0.19.0；CI 下载官方 v0.19.0 的 x86_64 静态程序并校验固定 SHA-256（见 workflow）。其他架构按官方对应构建安装，不使用 x86_64 文件替代；无 tini 时 M0/OneBot/MCP 仍可单独运行，ACP 拒绝启动。[R15](references.md#r15)
 
 ## 3. ESM 编译选择
 

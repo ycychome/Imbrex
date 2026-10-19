@@ -1,10 +1,40 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { client, ndJsonStream, type ClientConnection, type ContentBlock, type InitializeResponse, type PromptResponse } from '@agentclientprotocol/sdk';
+import { client, ndJsonStream, type AnyMessage, type ClientConnection, type ContentBlock, type InitializeResponse, type PromptResponse, type Stream } from '@agentclientprotocol/sdk';
 import { object, string } from '../../core/validation.js';
 import { ConsumerError, consumerLimits, type AgentConfig } from './config.js';
 import type { StartAgent } from './supervisor.js';
+
+// The consumer only needs requests and final responses. SDK 1.9 logs raw malformed
+// notifications and unknown response IDs, so none of those reach its dispatcher.
+function guardedStream(stream: Stream): Stream {
+  const pending = new Set<string | number>();
+  const writer = stream.writable.getWriter();
+  return {
+    writable: new WritableStream<AnyMessage>({
+      async write(message) {
+        if ('method' in message && 'id' in message && message.id !== null) pending.add(message.id);
+        await writer.write(message);
+      },
+      close: () => writer.close(),
+      abort: (reason: unknown) => writer.abort(reason),
+    }),
+    readable: stream.readable.pipeThrough(new TransformStream<AnyMessage, AnyMessage>({
+      transform(message, controller) {
+        const value = object(message);
+        if (value.jsonrpc !== '2.0') throw new ConsumerError('consumer_protocol_invalid');
+        if ('method' in value) {
+          if (typeof value.method !== 'string') throw new ConsumerError('consumer_protocol_invalid');
+          if (!('id' in value)) return;
+        }
+        if (typeof value.id !== 'string' && (typeof value.id !== 'number' || !Number.isSafeInteger(value.id))) throw new ConsumerError('consumer_protocol_invalid');
+        if (!('method' in value) && !pending.delete(value.id)) throw new ConsumerError('consumer_protocol_invalid');
+        controller.enqueue(message);
+      },
+    })),
+  };
+}
 
 export class AcpAgent {
   private child: ChildProcess;
@@ -19,7 +49,7 @@ export class AcpAgent {
   readonly closed = this.ended.promise;
 
   private constructor(private config: AgentConfig, env: Record<string, string>, signal: AbortSignal) {
-    this.child = spawn(process.execPath, [fileURLToPath(new URL('./supervisor.js', import.meta.url))], { stdio: ['pipe', 'pipe', 'pipe', 'ipc'] });
+    this.child = spawn('tini', ['-s', '--', process.execPath, fileURLToPath(new URL('./supervisor.js', import.meta.url))], { stdio: ['pipe', 'pipe', 'pipe', 'ipc'] });
     const abort = () => this.stop();
     signal.addEventListener('abort', abort, { once: true });
     this.child.on('message', (value: unknown) => {
@@ -54,8 +84,7 @@ export class AcpAgent {
       const output = Readable.toWeb(agent.child.stdout!) as unknown as ReadableStream<Uint8Array>;
       agent.connection = client({ name: 'imbrex-acp-consumer' })
         .onRequest('session/request_permission', () => { onPermissionDenied(); return { outcome: { outcome: 'cancelled' } }; })
-        .onNotification('session/update', () => {})
-        .connect(ndJsonStream(Writable.toWeb(agent.child.stdin!), output, { maxMessageBytes: consumerLimits.frameBytes }));
+        .connect(guardedStream(ndJsonStream(Writable.toWeb(agent.child.stdin!), output, { maxMessageBytes: consumerLimits.frameBytes })));
       agent.connection.closed.then(() => {
         if (!agent.stopping) { agent.stop(); onClosed(); }
       }).catch(() => agent.stop());
