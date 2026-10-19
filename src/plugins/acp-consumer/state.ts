@@ -5,12 +5,12 @@ import { isDeepStrictEqual } from 'node:util';
 import type { EventRef, SourceRule } from '../../core/types.js';
 import { eventRef, fields, json, object, position, string } from '../../core/validation.js';
 import type { ReadScope } from '../../host/plugin-api.js';
-import { ConsumerError, consumerLimits, type ConsumerConfig } from './config.js';
+import { ConsumerError, consumerLimits, type ConsumerConfig, type ConsumerFilter } from './config.js';
 import { nativeId } from '../onebot-v11/protocol.js';
 
 export interface Binding {
   input_id: string;
-  selection: { source_prefix: string; event_types: string[]; max_event_age_seconds: number };
+  selection: { source_prefix: string; event_types: string[]; max_event_age_seconds: number; filter?: ConsumerFilter };
   reader: { principal_id: string; sources: SourceRule[] };
   agent: { command: string; args: string[]; cwd: string; env_vars: string[] };
 }
@@ -24,7 +24,8 @@ export function bindingFor(config: ConsumerConfig, scope: ReadScope): Binding {
   const sources = structuredClone(scope.sources).sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0);
   return {
     input_id: config.inputId,
-    selection: { source_prefix: config.sourcePrefix, event_types: ['qq.message.group', 'qq.message.private'], max_event_age_seconds: config.maxAgeSeconds },
+    selection: { source_prefix: config.sourcePrefix, event_types: ['qq.message.group', 'qq.message.private'], max_event_age_seconds: config.maxAgeSeconds,
+      ...(config.filter === undefined ? {} : { filter: config.filter }) },
     reader: { principal_id: scope.principalId, sources },
     agent: { command: config.agent.command, args: config.agent.args, cwd: config.agent.cwd, env_vars: config.agent.envVars },
   };

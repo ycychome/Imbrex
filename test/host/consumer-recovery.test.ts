@@ -87,6 +87,20 @@ test('the documented npm entry keeps the reason private while backing up and res
   assert.equal((await f.run()).code, 1);
 });
 
+test('offline recovery preserves the consumer filter binding', async (t) => {
+  const f = await fixture(t);
+  f.state.selection.filter = { group_ids: ['987654'], private_user_ids: ['222222'] };
+  await f.save(f.state);
+  const result = await f.run();
+  assert.equal(result.code, 0, result.stderr);
+  const saved = await f.read();
+  assert.equal(saved.last_seq, '3'); assert.equal(saved.in_flight, null);
+  assert.deepEqual(saved.selection, f.state.selection);
+  const output = object(JSON.parse(result.stdout));
+  const backup = object(JSON.parse(await readFile(join(f.directory, output.backup as string), 'utf8')));
+  assert.deepEqual(object(backup.before).selection, f.state.selection);
+});
+
 test('abandonment with a new session removes only the pending conversation mapping', async (t) => {
   const f = await fixture(t);
   const result = await f.run({ action: 'abandoned' }, true);

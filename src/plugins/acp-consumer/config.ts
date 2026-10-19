@@ -7,9 +7,10 @@ import { nativeId } from '../onebot-v11/protocol.js';
 
 export const consumerLimits = { sessions: 32, frameBytes: 32 * 1024 * 1024, stateBytes: 256 * 1024, setupTimeoutMs: 5000, pollMs: 1000 } as const;
 export interface AgentConfig { command: string; args: string[]; cwd: string; envVars: string[] }
+export interface ConsumerFilter { group_ids: string[]; private_user_ids: string[] }
 export interface ConsumerConfig {
   inputId: string; sourcePrefix: string; accountId: string; identityNamespace: string;
-  maxAgeSeconds: number; turnTimeoutMs: number; agent: AgentConfig;
+  maxAgeSeconds: number; turnTimeoutMs: number; agent: AgentConfig; filter?: ConsumerFilter;
 }
 export class ConsumerError extends Error {
   constructor(readonly code: string) { super(code); }
@@ -27,7 +28,7 @@ function argument(value: unknown, allowEmpty = false): string {
 export function parseConsumerConfig(input: unknown): ConsumerConfig {
   const value = object(json(input, limits.valueBytes, 'invalid_request'));
   const required = ['input_id', 'source_prefix', 'max_event_age_seconds', 'agent'];
-  fields(value, [...required, 'turn_timeout_ms'], required);
+  fields(value, [...required, 'turn_timeout_ms', 'filter'], required);
   const inputId = string(value.input_id, 64);
   if (!namespacePattern.test(inputId)) fail('invalid_request');
   const sourcePrefix = string(value.source_prefix, 1024);
@@ -36,6 +37,16 @@ export function parseConsumerConfig(input: unknown): ConsumerConfig {
   const accountId = nativeId(parts[3]);
   const identityNamespace = parts[4]!;
   if (!namespacePattern.test(identityNamespace)) fail('invalid_request');
+  let filter: ConsumerFilter | undefined;
+  if (value.filter !== undefined) {
+    const selection = object(value.filter);
+    fields(selection, ['group_ids', 'private_user_ids'], ['group_ids', 'private_user_ids']);
+    const ids = (input: unknown): string[] => {
+      if (!Array.isArray(input)) fail('invalid_request');
+      return [...new Set(input.map((id) => nativeId(string(id, 20))))].sort();
+    };
+    filter = { group_ids: ids(selection.group_ids), private_user_ids: ids(selection.private_user_ids) };
+  }
   const agent = object(value.agent);
   fields(agent, ['command', 'args', 'cwd', 'env_vars'], ['command', 'args', 'cwd']);
   if (!Array.isArray(agent.args) || agent.args.length > 64) fail('invalid_request');
@@ -49,6 +60,7 @@ export function parseConsumerConfig(input: unknown): ConsumerConfig {
     inputId, sourcePrefix, accountId, identityNamespace,
     maxAgeSeconds: integer(value.max_event_age_seconds, 1, 86400),
     turnTimeoutMs: integer(value.turn_timeout_ms ?? 120000, 10, 600000),
+    ...(filter === undefined ? {} : { filter }),
     agent: { command: argument(agent.command), args: agent.args.map((item) => argument(item, true)), cwd, envVars: names.sort() },
   };
 }

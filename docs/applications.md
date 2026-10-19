@@ -98,13 +98,17 @@ M1 要验证当前存储中的事件续读、正常自动触发、未决输入�
 
 ## 9. M1-04 配置与状态格式
 
-builtin:acp-consumer 的配置包括 input_id、source_prefix、max_event_age_seconds、agent，另可指定 turn_timeout_ms。source_prefix 必须是规范的 imbrex://qq/<account>/<namespace>/；只触发该范围内可信的 qq.message.group/private 原始入站事件。最大年龄须显式给出，范围 1—86400 秒，示例为 300；超过当前时间 5 秒的来源时间也跳过。未提供来源时间时使用 accepted_at。
+builtin:acp-consumer 的配置包括 input_id、source_prefix、max_event_age_seconds、agent，另可指定 turn_timeout_ms 和 filter。source_prefix 必须是规范的 imbrex://qq/<account>/<namespace>/；只触发该范围内可信的 qq.message.group/private 原始入站事件。最大年龄须显式给出，范围 1—86400 秒，示例为 300；超过当前时间 5 秒的来源时间也跳过。未提供来源时间时使用 accepted_at。
+
+filter 同时包含 group_ids、private_user_ids 两个数组，ID 使用 OneBot 支持范围内的规范正十进制字符串，保存前去重排序。例如 `{ "group_ids": ["987654"], "private_user_ids": ["654321"] }` 允许指定群的入站消息（不额外限制发送者），或指定用户的私聊消息；私聊名单不放行该用户在其他群的消息。空数组不允许对应类型，两个空数组不触发任何输入；未配置 filter 保持原行为。过滤发生在创建/恢复会话和提交 prompt 之前，被排除的事件仍推进 last_seq，并记录 consumer_skip_filter。该配置仅控制 Consumer 触发，不改变连接器采集范围或 Agent 的 MCP 读取与调用权限。
 
 agent 包含 command、args、绝对 cwd 和可选 env_vars。启动时解析实际可执行文件与真实工作目录并保存绑定；env_vars 指定从宿主传给 Agent 的环境变量名称，缺失时拒绝启动。PATH、HOME、USER、LOGNAME、LANG、LC_ALL、TMPDIR 随进程基础环境传递；env_vars 的值不写状态文件，凭据应通过该通道提供而不是写进 command/args。Agent 自身历史与配置被人工更换时必须按恢复规则处理。
 
 一次只处理一个输入，补查间隔 1 秒；握手/会话操作超时 5 秒，prompt 默认超时 120 秒，turn_timeout_ms 范围 10—600000。最多保留 32 个会话关联；状态文件最多 256 KiB，ACP 单帧最多 32 MiB，为较大的 MCP 上下文和 pi-acp 转发的原始工具输出预留容量。达到上限暂停并报告，不自动丢弃历史关联。客户端不声明文件或终端委托，权限请求一律有界返回 cancelled。
 
-consumer-state.json 使用 version=1，包含 input_id、store_id、last_seq、selection、reader、agent、agent_info、sessions、in_flight。selection 保存 source_prefix、event_types 与最大年龄；reader 保存 api.events.readScope() 得到的主体与来源范围；agent 保存实际 command、args、cwd、env_vars 名称；agent_info 保存已观察的名称/版本或 null。sessions 是完整可信会话 source 到 ACP sessionId 的映射，in_flight 为 source/id/seq/conversation/session_id 或 null。位置全部为十进制字符串。
+consumer-state.json 使用 version=1，包含 input_id、store_id、last_seq、selection、reader、agent、agent_info、sessions、in_flight。selection 保存 source_prefix、event_types、最大年龄与已配置的 filter；未配置时不写 filter，兼容原有状态。reader 保存 api.events.readScope() 得到的主体与来源范围；agent 保存实际 command、args、cwd、env_vars 名称；agent_info 保存已观察的名称/版本或 null。sessions 是完整可信会话 source 到 ACP sessionId 的映射，in_flight 为 source/id/seq/conversation/session_id 或 null。位置全部为十进制字符串。
+
+filter 的新增、移除或名单成员变化沿用 consumer_binding_changed 暂停；名单排序或重复项不影响绑定。离线恢复保留原 filter，不改变输入范围。
 
 读取范围、主体、Agent 程序/工作目录等绑定改变时暂停；in_flight 非空时不启动 Agent 重投。新进程只有成功协商并执行 session/load 后才可使用旧会话。正文不写本地消费状态；诊断输出 input_id 和事件引用摘要，消息、凭据与远端异常正文不进入日志。
 

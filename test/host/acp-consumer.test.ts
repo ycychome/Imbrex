@@ -12,6 +12,7 @@ import { parseConfig } from '../../src/host/config.js';
 import { loadModules } from '../../src/host/modules.js';
 import type { PluginApi } from '../../src/host/plugin-api.js';
 import { object } from '../../src/core/validation.js';
+import { parseConsumerConfig } from '../../src/plugins/acp-consumer/config.js';
 import { mapMessage, parseOneBotConfig } from '../../src/plugins/onebot-v11/protocol.js';
 import { numericFixture, stringFixture } from '../../examples/onebot/fixtures.js';
 import { startSimulator } from '../../examples/onebot/simulator.js';
@@ -110,6 +111,83 @@ test('consumer starts at now, filters inputs, saves before prompting and keeps p
   await f.append(10); await until(async () => (await f.state()).last_seq === '10');
   assert.equal((await f.logs('request')).filter((entry) => entry.method === 'session/load').length, 1);
   assert.equal((await f.logs('prompt')).at(-1)?.session_id, prompts[0]!.session_id);
+});
+
+test('consumer filter accepts the selected group or private user without mixing the two lists', async (t) => {
+  const f = await fixture(t, 'normal', false);
+  f.config.plugins.find((plugin) => plugin.id === 'agent')!.config.filter = { group_ids: ['987654'], private_user_ids: ['654321'] };
+  await f.host().startPlugin('agent'); await until(() => f.status().available);
+  await f.append(101, 'group', { user_id: 222222 });
+  await f.append(102, 'private');
+  const otherGroup = f.input(103);
+  otherGroup.event.source = 'imbrex://qq/123456/main/group/654321';
+  object(otherGroup.event.data).conversation_id = '654321';
+  await f.writer().events.append(otherGroup);
+  const otherPrivate = f.input(104, 'private');
+  otherPrivate.event.source = 'imbrex://qq/123456/main/private/987654';
+  object(otherPrivate.event.data).conversation_id = '987654';
+  object(otherPrivate.event.data).sender_id = '987654';
+  await f.writer().events.append(otherPrivate);
+  await until(async () => (await f.state()).last_seq === '4');
+  assert.deepEqual((await f.logs('prompt')).map((entry) => entry.id), ['message:101', 'message:102']);
+  assert.deepEqual(Object.keys(object((await f.state()).sessions)).sort(), [
+    'imbrex://qq/123456/main/group/987654', 'imbrex://qq/123456/main/private/654321',
+  ]);
+  assert.equal((await f.logs('request')).filter((entry) => entry.method === 'session/new').length, 2);
+  f.config.plugins.find((plugin) => plugin.id === 'agent')!.enabled = true;
+  await f.restart(); await until(() => f.status().available);
+  await f.append(105, 'private');
+  await until(async () => (await f.state()).last_seq === '5');
+  assert.deepEqual((await f.logs('prompt')).map((entry) => entry.id), ['message:101', 'message:102', 'message:105']);
+});
+
+test('empty consumer filter advances past group and private events without creating sessions', async (t) => {
+  const f = await fixture(t, 'normal', false);
+  f.config.plugins.find((plugin) => plugin.id === 'agent')!.config.filter = { group_ids: [], private_user_ids: [] };
+  await f.host().startPlugin('agent'); await until(() => f.status().available);
+  await f.append(111); await f.append(112, 'private');
+  await until(async () => (await f.state()).last_seq === '2');
+  assert.deepEqual((await f.state()).sessions, {});
+  assert.equal((await f.state()).in_flight, null);
+  assert.deepEqual(await f.logs('prompt'), []);
+  assert.equal((await f.logs('request')).filter((entry) => entry.method === 'session/new').length, 0);
+});
+
+test('consumer filter rejects incomplete or invalid lists instead of silently broadening input', async () => {
+  const config = { input_id: 'qq-inbound', source_prefix: 'imbrex://qq/123456/main/', max_event_age_seconds: 300,
+    agent: { command: process.execPath, args: [], cwd: tmpdir() } };
+  for (const filter of [null, {}, { group_ids: [] }, { group_ids: [], private_user_ids: '654321' },
+    { group_ids: [987654], private_user_ids: [] }, { group_ids: [], private_user_ids: ['0654321'] }]) {
+    assert.throws(() => parseConsumerConfig({ ...config, filter }));
+  }
+});
+
+test('filter membership changes pause old state while list order and duplicates preserve the binding', async (t) => {
+  const f = await fixture(t, 'normal', false);
+  const config = f.config.plugins.find((plugin) => plugin.id === 'agent')!.config;
+  config.filter = { group_ids: ['987654', '111111'], private_user_ids: ['654321', '222222'] };
+  await f.host().startPlugin('agent'); await until(() => f.status().available);
+  await f.append(121); await until(async () => (await f.state()).last_seq === '1');
+  config.filter = { group_ids: ['111111', '987654', '987654'], private_user_ids: ['222222', '654321'] };
+  f.config.plugins.find((plugin) => plugin.id === 'agent')!.enabled = true;
+  await f.restart(); await until(() => f.status().available);
+  await f.host().stopPlugin('agent');
+  const saved = await f.state();
+  const boots = (await f.logs('boot')).length;
+  for (const filter of [{ group_ids: ['987654'], private_user_ids: ['222222', '654321'] }, undefined]) {
+    if (filter === undefined) delete config.filter; else config.filter = filter;
+    await f.host().startPlugin('agent');
+    assert.equal(f.status().last_error?.code, 'consumer_binding_changed');
+    assert.deepEqual(await f.state(), saved);
+    await f.host().stopPlugin('agent');
+  }
+  const unfiltered = structuredClone(saved); delete object(unfiltered.selection).filter;
+  await writeFile(f.stateFile, JSON.stringify(unfiltered));
+  config.filter = { group_ids: ['987654'], private_user_ids: ['654321'] };
+  await f.host().startPlugin('agent');
+  assert.equal(f.status().last_error?.code, 'consumer_binding_changed');
+  assert.deepEqual(await f.state(), unfiltered);
+  assert.equal((await f.logs('boot')).length, boots);
 });
 
 test('uncertain ACP turns keep in_flight and a restart never replays the prompt', async (t) => {
