@@ -2,6 +2,8 @@
 
 统一开发基线 0.3。**本文件规定 M0 已实现的线上表达，SSE 等后续接口仍未启用。** 事件行为见 [事件与存储](storage-and-recovery.md)，能力行为见 [能力契约](capabilities.md)。
 
+M1 计划在同一监听上增加 `/v1/mcp`，采用 MCP Streamable HTTP 而非本文件的 REST 路由表达；共用领域授权、类型与调用语义，见 [Agent 接入](agent-integration.md)。该端点目前未实现，也不代表事件订阅 SSE 已启用。
+
 ## 1. 公共约定
 
 - 路径前缀 `/v1`，请求/响应为 UTF-8 application/json；发布封装内部 event 才是 CloudEvent。

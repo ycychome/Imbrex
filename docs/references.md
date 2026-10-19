@@ -157,3 +157,46 @@ https://github.com/SnowLuma/SnowLuma/blob/38fc636088b98aa35a969b2aabe240d57b04db
 ```
 
 这支持把 SnowLuma 纳入同一个 onebot-v11 插件的候选服务，不证明其全部行为与 NapCat 相同，也不构成两者成熟度或可靠性的排名。未在本项目安装、登录或运行兼容测试；实际服务版本与支持项在 T09 记录。
+
+<a id="r12"></a>
+
+## R12 · MCP Streamable HTTP
+
+M1 补充核对日期：2026-10-19。读取 MCP 2025-11-25 的传输规范：Streamable HTTP 使用 MCP 端点，包含初始化与可选会话管理；本地部署应限制监听地址，验证 Origin 并认证连接。MCP 的传输流不提供 Imbrex 事件 ACK 或消费检查点。
+
+```text
+https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
+```
+
+M1 选择在既有监听上挂载 /v1/mcp，直接复用内核授权、事件与调用服务。协议 SDK 版本、具体 Tools/Resources 映射和运行互通在 M1-02/M1-03 锁定并验证；当前来源观察不构成已支持 MCP 的声明。
+
+<a id="r13"></a>
+
+## R13 · Agent Client Protocol
+
+观察日期：2026-10-19。官方传输文档规定 stdio 的客户端启动子进程、按行交换 JSON-RPC，stderr 可以承载日志；Streamable HTTP 仍标为讨论草案。因此 M1 选 stdio，不假定存在通用远程 ACP URL。
+
+会话与轮次文档规定 session/new 分配 sessionId、session/prompt 接收内容块数组、session/update 报告过程更新，正常最终响应使用 stopReason=end_turn。session/load、resume 及客户端文件/终端能力需按实际协商结果使用；一轮结束不证明外部工具产生了成功效果。
+
+```text
+https://agentclientprotocol.com/protocol/transports
+https://agentclientprotocol.com/protocol/session-setup
+https://agentclientprotocol.com/protocol/prompt-turn
+```
+
+上述为观察时的在线规范，实际协议库、版本和支持项在 M1-04 记录；未将草案或可选能力算作已实现。
+
+<a id="r14"></a>
+
+## R14 · pi 与 pi-acp
+
+观察日期：2026-10-19。读取 pi-acp 的官方 README：它通过 ACP stdio 对接客户端并启动 pi --mode rpc，利用 pi 的会话文件和自身映射支持恢复。该 README 同时说明 ACP mcpServers 参数没有接通到 pi，且 pi 直接访问本地文件和执行命令，不通过 ACP 文件/终端委托。
+
+读取 pi 官方 MCP 文档：原生支持 stdio 与 Streamable HTTP，用户级配置为 ~/.pi/agent/mcp.json，项目级为 .pi/mcp.json，项目配置受信任设置约束。M1 首接使用 pi 自己的 MCP 配置，记录有效连接与工具调用结果，不把 ACP 参数中出现一个服务器条目视作联通。
+
+```text
+https://github.com/svkozak/pi-acp/blob/main/README.md
+https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md
+```
+
+这些链接是当日读取的上游入口，尚未成为 Imbrex 的锁定运行依赖。M1-03/M1-04 必须固定实际版本、验证 MCP/ACP 接缝、权限请求和后代进程清理；不由此承诺任意 ACP Agent 可直接替换或已有运行兼容。

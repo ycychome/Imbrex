@@ -13,7 +13,8 @@
 | 传输 | 首版正向通用 WebSocket | Imbrex 作为客户端，一条连接收事件和调动作 |
 | Imbrex 插件 | builtin:onebot-v11 | 协议编解码、连接管理、QQ 事件映射与能力封装 |
 | 通用内核 | events/capabilities | 存储、读取、授权及调用记录，不认识具体 QQ 实现 |
-| 应用 | 独立 Agent 与第二消费者 | 选择输入、分析、决定回复、保存自己的状态 |
+| 输入消费 | acp-consumer 插件 | 筛选入站触发、通过 ACP 提交给 Agent、保存最少进度与未决状态 |
+| Agent | 现成 pi/pi-acp | 分析与上下文管理，通过 MCP 查询网关并按需调用能力 |
 
 不调用 NapCat/SnowLuma 的私有 SDK，不访问其数据库或把它们的运行时嵌入 Imbrex。其他来源插件也不需要先伪装成 OneBot。
 
@@ -29,7 +30,9 @@ flowchart LR
     V <--> M["QQ 事件映射 / reply 能力"]
     C["按证据增加的兼容适配"] -.-> V
     M <--> K["Imbrex 通用内核"]
-    A["独立 Agent"] -->|HTTP 读取 / 调用| K
+    A["独立 Agent"] -->|MCP 上下文 / 调用| K
+    U["acp-consumer"] -->|绑定 API 读取| K
+    U <-->|ACP / stdio| A
 ```
 
 这些是同一插件内的职责分工，不要求三个插件或多个进程。默认 generic 路径只使用标准动作/事件；有实际差异才增加小的兼容适配，不能复制两套完整的 NapCat/SnowLuma 连接器。
@@ -152,9 +155,13 @@ status=ok、retcode 与合法的 message_id 等确定结果共同核验后，才
 
 成功 result 返回 native message_id 的字符串表示及必要账号/会话信息；它不表示对方已读。
 
+`qq-main` 是配置实例的例子，能力通用形式为 `<instance>.reply`，MCP 不硬编码 QQ 或具体 OneBot 实现。当前插件选定的 v11 事件类型、账号与消息段仍有 QQ 语义；这不构成跨平台兼容承诺。
+
 ## 8. Agent 与第二消费者
 
-Agent 优先接用户已有后端；必要时提供一个小型桥接或参考进程，主动读取允许来源，选择有限上下文，持久保存 reply/no_reply 决定及 call_id，再调用统一能力。具体恢复流程见[应用消费](applications.md)。
+M1 首接复用 pi 与现成 pi-acp。acp-consumer 通过绑定 API 读取并筛选输入，再经 ACP stdio 提交；Agent 通过同一个 MCP adapter 查询上下文与调用 reply，模型循环和历史由 Agent 管理。具体协议分工见 [Agent 接入](agent-integration.md)。
+
+Consumer 保存输入位置、会话关联和 prompt 提交前的 in_flight；中断未确认时暂停，不重跑整轮 Agent。正常 end_turn 不证明平台回复成功，动作结果仍按 calls 查询。不再建设参考 Agent 决策库或独立发送循环，恢复流程见[应用消费](applications.md)。
 
 输入来自哪个 OneBot 实现不改变 Agent 的工具 schema、调用协议或内核访问方式。历史上下文、自发回流和诊断事件不成为新回复触发；旧消息策略在真实试用前明确。
 

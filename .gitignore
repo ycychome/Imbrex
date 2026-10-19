@@ -6,6 +6,7 @@
 
 # Local private material and archived design drafts
 /.private/
+/disc/
 
 # Default runtime data (events, calls, and plugin state)
 /data/
