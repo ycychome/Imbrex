@@ -376,3 +376,41 @@ test('killing the public host releases its lock, reaps the Agent tree, and resta
   assert.ok(!first.stderr().includes('fixture-private-agent-error'));
   second.child.kill('SIGTERM'); await second.ended;
 });
+
+test('offline recovery preserves an unknown call and resumes with only a new input and session', async (t) => {
+  const f = await fixture(t, 'reply-crash');
+  f.sim.mode = 'async';
+  f.sim.broadcast({ ...numericFixture, message_id: 82, time: Math.floor(Date.now() / 1000) });
+  await until(() => f.status().last_error?.code === 'consumer_in_flight_unconfirmed');
+  assert.equal((await f.logs('call'))[0]?.status, 'unknown');
+  const saved = await f.state();
+  const oldSession = (await f.logs('prompt'))[0]!.session_id;
+  await f.host().close();
+  const recovery = spawn(process.execPath, [fileURLToPath(new URL('../../src/cli/recover.js', import.meta.url)),
+    '--data-dir', f.config.dataDir, '--instance', 'agent', '--store-id', String(saved.store_id),
+    '--seq', String(object(saved.in_flight).seq), '--action', 'abandoned', '--new-session', '--reason', 'fixture: preserve unknown and abandon input',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '', stderr = '';
+  recovery.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+  recovery.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+  const code = await new Promise<number | null>((resolve, reject) => { recovery.once('error', reject); recovery.once('close', resolve); });
+  assert.equal(code, 0, stderr);
+  assert.equal(object(JSON.parse(stdout)).last_seq, '1');
+  assert.equal((await f.state()).in_flight, null);
+  await f.setControl({ mode: 'reply' }); f.sim.mode = 'ok';
+  await f.restart(); await until(() => f.status().available);
+  const response = await fetch('http://127.0.0.1:' + f.host().port + '/v1/calls/acp-fixture:1?store_id=' + saved.store_id,
+    { headers: { authorization: 'Bearer ' + f.values.IMBREX_QQ_AGENT_TOKEN } });
+  assert.equal(object(object(await response.json()).call).status, 'unknown');
+  f.sim.broadcast({ ...numericFixture, message_id: 82, time: Math.floor(Date.now() / 1000) });
+  await delay(50);
+  assert.equal(f.sim.actions.length, 1); assert.equal((await f.logs('prompt')).length, 1);
+  f.sim.broadcast({ ...numericFixture, message_id: 83, time: Math.floor(Date.now() / 1000) });
+  await until(async () => (await f.logs('call')).length === 2);
+  const accepted = await f.writer().events.lookup({ source: f.input(83).event.source, id: 'message:83' });
+  await until(async () => (await f.state()).last_seq === accepted.seq.toString());
+  assert.ok(accepted.seq > BigInt(String(saved.last_seq)));
+  assert.equal(f.sim.actions.length, 2); assert.equal((await f.logs('prompt')).length, 2);
+  assert.notEqual((await f.logs('prompt'))[1]!.session_id, oldSession);
+  assert.equal((await f.logs('call'))[1]?.status, 'succeeded');
+});

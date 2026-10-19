@@ -52,4 +52,4 @@ test/host/acp-consumer.test.ts 在真实 Host/SQLite/HTTP 上启动独立的逐�
 
 本地状态位于 data_dir/plugins/<instance>/consumer-state.json，格式、绑定和故障规则见 [应用消费](../applications.md)。in_flight 非空时重启仍暂停，不启动 Agent 重投。诊断的 event_ref_hash 用于关联日志，完整引用只保存在受限的本地状态与已授权事件中。
 
-人工处置前停止 Consumer/宿主，确认其 Agent 已退出，保留状态副本，用原 Agent 主体与真实 call_id 查询调用记录并核验平台证据。确认已处理或明确放弃后才可原子更新该输入的位置、清除 in_flight 并记录原因；恢复能力不足时显式选择新会话。unknown 不换 ID 自动补发。未经验证的真实服务、模型配置和人工恢复演示继续在 M1-05 记录。
+人工处置前用原 Agent 主体与真实 call_id 查询调用记录并核验平台证据，再停止整个宿主，确认其 Agent 已退出。已提供离线恢复 CLI，持锁核对状态并先保存含原因的备份，再处置当前未决输入；恢复能力不足时显式选择新会话。unknown 不换 ID 自动补发。命令与模拟恢复结果见 [M1-05](m1-operations.md)，真实服务和模型轮次仍待配置后执行。

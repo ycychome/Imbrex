@@ -1,6 +1,6 @@
 # 验证与验收
 
-统一开发基线 0.3。**M0 的 T01—T03 与 T05/T06 公共部分已验证；M1 的 OneBot、MCP、ACP 路径、T04/T07/T09 的真实范围和 M2 的 T08 完整范围尚待执行。** 已执行步骤与证据见[M0 运行验收](experiments/m0-runtime.md)，不代表 QQ 或 Agent 已运行通过。阶段与任务见 [开发计划](development-plan.md)。
+统一开发基线 0.3。**M0 的 T01—T03 与 T05/T06 公共部分已验证；M1 的 OneBot、MCP、ACP 协议模拟和人工恢复已验证，真实 pi 模型轮次、T04/T07/T09 的真实 QQ 范围与 M2 的 T08 完整范围仍待执行。** 已执行证据见[M0 运行验收](experiments/m0-runtime.md)、[OneBot](experiments/m1-onebot.md)、[MCP](experiments/m1-mcp.md)、[ACP](experiments/m1-acp.md)与[恢复记录](experiments/m1-operations.md)。阶段与任务见 [开发计划](development-plan.md)。
 
 ## 1. 验证方式
 
