@@ -60,7 +60,7 @@ tools/list 按每次请求的主体权限过滤以下工具。能力清单由 im
 | imbrex_invoke | store_id、capability_id、params | 外部写必填 call_id，只读能力省略；返回核心 result 或 call |
 | imbrex_get_call | store_id、call_id | 返回本主体的核心 call；原插件离线后仍可查 |
 
-参数 schema 由 tools/list 提供，未知业务参数拒绝；store_id 为字符串，位置是规范十进制字符串，limit 是 1—100 的整数。字符串、JSON 大小与深度限制沿用 HTTP 契约。工具发现只是一份当前视图，执行重新检查权限、存储身份、参数与提供者状态，不凭模型提示授权。没有事件写入、原始 OneBot Action 或任意收件人工具。
+参数 schema 由 tools/list 提供，未知业务参数拒绝；store_id 为字符串，位置是规范十进制字符串，limit 是 1—100 的整数。字符串、JSON 大小与深度限制沿用 HTTP 契约。SDK 转换前检查原始工具请求，业务 schema 校验使用保留的原始 arguments，不因 SDK 删除字段而放行非法请求。工具发现只是一份当前视图，执行重新检查权限、存储身份、参数与提供者状态，不凭模型提示授权。没有事件写入、原始 OneBot Action 或任意收件人工具。
 
 工具响应的 content 文本与 structuredContent 提供相同 JSON。核心错误返回 isError=true 和 error.code/message、request_id；外部写结果为 failed、unknown 或 in_progress 时也标记 isError=true，并保留完整 call。查询未知调用成功仅表示查询成功，必须继续检查 call.status；不能从 MCP 协议成功或查询的 isError=false 推断远端发送成功。
 

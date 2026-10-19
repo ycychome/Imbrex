@@ -160,3 +160,20 @@ test('a lost MCP response keeps one write and the original principal can query i
   await app.stopPlugin('provider');
   assert.deepEqual(payload(await call(client, 'imbrex_get_call', query)).call, recorded);
 });
+
+test('SDK field filtering cannot turn an invalid raw request into an accepted write', async (t) => {
+  const { url, connect, call, storeId, control } = await fixture(t);
+  const client = await connect();
+  const args = { store_id: storeId, capability_id: 'provider.write', call_id: 'invalid-original', params: { text: 'fixture' } };
+  const prototypeKey = rpc('imbrex_invoke', args);
+  Object.defineProperty(prototypeKey.params.arguments, '__proto__', { value: {}, enumerable: true });
+  const rejected = await fetch(url, { method: 'POST', headers, body: JSON.stringify(prototypeKey) });
+  const result = object(object(await rejected.json()).result);
+  assert.equal(result.isError, true); assert.equal(errorCode(result), 'invalid_params');
+  const unknownParameter = rpc('imbrex_invoke', { ...args, call_id: 'forged-envelope' });
+  Object.assign(unknownParameter.params, { caller_id: 'provider' });
+  const envelope = await fetch(url, { method: 'POST', headers, body: JSON.stringify(unknownParameter) });
+  assert.equal(envelope.status, 400); assert.equal(object(object(await envelope.json()).error).code, 'invalid_request');
+  assert.equal(control.writes, 0);
+  assert.equal(errorCode(await call(client, 'imbrex_get_call', { store_id: storeId, call_id: args.call_id })), 'call_not_found');
+});
