@@ -70,6 +70,8 @@
 
 操作者明确选择确认已处理或放弃该输入后，记录处置原因，并在 Consumer 停止期间原子更新该输入的 last_seq、清除 in_flight；不得借此跳过其他未处理输入。需要补发时按[能力契约](capabilities.md)显式建立新意图并关联旧记录，不让 Consumer 自动重播旧 prompt。不支持恢复旧 ACP 会话时，需明确选择新会话再恢复运行。
 
+已提供 npm --silent run consumer:recover 的离线入口，实际命令见[恢复记录](experiments/m1-operations.md)。必须停止整个宿主并取得同一 data_dir/.lock；核对指定 store_id、未决 seq、事件引用与会话关联后，先持久保存含原因的私有备份，再一次替换状态。processed 与 abandoned 都只推进当前未决输入；--new-session 仅移除该会话映射。reset-sessions 仅在没有未决输入且指定 seq 等于 last_seq 时清空会话，位置不变。命令不执行模型、能力或 SQLite 调用恢复，也不修改读取/Agent 绑定。状态替换后发生同步错误时，需检查当前文件与备份，不能盲目重试。
+
 ## 6. 历史、积压与循环
 
 Consumer 只对连接器映射的允许入站消息触发。自己发送的回流、派生分析和诊断事件可作为上下文，默认不触发；不能仅靠 prompt 要求模型不要循环。

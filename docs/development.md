@@ -40,6 +40,7 @@ npm run check
 | `npm run check` | 类型检查、构建和测试 |
 | `npm run clean` | 删除生成的 dist |
 | `npm start -- --config examples/demo.json` | 经 Linux flock 启动演示宿主；先完成构建和环境变量配置 |
+| `npm --silent run consumer:recover -- --help` | 查看离线 ACP Consumer 恢复参数；实际处置须停止宿主并核对原调用 |
 
 当前代码包含核心、SQLite worker、HTTP、Cordis 宿主、演示插件和 CLI，构建也编译 examples/plugins 中的模板。安装、编译、测试和运行不依赖 `.private/`。node_modules、dist、coverage 和默认运行数据 data 均被 Git 忽略。
 
