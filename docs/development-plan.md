@@ -42,7 +42,7 @@
 
 | 任务 | 模块与具体工作 | 必要验证 |
 | --- | --- | --- |
-| M1-01 | `src/plugins/onebot-v11/`：正向通用 WS、认证与账号核对、重连、入站映射、来源范围和 `<instance>.reply`；附小型 OneBot 模拟服务 | T04/T05/T06/T09：可信原事件决定回复目标，实际 Action 参数、重复输入、账号隔离、超限帧与发送未知结果；两组独立协议夹具 |
+| M1-01（开发中） | `src/plugins/onebot-v11/`：正向通用 WS、认证与账号核对、重连、入站映射、来源范围和 `<instance>.reply`；附小型 OneBot 模拟服务 | T04/T05/T06/T09：可信原事件决定回复目标，实际 Action 参数、重复输入、账号隔离、超限帧与发送未知结果；两组独立协议夹具 |
 | M1-02 | `src/adapters/mcp/`：在现有监听上挂载 `/v1/mcp` Streamable HTTP；按主体提供事件上下文、受限能力发现/调用和自己的调用查询 | T03/T05/T06 的 MCP 路径：发现与执行均鉴权，store_id/序号/call_id 不失真，结果不把 unknown 当成功 |
 | M1-03 | OneBot 模拟服务 + Imbrex + 人工驱动的 pi 演示；记录实际 pi/MCP 配置、版本和运行命令 | 真实 pi 能查到模拟输入、调用 reply，模拟服务收到正确 Action；不回复路径不发送；本项不需要真实 QQ 账号 |
 | M1-04 | `src/plugins/acp-consumer/`：通过 stdio 启动配置的 ACP 程序，首接 pi-acp；读事件并筛选触发、关联平台会话与 ACP session、处理客户端请求、清理进程；保存最少消费状态 | T07：正常自动触发；发送 prompt 前持久保存 in_flight；未确认结束时暂停、不重放；会话不串用，停用/崩溃后资源按约定清理 |
