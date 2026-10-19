@@ -9,7 +9,7 @@ import { inspectRecoveryStore } from '../storage/recovery.js';
 import { consumerLimits, parseConsumerConfig } from '../plugins/acp-consumer/config.js';
 import { bindingFor, loadState, type Binding } from '../plugins/acp-consumer/state.js';
 
-export const recoveryUsage = 'npm run consumer:recover -- --data-dir <directory> --instance <id> --store-id <expected> --seq <expected> --action <processed|abandoned|reset-sessions> --reason <text> [--new-session]';
+export const recoveryUsage = 'npm --silent run consumer:recover -- --data-dir <directory> --instance <id> --store-id <expected> --seq <expected> --action <processed|abandoned|reset-sessions> --reason <text> [--new-session]';
 export interface RecoveryOptions {
   dataDir: string; instance: string; storeId: string; seq: bigint;
   action: 'processed' | 'abandoned' | 'reset-sessions'; reason: string; newSession: boolean;

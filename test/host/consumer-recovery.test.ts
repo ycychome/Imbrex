@@ -13,7 +13,7 @@ import { bindingFor, type ConsumerState } from '../../src/plugins/acp-consumer/s
 import { mapMessage, parseOneBotConfig } from '../../src/plugins/onebot-v11/protocol.js';
 import { numericFixture } from '../../examples/onebot/fixtures.js';
 
-const entry = fileURLToPath(new URL('../../src/cli/recover.js', import.meta.url));
+const projectRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const group = 'imbrex://qq/123456/main/group/987654';
 const privateSource = 'imbrex://qq/123456/main/private/222222';
 async function fixture(t: TestContext) {
@@ -46,7 +46,7 @@ async function fixture(t: TestContext) {
     const options = { 'data-dir': directory, instance: 'agent', 'store-id': storeId, seq: '3', action: 'processed', reason: 'fixture operator checked original call', ...overrides };
     const args = Object.entries(options).flatMap(([key, value]) => ['--' + key, value]);
     if (newSession) args.push('--new-session');
-    const child = spawn(process.execPath, [entry, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('npm', ['--silent', 'run', 'consumer:recover', '--', ...args], { cwd: projectRoot, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
     child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
@@ -61,7 +61,7 @@ async function fixture(t: TestContext) {
   return { directory, pluginDir, path, state, run, read, save, calls };
 }
 
-test('recovery durably backs up the prior state and resolves only the pending input without changing calls', async (t) => {
+test('the documented npm entry keeps the reason private while backing up and resolving only the pending input', async (t) => {
   const f = await fixture(t);
   const beforeCalls = f.calls();
   assert.equal(beforeCalls[0]!.status, 'in_progress');
@@ -83,6 +83,7 @@ test('recovery durably backs up the prior state and resolves only the pending in
   assert.equal((await stat(join(f.pluginDir, 'recovery'))).mode & 0o777, 0o700);
   assert.equal((await stat(f.path)).mode & 0o777, 0o600);
   assert.ok(!result.stdout.includes(backup.reason as string));
+  assert.ok(!result.stderr.includes(backup.reason as string));
   assert.equal((await f.run()).code, 1);
 });
 

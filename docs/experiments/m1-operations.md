@@ -6,7 +6,9 @@
 
 先构建 npm run build。查看完整参数：
 
-    npm run consumer:recover -- --help
+    npm --silent run consumer:recover -- --help
+
+恢复操作统一使用 --silent 关闭 npm 自身的命令参数回显；普通 npm run 会将 --reason 的内容打印到 stdout。也可直接运行 node dist/src/cli/recover.js，参数相同。此处的输出脱敏不代替对本地命令历史和进程参数的访问控制，原因中仍不得包含凭据或消息全文。
 
 Consumer 暂停时，先在宿主仍可查询期间，用原 Agent 主体通过 imbrex_get_call 或现有单条 calls HTTP 接口查询实际 store_id/call_id，并核对 Agent 会话和平台接收记录。operator 没有跨主体调用查询权限；猜测的 call_id 查询不到不表示没有发送。无法建立输入与调用关联时保持未确认。
 
@@ -14,14 +16,14 @@ Consumer 暂停时，先在宿主仍可查询期间，用原 Agent 主体通过 
 
 从已核验记录中设置 EXPECTED_STORE_ID 和 EXPECTED_PENDING_SEQ，后者必须是当前 in_flight.seq 的规范十进制字符串。确认本条已处理后执行：
 
-    npm run consumer:recover -- \
+    npm --silent run consumer:recover -- \
       --data-dir data/acp --instance agent \
       --store-id "$EXPECTED_STORE_ID" --seq "$EXPECTED_PENDING_SEQ" \
       --action processed --reason '已核对原调用与会话记录，确认本条处理结束'
 
 明确放弃该输入、并为它的会话选择新的 ACP session：
 
-    npm run consumer:recover -- \
+    npm --silent run consumer:recover -- \
       --data-dir data/acp --instance agent \
       --store-id "$EXPECTED_STORE_ID" --seq "$EXPECTED_PENDING_SEQ" \
       --action abandoned --new-session --reason '保留未知调用，放弃本条自动处理并启用新会话'
@@ -30,7 +32,7 @@ Consumer 暂停时，先在宿主仍可查询期间，用原 Agent 主体通过 
 
 Agent 不支持恢复旧 session，或操作者决定全部重新建会话时，必须已无 in_flight，并用当前 last_seq 作为 EXPECTED_LAST_SEQ：
 
-    npm run consumer:recover -- \
+    npm --silent run consumer:recover -- \
       --data-dir data/acp --instance agent \
       --store-id "$EXPECTED_STORE_ID" --seq "$EXPECTED_LAST_SEQ" \
       --action reset-sessions --reason '原会话不可恢复，保留进度并显式重新建立会话'
@@ -63,7 +65,9 @@ reset-sessions 清空全部会话关联和观察到的 Agent 名称/版本，保
 
 针对锁竞争、错误 store_id/位置、错误事件关联、备份失败、路径重定向和 session 重置编写实际 CLI 测试。调用表包含 in_progress 的对照记录，用于确认恢复工具没有运行普通数据库启动恢复。ACP 集成演练覆盖 unknown 工具结果后 Agent 中断、人工放弃并显式换会话、重启仅处理新输入。
 
-基于已合入 M1-04 的主线执行 npm ci、npm run check：类型检查与构建通过，97 tests / 97 pass / 0 fail。其中新增6项恢复 CLI 测试和1项完整模拟恢复演练。演练保留原 unknown 调用，旧输入重复上报后 Action 仍为1次，新输入通过新 session 完成后 Action 合计2次；检查点与新事件实际 seq 一致，不假定序号连续。npm run consumer:recover -- --help 也实际执行通过。
+基于已合入 M1-04 的主线执行 npm ci、npm run check：类型检查与构建通过，97 tests / 97 pass / 0 fail。其中新增6项恢复 CLI 测试和1项完整模拟恢复演练。演练保留原 unknown 调用，旧输入重复上报后 Action 仍为1次，新输入通过新 session 完成后 Action 合计2次；检查点与新事件实际 seq 一致，不假定序号连续。npm --silent run consumer:recover -- --help 也实际执行通过。
+
+独立审查复现 npm 普通运行时回显处置原因后，已将6项 CLI 测试改为实际调用文档中的 npm --silent run 入口，检查 stdout/stderr 均无原因正文、备份仍保存完整原因，避免只测试下层 Node 入口。
 
 ## 真实接入准备
 
