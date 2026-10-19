@@ -90,6 +90,8 @@ ACP 权限交互不构成整个 Agent 的沙箱。pi-acp 当前说明 pi 直接�
 
 ## 4. pi 的 MCP 配置与两阶段演示
 
+已实际运行 pi 1.3.0 的 MCP 发现与 pi-acp 0.0.34 的 initialize。配置、可执行连接检查、回复/不回复演示材料和已验证范围见[pi 接入记录](experiments/m1-pi.md)。当前缺少模型配置，尚未把工具发现记为模型轮次完成。
+
 先运行小型 OneBot 模拟服务、Imbrex 与人工驱动的真实 pi，证明事件查询和 reply 能经过 MCP 到达 OneBot Action；再加入 ACP Consumer 自动触发。模拟服务提供已知事件和可核验的 Action 接收记录，不模拟整个聊天产品。
 
 pi-acp 当前未把 ACP 的 mcpServers 参数接通到 pi，因此首接通过 pi 自身配置连接 Imbrex。核验到的原生 MCP 配置入口为用户级 `~/.pi/agent/mcp.json` 或项目级 `.pi/mcp.json`；项目配置还受其项目信任规则约束。使用环境变量引用 Imbrex 的专用 Principal token，不将凭据写进仓库。[R14](references.md#r14)

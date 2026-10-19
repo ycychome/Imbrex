@@ -30,9 +30,13 @@ Agent 是独立程序，不作为网关的运行时依赖。MCP 参考配置位�
 
 此脚本创建临时 pi MCP 配置，用真实 pi 检查版本和工具发现，结束时清理；只查询协议能力，不需要模型凭据、不调用 reply。成功输出包含 state=connected、六个工具和 model_turn=not_tested。可以把最后的 pi 换成已安装可执行文件的绝对路径；远程端点须用 HTTPS。
 
+已对实际 Imbrex/模拟器端口运行此脚本：pi 1.3.0 返回 connected 与六个工具；错误凭据 exit 1，不输出凭据；两条路径均清理临时目录。npm run check 类型检查、构建及57/57既有测试通过，未为文档或常量添加测试。
+
 ## 手动回复与不回复
 
 模型配置就绪后执行这两项验收。先确认自己运行的是本地模拟服务，并在专用 Imbrex 配置副本中将 external_writes_enabled 设为 true；来源账号、会话、namespace 保持模拟配置。data_dir 相对配置文件解析，复制配置时显式填写数据目录。
+
+示例默认数据目录为已忽略的 data/onebot。若已有旧 data-onebot 数据，配置副本应继续显式指向原目录；切换目录会产生新的 store_id，需要按恢复规则核对。
 
 1. 在模拟器输入 group。使用具备模型的 pi 会话提交 examples/agent/reply.md 的内容；核对返回的 store_id、call_id=m1-manual-reply-001 与状态。模拟器 actions 应出现一次 send_group_msg，group_id=987654，reply.id=-42，text 为给定文本。用同一主体查询原调用，重复该意图不应增加 Action。
 2. 在模拟器输入 private，记录 actions 当前数量。向 pi 提交 examples/agent/no-reply.md；确认它确实读取原事件，并且 Action 数量没有增加。
