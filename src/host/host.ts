@@ -150,7 +150,9 @@ export class Host {
       setAvailable: (available, reason) => {
         if (controller.signal.aborted) return;
         runtime.available = available;
-        runtime.lastError = available ? undefined : { code: publicError(reason).code, message: 'Plugin unavailable.' };
+        const supplied = reason && typeof reason === 'object' && 'code' in reason ? reason.code : undefined;
+        const code = typeof supplied === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(supplied) ? supplied : publicError(reason).code;
+        runtime.lastError = available ? undefined : { code, message: 'Plugin unavailable.' };
         if (!available) this.report('plugin_unavailable', { plugin_instance_id: runtime.config.id });
       },
     };

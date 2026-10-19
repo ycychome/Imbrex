@@ -1,6 +1,6 @@
 # OneBot v11 与 Agent 接入
 
-当前状态：M1 待实现。本文件的 OneBot 配置和真实回复链路尚不能在 M0 演示宿主中启用。
+当前状态：M1-01 已实现标准子集与模拟验证；可以加载 builtin:onebot-v11。真实 OneBot 服务、MCP 和 ACP 链路仍按各自任务验收，参见[运行记录](experiments/m1-onebot.md)。
 
 统一开发基线 0.3 · 2026-10-18。本文定义协议连接器及首个 QQ 闭环。**插件名为 onebot-v11；NapCat、SnowLuma 等是它可以对接的服务实现。** 标准与实现的依据见[参考资料](references.md#r7)。
 
@@ -99,6 +99,10 @@ flowchart LR
 
 首版必须有 generic 配置；不预先承诺 napcat/snowluma 等命名 profile 已实现。只有确有差异且有测试时才加入相应 profile，未知 profile 拒绝启动。
 
+当前实现拒绝 ws_url 中的用户名、密码、query 与 fragment；认证只从 access_token_env 读取。账号、群号、用户号配置为无前导零的正十进制字符串，最大 Number.MAX_SAFE_INTEGER；消息 ID 接受 int32 范围（包括负数）。Action 的 group_id/user_id 编码为精确整数，reply.id 为字符串。白名单各至多 1024 项，消息至多 128 段；只接受 text/reply 数组段或对应 CQ 字符串，其他段拒收。群聊只接收 sub_type=normal，自身群消息保存为 outbound；不声明完整自发消息覆盖。
+
+握手和单次 Action 等待上限为 5 秒；断线后间隔 1 秒重连，15 秒发送一次 WS ping、下个周期仍无 pong 则关闭。每个连接最多 8 个未决请求、64 KiB 帧和 32 条待写事件；溢出关闭连接并报告诊断，未持久化输入可能丢失。没有历史补取或自动重发。绑定文件 onebot-binding.json 通过文件 fsync、rename、目录 fsync 保存；观察到实现名称变化时拒绝恢复，版本升级保留记录但不等于兼容声明。
+
 ## 5. 身份不绑定实现品牌，也不假定跨实现天然连续
 
 source 采用 `imbrex://qq/<account_id>/<identity_namespace>/<group|private>/<conversation_id>`。段值按 URI 规则编码。实现品牌不进入 source/type/能力名称。
@@ -171,7 +175,7 @@ Consumer 保存输入位置、会话关联和 prompt 提交前的 in_flight；�
 
 | 对象 | 当前证据 | 运行兼容状态 |
 | --- | --- | --- |
-| OneBot v11 标准子集 | 官方通信、认证、动作文档已核对 | 待实现与协议夹具测试 |
+| OneBot v11 标准子集 | 官方通信、认证、动作文档已核对；两组独立字段表示夹具 | 已通过本地协议测试，真实服务待验证 |
 | NapCat | [官方固定源码](references.md#r6)可定位 v11 发送路径 | 未在本项目实际连接验证 |
 | SnowLuma | [官方说明](references.md#r11)提供 v11 动作/事件及 WS 服务端/客户端 | 未在本项目实际连接验证 |
 | 其他实现 | 依据其标准符合性和选定模式 | 未验证，不自动列为支持 |
