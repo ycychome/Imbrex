@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "imbrex": {
+      "url": "http://127.0.0.1:8080/v1/mcp",
+      "headers": { "Authorization": "Bearer ${IMBREX_QQ_AGENT_TOKEN}" },
+      "exposure": "direct"
+    }
+  }
+}
