@@ -14,7 +14,7 @@ test/host/acp-consumer.test.ts 在真实 Host/SQLite/HTTP 上启动独立的逐�
 - OneBot 模拟服务 → 自动 ACP → MCP → reply Action 实际联通。成功、unknown 与回复后 Agent 崩溃三条路径均不自动补发；end_turn 与平台发送状态分别判断。
 - 忽略 SIGTERM 的 Agent 及其后代被回收。公开 CLI 的实际宿主被 SIGKILL 后，监督进程继续清理；实例锁未传给后代，同一目录可以重启且原未决输入保持暂停。
 
-针对这些风险运行类型检查、构建和编译后的 ACP 集成测试。当前 npm run check 的类型检查、构建和81/81测试通过。
+针对这些风险运行类型检查、构建和编译后的 ACP 集成测试。更新到包含 M1-03 的主线后，npm run check 的类型检查、构建和84/84测试通过。
 
 另外实际启动公开 Imbrex CLI 与 OneBot 模拟器 CLI，使用 live-group 产生当前时间的新输入，经模拟 ACP Agent 和 MCP 得到一次 send_group_msg，call.status=succeeded、native_message_id=1001；退出时进程与连接正常清理。此证据仍是模拟 Agent 与模拟平台，不等于真实模型或 QQ 验收。
 
