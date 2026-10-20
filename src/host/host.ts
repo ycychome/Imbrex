@@ -7,7 +7,8 @@ import { requirePermission } from '../core/access.js';
 import { fail, GatewayError, publicError } from '../core/errors.js';
 import { limits, namespacePattern, readOptions } from '../core/validation.js';
 import { SqliteStore } from '../storage/store.js';
-import { startHttp } from '../adapters/http/server.js';
+import type {} from '../plugins/server-http/server.js';
+import type { ProtocolApi } from './protocol.js';
 import type { HostConfig, PluginConfig } from './config.js';
 import type { PluginModule } from './modules.js';
 import type { PluginApi } from './plugin-api.js';
@@ -30,7 +31,6 @@ export class Host {
   private store!: SqliteStore;
   private events!: Events;
   private capabilities!: Capabilities;
-  private http?: Awaited<ReturnType<typeof startHttp>>;
   private closing = false;
   private failed = false;
   private closeTask?: Promise<void>;
@@ -56,6 +56,16 @@ export class Host {
         if (fiber.parent.fiber === fiber) return fail('forbidden');
         fiber = fiber.parent.fiber;
       }
+    } });
+    this.root.provide('protocol', { forPlugin: (ctx: Context): ProtocolApi => {
+      const runtime = this.runtimeFor(ctx.fiber);
+      if (!runtime || !['builtin:api-rest', 'builtin:adapter-mcp', 'builtin:admin'].includes(runtime.config.module)) fail('forbidden');
+      const api = ctx.imbrex.forPlugin(ctx);
+      return {
+        authenticate: (authorization) => { if (api.signal.aborted || this.closing) fail('provider_unavailable'); return this.config.authenticate(authorization); },
+        store: { info: () => this.store.info() }, events: this.events, capabilities: this.capabilities,
+        plugins: () => this.plugins(), report: (code, requestId) => this.report(code, { request_id: requestId }),
+      };
     } });
     this.root.on('internal/status', (fiber) => {
       for (const runtime of this.runtimes.values()) {
@@ -100,7 +110,6 @@ export class Host {
       });
       for (const plugin of config.plugins) if (plugin.enabled) await host.startPlugin(plugin.id);
       if (host.failed) fail('storage_unavailable');
-      host.http = await startHttp(config, host.store, host.events, host.capabilities, () => host.plugins(), (code, requestId) => host.report(code, { request_id: requestId }));
       host.ready.resolve();
       return host;
     } catch (error) {
@@ -108,7 +117,7 @@ export class Host {
       throw publicError(error);
     }
   }
-  get port(): number { return this.http?.port ?? 0; }
+  get port(): number { return this.root.get('http')?.port ?? 0; }
   info() { return this.store.info(); }
   plugins() {
     return [...this.runtimes.values()].map((runtime) => ({
@@ -225,13 +234,12 @@ export class Host {
       this.closing = true;
       this.ready.resolve();
       let failure = this.failed;
-      const httpClosed = this.http?.close().catch(() => { failure = true; });
+      this.root.get('http')?.stop();
       this.capabilities?.stop();
       this.events?.stop();
       for (const runtime of this.runtimes.values()) runtime.controller?.abort();
       for (const id of [...this.runtimes.keys()].reverse()) await this.stopPlugin(id).catch(() => { failure = true; });
       await this.capabilities?.drain();
-      await httpClosed;
       await this.bounded(this.root.fiber.dispose()).catch(() => { failure = true; });
       await this.store?.close().catch(() => { failure = true; });
       if (failure) fail('internal_error', 'Host shutdown failed');

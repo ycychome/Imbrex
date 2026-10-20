@@ -4,7 +4,7 @@ import { parseConfig } from '../../src/host/config.js';
 import { requireCapability, requireSource } from '../../src/core/access.js';
 
 const principal = { id: 'fixture', token_env: 'TEST_TOKEN', permissions: ['events:read', 'capabilities:invoke'], read_sources: [{ prefix: 'imbrex://Fixture/' }], write_sources: [], invoke_capabilities: ['mock.echo'] };
-const config = { config_version: 1, data_dir: './data', http: { host: '127.0.0.1', port: 0 }, external_writes_enabled: false, principals: [principal], plugins: [] };
+const config = { config_version: 2, data_dir: './data', external_writes_enabled: false, principals: [principal], plugins: [] };
 const environment = { TEST_TOKEN: 'fixture-token-not-a-real-credential' };
 
 test('configuration rejects ambiguous identities and missing/duplicate credentials without exposing secrets', () => {
@@ -14,7 +14,7 @@ test('configuration rejects ambiguous identities and missing/duplicate credentia
   assert.equal(authenticated.id, 'fixture');
   assert.throws(() => valid.authenticate('Bearer wrong'), { code: 'unauthorized' });
   assert.throws(() => parseConfig(config, 'config.json', {}), { code: 'invalid_request' });
-  for (const patch of [{ config_version: 2 }, { extra: true }, { principals: [principal, principal] }, { principals: [principal, { ...principal, id: 'second' }] },
+  for (const patch of [{ config_version: 1 }, { extra: true }, { principals: [principal, principal] }, { principals: [principal, { ...principal, id: 'second' }] },
     { plugins: [{ id: 'mock', module: 'builtin:mock', principal_id: 'unknown', enabled: true, required: true, config: {} }] }]) {
     assert.throws(() => parseConfig({ ...config, ...patch }, 'config.json', environment), (error: unknown) => {
       assert.ok(error instanceof Error);

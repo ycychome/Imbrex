@@ -1,10 +1,12 @@
 # M2 管理控制台契约
 
-2026-10-20 定稿。本文规定 M2 的目标行为，**尚未实现**。当前可运行的 M1 API、配置格式和离线恢复命令保持有效；M2 按[开发计划](development-plan.md#m2)逐步实现，并在对应实现 PR 中补齐具体请求/响应 schema 与验证证据。
+本文规定 M2 的管理行为。当前 admin 插件提供基础 info API 与外部静态资产挂载；观测面板、配置和在线处置按[开发计划](development-plan.md#m2)扩展，具体线上表达见 [HTTP 契约](contracts.md#12-管理-api)。
 
 ## 1. 交付范围与组成
 
 管理后台面向单所有者网关，按“先观测，后控制”交付。前端使用 Vue 3 + Vite + TailwindCSS，构建产物由 server-http 在 /admin 与 /admin/* 提供；管理 API 使用 /api/admin/*。不需要独立前端运行进程，不新增第二消费者或事件副本作为后台前置。
+
+admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}。assets_dir 可选且必须为绝对目录；配置后提供 GET/HEAD /admin 与 /admin/*，未配置时对应路径返回 404。目录应仅包含部署者提供的静态构建资产，不嵌入凭据或管理数据。扩展名缺失的路由回落 index.html，缺失显式文件返回 404；不列目录，拒绝路径穿越和根目录外符号链接。
 
 | 组成 | 职责 |
 | --- | --- |

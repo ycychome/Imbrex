@@ -40,6 +40,7 @@ npm run check
 | `npm run check` | 类型检查、构建和测试 |
 | `npm run clean` | 删除生成的 dist |
 | `npm start -- --config examples/demo.json` | 经 Linux flock 启动演示宿主；先完成构建和环境变量配置 |
+| `npm --silent run config:migrate -- <v1.json> <new-v2.json>` | 创建新配置，保留实例及数据路径；详见配置与运维 |
 | `npm --silent run consumer:recover -- --help` | 查看离线 ACP Consumer 恢复参数；实际处置须停止宿主并核对原调用 |
 
 当前代码包含核心、SQLite worker、HTTP、Cordis 宿主、演示插件和 CLI，构建也编译 examples/plugins 中的模板。安装、编译、测试和运行不依赖 `.private/`。node_modules、dist、coverage 和默认运行数据 data 均被 Git 忽略。
@@ -91,9 +92,9 @@ export IMBREX_OPERATOR_TOKEN="$(node --input-type=module -e "import { randomByte
 npm start -- --config examples/demo.json
 ```
 
-环境变量由调用终端提供，程序不自动加载 .env。示例默认监听 127.0.0.1:8080，数据保存在仓库 data/；需要临时端口时将配置中的 http.port 设为 0。就绪 JSON 会输出实际 port、pid、store_id、SQLite 版本和有效 PRAGMA；日志不输出令牌或消息正文。
+环境变量由调用终端提供，程序不自动加载 .env。示例默认监听 127.0.0.1:8080，数据保存在仓库 data/；需要临时端口时将 server-http 插件 config.port 设为 0。就绪 JSON 会输出实际 port、pid、store_id、SQLite 版本和有效 PRAGMA；日志不输出令牌或消息正文。
 
-预期首次启动：fixture 发布 message-001、message-002；transform 生成两条带 parents 的派生事件；observer 独立保存读取位置；mock 注册 mock.echo。正常重启保持 store_id 与这四条事件，重复来源身份不会产生新事件。
+预期首次启动：fixture 发布 message-001、message-002；transform 生成两条带 parents 的派生事件；mock 注册 mock.echo。正常重启保持 store_id 与这四条事件，重复来源身份不会产生新事件。
 
 使用同样配置了环境变量的终端调用：
 
@@ -111,4 +112,4 @@ Ctrl-C 或 SIGTERM 正常关闭；第二个进程使用同一数据目录会以 
 
 复制 [uppercase 模板](../examples/plugins/uppercase.ts)，使用绑定 API，实现实际需要的配置和资源清理。运行 npm run build 后，在配置中增加独立实例、主体和模块路径，例如从 examples/demo.json 引用 ../dist/examples/plugins/uppercase.js；同时为调用方授权该实例的完整能力 ID。初次启动按配置顺序装配，服务提供者须在依赖它的插件之前。
 
-以上仍是当前 M0 演示配置：observer 只完成独立读取与位置保存。M1 的 OneBot/MCP/ACP 接入使用对应运行说明；M2-01 将删除 observer 并迁移协议插件，示例在代码迁移时更新。下一阶段按 [M2 全插件化与管理后台](development-plan.md#m2)实施，取消事件副本产品计划，不改变现有演示记录。
+当前示例使用配置 version 2 与协议插件，observer 已移除。旧配置使用 [迁移命令](operations.md#11-旧配置迁移)升级，保持原 data_dir 和业务实例 ID。M0/M1 实验记录保留原版本路径与验证范围。

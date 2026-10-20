@@ -1,20 +1,19 @@
 # 配置、权限与运行运维
 
-统一开发基线 0.3；2026-10-20 补充 M2 管理目标。首版为单所有者部署，本机默认监听；无多租户、自动故障转移或在线数据库替换。现有配置与命令属于 M1；第 8 节的管理、托管配置和受控应用为待实现的 M2 能力。
+统一开发基线 0.3；2026-10-20 补充 M2 管理目标。首版为单所有者部署，本机默认监听；无多租户、自动故障转移或在线数据库替换。配置使用 version 2 与显式协议插件；第 8 节的托管配置和在线处置为待实现的 M2 能力。
 
 ## 1. 配置来源
 
-使用一个显式 JSON 配置文件，config_version=1。相对数据路径以配置文件目录为基准；插件模块只从 builtin 映射、已安装包或明确本地文件加载，不在线下载安装代码。无效字段、未知插件、重复实例 ID、未知主体或不支持的配置在启动前报错。
+使用一个显式 JSON 配置文件，config_version=2。相对数据路径以配置文件目录为基准；插件模块只从 builtin 映射、已安装包或明确本地文件加载，不在线下载安装代码。无效字段、未知插件、重复实例 ID、未知主体或不支持的配置在启动前报错。
 
-配置的 JSON 值受 256 KiB 与 32 层嵌套上限约束。http.port 为 0 时由系统分配临时端口，适用于本地测试；固定部署使用明确端口。配置校验、主体认证、模块加载与进程启动均已实现。
+配置的 JSON 值受 256 KiB 与 32 层嵌套上限约束。server-http 插件的 config.port 为 0 时由系统分配临时端口，适用于本地测试；固定部署使用明确端口。配置校验、主体认证、模块加载与进程启动均已实现。
 
 配置示例用于本地演示；可运行文件见 [examples/demo.json](../examples/demo.json)，启动步骤见[开发指南](development.md#m0-run)：
 
 ```json
 {
-  "config_version": 1,
+  "config_version": 2,
   "data_dir": "./data",
-  "http": {"host": "127.0.0.1", "port": 8080},
   "external_writes_enabled": false,
   "principals": [
     {
@@ -40,9 +39,9 @@
       "invoke_capabilities": []
     },
     {
-      "id": "observer-app",
-      "permissions": ["events:read"],
-      "read_sources": [{"prefix": "imbrex://fixture/"}],
+      "id": "protocol",
+      "permissions": [],
+      "read_sources": [],
       "write_sources": [],
       "invoke_capabilities": []
     },
@@ -63,15 +62,30 @@
     }
   ],
   "plugins": [
+    {"id": "http", "module": "builtin:server-http", "principal_id": "protocol", "required": true, "enabled": true, "config": {"host": "127.0.0.1", "port": 8080}},
+    {"id": "rest", "module": "builtin:api-rest", "principal_id": "protocol", "required": true, "enabled": true, "config": {}},
+    {"id": "mcp", "module": "builtin:adapter-mcp", "principal_id": "protocol", "required": true, "enabled": true, "config": {}},
     {"id": "fixture", "module": "builtin:fixture", "principal_id": "fixture-source", "required": true, "enabled": true, "config": {}},
     {"id": "transform", "module": "builtin:transform", "principal_id": "transform-app", "required": true, "enabled": true, "config": {}},
-    {"id": "observer", "module": "builtin:observer", "principal_id": "observer-app", "required": false, "enabled": true, "config": {}},
     {"id": "mock", "module": "builtin:mock", "principal_id": "mock-provider", "required": true, "enabled": true, "config": {}}
   ]
 }
 ```
 
-以上为当前 M0/M1 可运行示例，包含将在 M2-01 删除的 observer；代码迁移时同步更新示例。当前 HTTP 由宿主直接装配，普通配置修改通过重启生效。M2 将 HTTP、REST、MCP 与 Admin 统一为插件，新增本章第 8 节限定的在线管理与配置应用；不提供远程安装插件或任意代码无损热替换。
+HTTP 监听由 server-http 插件提供；api-rest、adapter-mcp、admin 在各自作用域登记入口，必须排在 HTTP 服务之后。api-rest 与 adapter-mcp 的 config 为空对象。普通配置修改通过重启生效；不提供远程安装插件或任意代码无损热替换。
+
+### 1.1 旧配置迁移
+
+version 1 和旧 builtin:acp-consumer/observer 不再作为运行入口接受。升级前正常停止旧宿主并备份配置及运行数据，保留原凭据环境变量；构建后执行：
+
+```sh
+npm --silent run config:migrate -- /absolute/path/v1.json /absolute/path/v2.json
+npm start -- --config /absolute/path/v2.json
+```
+
+迁移只读取旧配置并创建权限 0600 的新文件，目标必须不存在；失败不覆盖旧文件。data_dir 与相对插件模块按原配置位置转换为绝对路径；HTTP 拆成显式协议插件，协议主体无业务或管理权限。业务实例 ID、主体、Agent 程序/工作目录/filter 保留，acp-consumer 仅改为 agent-chat，observer 配置移除但旧数据不删除。
+
+数据库 store_id、data_dir/plugins/<原实例ID>/consumer-state.json、消费位置和会话均不由配置迁移工具修改。状态仍为 version=1；绑定不匹配或未决输入沿用暂停规则。工具不会添加管理员身份或提升原 operator/Agent 权限。
 
 ## 2. 主体与授权
 
@@ -79,7 +93,7 @@
 
 生成 token 使用足够随机的 256 bit 值，服务端使用摘要映射与受控比较。token 是认证材料，caller_id 是稳定主体 ID；轮换 token 不更改已有调用记录所属主体。具体实现复用 Node crypto，不自行设计加密协议。
 
-权限为显式集合：events:read、events:write、capabilities:list、capabilities:invoke、calls:read、runtime:inspect。来源规则使用 exact 或字面 prefix，规则间 OR；空列表拒绝。调用能力按完整 ID 允许列表匹配。
+权限为显式集合：events:read、events:write、capabilities:list、capabilities:invoke、calls:read、runtime:inspect、admin:inspect、admin:operate。来源规则使用 exact 或字面 prefix，规则间 OR；空列表拒绝。调用能力按完整 ID 允许列表匹配。
 
 已认证主体可以读取 info，其中的 store_id/latest_seq 是本单所有者元数据域公开给接入方的信息；本版不隐藏全局流量规模。事件正文仍按读取权限过滤，发布还须匹配 write_sources；parents 引用的来源须获读取授权，但不要求父事件存在。
 
@@ -112,7 +126,7 @@ M1 装配时须先让 MCP 入口可供 Agent 使用，Consumer 核对自己的�
 
 单插件停用时内核继续运行。插件停止未完成时不得启动同实例的新循环；出现不能合作退出的代码应报告 stop_failed，必要时关闭宿主，而不是误报已清理。Cordis 的资源作用域用于装配清理，业务停止顺序由插件与宿主明确实现。
 
-M1 的 acp-consumer 还须停止 ACP 投递、保留未决输入，并关闭标准流、计时器与其拥有的 pi-acp/pi 进程；需要验证后代进程回收和锁描述符不继承，不把独立进程当作权限沙箱。详见 [Agent 资源生命周期](agent-integration.md)。
+agent-chat 还须停止 ACP 投递、保留未决输入，并关闭标准流、计时器与其拥有的 pi-acp/pi 进程；需要验证后代进程回收和锁描述符不继承，不把独立进程当作权限沙箱。详见 [Agent 资源生命周期](agent-integration.md)。
 
 ## 5. 诊断
 

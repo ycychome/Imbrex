@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { test, type TestContext } from 'node:test';
 import { object } from '../../src/core/validation.js';
 import { Database } from '../../src/storage/database.js';
-import { parseConsumerConfig } from '../../src/plugins/acp-consumer/config.js';
-import { bindingFor, type ConsumerState } from '../../src/plugins/acp-consumer/state.js';
+import { parseConsumerConfig } from '../../src/plugins/agent-chat/config.js';
+import { bindingFor, type ConsumerState } from '../../src/plugins/agent-chat/state.js';
 import { mapMessage, parseOneBotConfig } from '../../src/plugins/onebot-v11/protocol.js';
 import { numericFixture } from '../../examples/onebot/fixtures.js';
 
@@ -26,7 +26,7 @@ async function fixture(t: TestContext) {
   const storeId = db.storeId;
   const example = object(JSON.parse(await readFile(new URL('../../../examples/onebot/imbrex.json', import.meta.url), 'utf8')));
   assert.ok(Array.isArray(example.plugins));
-  const onebot = parseOneBotConfig(object(example.plugins[0]).config);
+  const onebot = parseOneBotConfig(example.plugins.map((value) => object(value)).find((plugin) => plugin.id === 'qq-main')!.config);
   for (const id of [101, 102, 103]) {
     const event = mapMessage({ ...numericFixture, message_id: id, time: Math.floor(Date.now() / 1000) }, onebot)!;
     if (id === 102) event.event.source = 'imbrex://fixture/unselected';

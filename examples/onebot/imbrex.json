@@ -1,18 +1,105 @@
 {
-  "config_version": 1,
+  "config_version": 2,
   "data_dir": "../../data/onebot",
-  "http": { "host": "127.0.0.1", "port": 8080 },
   "external_writes_enabled": false,
   "principals": [
-    { "id": "qq-connector", "permissions": ["events:write"], "read_sources": [], "write_sources": [{"prefix": "imbrex://qq/123456/main/"}], "invoke_capabilities": [] },
-    { "id": "qq-agent", "token_env": "IMBREX_QQ_AGENT_TOKEN", "permissions": ["events:read", "capabilities:list", "capabilities:invoke", "calls:read"], "read_sources": [{"prefix": "imbrex://qq/123456/main/"}], "write_sources": [], "invoke_capabilities": ["qq-main.reply"] },
-    { "id": "operator", "token_env": "IMBREX_OPERATOR_TOKEN", "permissions": ["runtime:inspect"], "read_sources": [], "write_sources": [], "invoke_capabilities": [] }
-  ],
-  "plugins": [{
-    "id": "qq-main", "module": "builtin:onebot-v11", "principal_id": "qq-connector", "required": true, "enabled": true,
-    "config": {
-      "transport": "ws-forward", "ws_url": "ws://127.0.0.1:6700/", "account_id": "123456", "identity_namespace": "main",
-      "compatibility_profile": "generic", "allow_private_ids": ["654321"], "allow_group_ids": ["987654"]
+    {
+      "id": "qq-connector",
+      "permissions": [
+        "events:write"
+      ],
+      "read_sources": [],
+      "write_sources": [
+        {
+          "prefix": "imbrex://qq/123456/main/"
+        }
+      ],
+      "invoke_capabilities": []
+    },
+    {
+      "id": "qq-agent",
+      "token_env": "IMBREX_QQ_AGENT_TOKEN",
+      "permissions": [
+        "events:read",
+        "capabilities:list",
+        "capabilities:invoke",
+        "calls:read"
+      ],
+      "read_sources": [
+        {
+          "prefix": "imbrex://qq/123456/main/"
+        }
+      ],
+      "write_sources": [],
+      "invoke_capabilities": [
+        "qq-main.reply"
+      ]
+    },
+    {
+      "id": "operator",
+      "token_env": "IMBREX_OPERATOR_TOKEN",
+      "permissions": [
+        "runtime:inspect"
+      ],
+      "read_sources": [],
+      "write_sources": [],
+      "invoke_capabilities": []
+    },
+    {
+      "id": "protocol",
+      "permissions": [],
+      "read_sources": [],
+      "write_sources": [],
+      "invoke_capabilities": []
     }
-  }]
+  ],
+  "plugins": [
+    {
+      "id": "http",
+      "module": "builtin:server-http",
+      "principal_id": "protocol",
+      "required": true,
+      "enabled": true,
+      "config": {
+        "host": "127.0.0.1",
+        "port": 8080
+      }
+    },
+    {
+      "id": "rest",
+      "module": "builtin:api-rest",
+      "principal_id": "protocol",
+      "required": true,
+      "enabled": true,
+      "config": {}
+    },
+    {
+      "id": "mcp",
+      "module": "builtin:adapter-mcp",
+      "principal_id": "protocol",
+      "required": true,
+      "enabled": true,
+      "config": {}
+    },
+    {
+      "id": "qq-main",
+      "module": "builtin:onebot-v11",
+      "principal_id": "qq-connector",
+      "required": true,
+      "enabled": true,
+      "config": {
+        "transport": "ws-forward",
+        "ws_url": "ws://127.0.0.1:6700/",
+        "account_id": "123456",
+        "identity_namespace": "main",
+        "compatibility_profile": "generic",
+        "allow_private_ids": [
+          "654321"
+        ],
+        "allow_group_ids": [
+          "987654"
+        ]
+      }
+    }
+  ]
 }

@@ -4,7 +4,7 @@
 
 M1-02 已在同一监听提供 `/v1/mcp`，采用 MCP Streamable HTTP 而非本文件的 REST 路由表达；共用领域授权、类型与调用语义，具体工具、参数及错误映射见 [Agent 接入](agent-integration.md)。此端点不启用事件订阅 SSE。
 
-2026-10-20 定稿的 M2 将协议迁入插件并新增 /api/admin/* 管理入口。下面 /v1 行为保持不变；第 12 节为待实现的管理 API 边界，不表示当前已经提供管理路由。
+协议由 api-rest 与 adapter-mcp 插件提供，/v1 行为保持不变。管理入口使用 /api/admin/*，具体接口与权限见第 12 节。
 
 ## 1. 公共约定
 
@@ -268,9 +268,19 @@ call_id 是不透明标识，路径段百分号解码一次后保留原值，点
 
 实现以共享领域类型和运行时校验器承载本契约，HTTP 适配层负责 bigint/字符串和字段命名映射。M0 类型稳定后可生成 OpenAPI/客户端，不另外手写一套与运行实现独立演进的完整 schema。OneBot 原始协议报文只属于连接器，不透传为 Imbrex 的外部调用契约。
 
-## 12. M2 管理 API 边界（待实现）
+## 12. 管理 API
 
-管理 API 位于 /api/admin/*，静态控制台位于 /admin 与 /admin/*。具体资源路径、方法和请求/响应 schema 随 M2-02/M2-03 的实现 PR 补齐；不得为尚未实现的操作返回占位成功。功能与状态含义以 [Admin 契约](admin.md)为准。
+管理 API 位于 /api/admin/*，静态资产配置见 [Admin 契约](admin.md)。GET /api/admin/info 已提供；其余资源随对应功能补齐，不为未实现操作返回占位成功。
+
+GET /api/admin/info 不接受 query 或业务 body。每次请求须有 Bearer 凭据及 admin:inspect；Origin 存在时须等于实际监听 origin，不使用 Cookie 或 loopback 免密。200 响应：
+
+```json
+{"store_id":"9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d","latest_seq":"4","version":"0.1.0-dev"}
+```
+
+store_id 为数据库身份；latest_seq 沿用规范十进制字符串；version 为产品版本，与 config_version 和文档基线分别管理。缺失或无效凭据返回 401 unauthorized，权限/Origin 不符返回 403 forbidden，多余 query 返回 400 invalid_request，未加载 Admin 时返回 404 not_found。错误信封和 x-request-id 沿用第 10 节。
+
+其他管理交互遵守以下已定稿边界：
 
 | 管理交互 | 权限与不变量 |
 | --- | --- |

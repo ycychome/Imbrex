@@ -1,28 +1,147 @@
 {
-  "config_version": 1,
+  "config_version": 2,
   "data_dir": "../../data/acp",
-  "http": { "host": "127.0.0.1", "port": 8080 },
   "external_writes_enabled": false,
   "principals": [
-    { "id": "qq-connector", "permissions": ["events:write"], "read_sources": [], "write_sources": [{"prefix": "imbrex://qq/123456/main/"}], "invoke_capabilities": [] },
-    { "id": "qq-agent", "token_env": "IMBREX_QQ_AGENT_TOKEN", "permissions": ["events:read", "capabilities:list", "capabilities:invoke", "calls:read"], "read_sources": [{"prefix": "imbrex://qq/123456/main/"}], "write_sources": [], "invoke_capabilities": ["qq-main.reply"] },
-    { "id": "qq-consumer", "permissions": ["events:read"], "read_sources": [{"prefix": "imbrex://qq/123456/main/"}], "write_sources": [], "invoke_capabilities": [] },
-    { "id": "operator", "token_env": "IMBREX_OPERATOR_TOKEN", "permissions": ["runtime:inspect"], "read_sources": [], "write_sources": [], "invoke_capabilities": [] }
+    {
+      "id": "qq-connector",
+      "permissions": [
+        "events:write"
+      ],
+      "read_sources": [],
+      "write_sources": [
+        {
+          "prefix": "imbrex://qq/123456/main/"
+        }
+      ],
+      "invoke_capabilities": []
+    },
+    {
+      "id": "qq-agent",
+      "token_env": "IMBREX_QQ_AGENT_TOKEN",
+      "permissions": [
+        "events:read",
+        "capabilities:list",
+        "capabilities:invoke",
+        "calls:read"
+      ],
+      "read_sources": [
+        {
+          "prefix": "imbrex://qq/123456/main/"
+        }
+      ],
+      "write_sources": [],
+      "invoke_capabilities": [
+        "qq-main.reply"
+      ]
+    },
+    {
+      "id": "qq-consumer",
+      "permissions": [
+        "events:read"
+      ],
+      "read_sources": [
+        {
+          "prefix": "imbrex://qq/123456/main/"
+        }
+      ],
+      "write_sources": [],
+      "invoke_capabilities": []
+    },
+    {
+      "id": "operator",
+      "token_env": "IMBREX_OPERATOR_TOKEN",
+      "permissions": [
+        "runtime:inspect"
+      ],
+      "read_sources": [],
+      "write_sources": [],
+      "invoke_capabilities": []
+    },
+    {
+      "id": "protocol",
+      "permissions": [],
+      "read_sources": [],
+      "write_sources": [],
+      "invoke_capabilities": []
+    }
   ],
   "plugins": [
     {
-      "id": "qq-main", "module": "builtin:onebot-v11", "principal_id": "qq-connector", "required": true, "enabled": true,
+      "id": "http",
+      "module": "builtin:server-http",
+      "principal_id": "protocol",
+      "required": true,
+      "enabled": true,
       "config": {
-        "transport": "ws-forward", "ws_url": "ws://127.0.0.1:6700/", "account_id": "123456", "identity_namespace": "main",
-        "compatibility_profile": "generic", "allow_private_ids": ["654321"], "allow_group_ids": ["987654"]
+        "host": "127.0.0.1",
+        "port": 8080
       }
     },
     {
-      "id": "agent", "module": "builtin:acp-consumer", "principal_id": "qq-consumer", "required": true, "enabled": true,
+      "id": "rest",
+      "module": "builtin:api-rest",
+      "principal_id": "protocol",
+      "required": true,
+      "enabled": true,
+      "config": {}
+    },
+    {
+      "id": "mcp",
+      "module": "builtin:adapter-mcp",
+      "principal_id": "protocol",
+      "required": true,
+      "enabled": true,
+      "config": {}
+    },
+    {
+      "id": "qq-main",
+      "module": "builtin:onebot-v11",
+      "principal_id": "qq-connector",
+      "required": true,
+      "enabled": true,
       "config": {
-        "input_id": "qq-inbound", "source_prefix": "imbrex://qq/123456/main/", "max_event_age_seconds": 300, "turn_timeout_ms": 120000,
-        "filter": { "group_ids": ["987654"], "private_user_ids": ["654321"] },
-        "agent": { "command": "pi-acp", "args": [], "cwd": "/absolute/path/to/imbrex-agent-workspace", "env_vars": ["PI_CODING_AGENT_DIR", "IMBREX_QQ_AGENT_TOKEN"] }
+        "transport": "ws-forward",
+        "ws_url": "ws://127.0.0.1:6700/",
+        "account_id": "123456",
+        "identity_namespace": "main",
+        "compatibility_profile": "generic",
+        "allow_private_ids": [
+          "654321"
+        ],
+        "allow_group_ids": [
+          "987654"
+        ]
+      }
+    },
+    {
+      "id": "agent",
+      "module": "builtin:agent-chat",
+      "principal_id": "qq-consumer",
+      "required": true,
+      "enabled": true,
+      "config": {
+        "input_id": "qq-inbound",
+        "source_prefix": "imbrex://qq/123456/main/",
+        "max_event_age_seconds": 300,
+        "turn_timeout_ms": 120000,
+        "filter": {
+          "group_ids": [
+            "987654"
+          ],
+          "private_user_ids": [
+            "654321"
+          ]
+        },
+        "agent": {
+          "command": "pi-acp",
+          "args": [],
+          "cwd": "/absolute/path/to/imbrex-agent-workspace",
+          "env_vars": [
+            "PI_CODING_AGENT_DIR",
+            "IMBREX_QQ_AGENT_TOKEN"
+          ]
+        }
       }
     }
   ]

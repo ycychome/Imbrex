@@ -24,7 +24,7 @@ export interface ReadOptions { afterSeq: bigint; limit: number; sourcePrefix?: s
 export interface EventPage { storeId: string; records: EventRecord[]; throughSeq: bigint; nextAfterSeq: bigint; caughtUp: boolean }
 
 export type SourceRule = { exact: string } | { prefix: string };
-export const permissions = ['events:read', 'events:write', 'capabilities:list', 'capabilities:invoke', 'calls:read', 'runtime:inspect'] as const;
+export const permissions = ['events:read', 'events:write', 'capabilities:list', 'capabilities:invoke', 'calls:read', 'runtime:inspect', 'admin:inspect', 'admin:operate'] as const;
 export type Permission = typeof permissions[number];
 export interface Principal {
   id: string;

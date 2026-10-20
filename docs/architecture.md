@@ -1,6 +1,6 @@
 # 系统设计
 
-统一开发基线 0.3；M2 架构于 2026-10-20 定稿。M0/M1 已实现的范围见[实测记录](experiments/m1-live.md)。本文的组件图与目标目录包含待实现的 M2 全插件化和管理后台；当前代码仍使用 adapters 与 acp-consumer。状态与阅读顺序见[入口](README.md)。
+统一开发基线 0.3；M2 架构于 2026-10-20 定稿。M0/M1 已实现的范围见[实测记录](experiments/m1-live.md)。本文组件图包含 M2 的完整管理目标；代码采用协议插件及 agent-chat 目录，完整管理后台尚未交付。状态与阅读顺序见[入口](README.md)。
 
 ## 1. 产品目标
 
@@ -124,7 +124,7 @@ examples/          运行配置、插件模板；M1 补充 pi 接入演示
 test/              对应 T01—T09 的必要测试
 ```
 
-上图为 M2-01 目标目录，届时一次移除 adapters、迁移 acp-consumer 并删除 observer；当前 M1 代码和可运行示例尚未迁移。core 保持无网络/宿主框架依赖，可继续使用已有 schema 校验库；不因目录迁移引入第二套插件运行时。管理接口见 [Admin 契约](admin.md)，协议职责见 [Agent 接入](agent-integration.md)。
+后端采用上图的协议目录，adapters 与 observer 已移除，acp-consumer 更名 agent-chat；Vue 资产和完整管理功能按 M2 目标交付。core 保持无网络/宿主框架依赖，可继续使用已有 schema 校验库；不因目录迁移引入第二套插件运行时。管理接口见 [Admin 契约](admin.md)，协议职责见 [Agent 接入](agent-integration.md)。
 
 迁移调整模块名称与配置入口时保留实例 ID、主体、数据目录、消费位置及会话关联；格式变更须有明确的迁移步骤，不静默新建状态。M0/M1 实验文档保留当时路径与证据。
 

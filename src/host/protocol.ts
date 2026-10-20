@@ -1,0 +1,17 @@
+import type { Context } from 'cordis';
+import type { Capabilities } from '../core/capabilities.js';
+import type { Events } from '../core/events.js';
+import type { GatewayStore } from '../core/store.js';
+import type { Principal } from '../core/types.js';
+
+// Only the built-in protocol plugins receive this request-side service.
+export interface ProtocolApi {
+  authenticate(authorization: string | undefined): Principal;
+  store: Pick<GatewayStore, 'info'>;
+  events: Events;
+  capabilities: Capabilities;
+  plugins(): unknown[];
+  report(code: string, requestId: string): void;
+}
+export interface ProtocolService { forPlugin(ctx: Context): ProtocolApi }
+declare module 'cordis' { interface Context { protocol: ProtocolService } }

@@ -10,7 +10,6 @@ export interface PluginConfig {
 }
 export interface HostConfig {
   dataDir: string;
-  http: { host: string; port: number };
   externalWritesEnabled: boolean;
   principals: Principal[];
   plugins: PluginConfig[];
@@ -42,14 +41,9 @@ function sourceRules(value: unknown): SourceRule[] {
 
 export function parseConfig(input: unknown, filename: string, environment: NodeJS.ProcessEnv = process.env): HostConfig {
   const config = object(json(input, limits.httpBytes, 'invalid_request'));
-  const keys = ['config_version', 'data_dir', 'http', 'external_writes_enabled', 'principals', 'plugins'];
+  const keys = ['config_version', 'data_dir', 'external_writes_enabled', 'principals', 'plugins'];
   fields(config, keys, keys);
-  if (config.config_version !== 1) fail('invalid_request', 'Unsupported config_version');
-  const http = object(config.http);
-  fields(http, ['host', 'port'], ['host', 'port']);
-  const host = string(http.host, 253);
-  const port = http.port;
-  if (typeof port !== 'number' || !Number.isInteger(port) || port < 0 || port > 65535) fail('invalid_request');
+  if (config.config_version !== 2) fail('invalid_request', 'Unsupported config_version');
   const credentials: { digest: Buffer; principal: Principal }[] = [];
   const principals = list(config.principals).map((entry): Principal => {
     const item = object(entry);
@@ -91,7 +85,7 @@ export function parseConfig(input: unknown, filename: string, environment: NodeJ
   if (new Set(plugins.map((plugin) => plugin.id)).size !== plugins.length) fail('invalid_request', 'Duplicate plugin instance');
   return {
     dataDir: resolve(dirname(resolve(filename)), string(config.data_dir, 4096)),
-    http: { host, port }, externalWritesEnabled: boolean(config.external_writes_enabled), principals, plugins,
+    externalWritesEnabled: boolean(config.external_writes_enabled), principals, plugins,
     authenticate: (authorization) => {
       const match = /^Bearer ([\x21-\x7e]+)$/i.exec(authorization ?? '');
       if (!match?.[1]) fail('unauthorized');

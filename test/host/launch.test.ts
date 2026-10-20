@@ -43,7 +43,7 @@ function ready(child: ChildProcessWithoutNullStreams): Promise<{ pid: number; po
 test('the public entry holds the data lock in the actual host and releases it after a crash', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'imbrex-lock-'));
   const config = object(JSON.parse(await readFile(new URL('../../../examples/demo.json', import.meta.url), 'utf8')));
-  config.data_dir = join(dir, 'data'); object(config.http).port = 0;
+  config.data_dir = join(dir, 'data'); object(((config.plugins as unknown[]).map((value) => object(value)).find((plugin) => plugin.module === 'builtin:server-http')!).config).port = 0;
   const filename = join(dir, 'config.json'); await writeFile(filename, JSON.stringify(config));
   const processes: ReturnType<typeof launched>[] = [];
   const hosts: number[] = [];
