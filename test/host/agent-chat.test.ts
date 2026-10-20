@@ -22,7 +22,7 @@ async function until(check: () => boolean | Promise<boolean>) {
   while (Date.now() < deadline) { if (await check()) return; await delay(20); }
   assert.fail('Condition did not become true');
 }
-async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTimeout = 5000) {
+async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTimeout = 5000, management = false, managed = false) {
   const directory = await mkdtemp(join(tmpdir(), 'imbrex-acp-'));
   const fake = join(directory, 'fake'); await mkdir(fake);
   const stateFile = join(directory, 'gateway/plugins/agent/consumer-state.json');
@@ -57,6 +57,15 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
     agent: { command: process.execPath, args: [fileURLToPath(new URL('../fixtures/acp-agent.js', import.meta.url))], cwd: fake,
       env_vars: ['IMBREX_FAKE_AGENT_DIR', 'IMBREX_FAKE_STATE_FILE', 'IMBREX_QQ_AGENT_TOKEN'] },
   } });
+  if (management) {
+    raw.principals.push({ id: 'administrator', token_env: 'IMBREX_OPERATOR_TOKEN', permissions: ['admin:inspect', 'admin:operate'], read_sources: [], write_sources: [], invoke_capabilities: [] });
+    const operator = raw.principals.map((item) => object(item)).find((item) => item.id === 'operator')!; delete operator.token_env;
+    raw.plugins.push({ id: 'admin', module: 'builtin:admin', principal_id: 'protocol', required: true, enabled: true, config: {} });
+  }
+  if (managed) {
+    object(raw.plugins.map((item) => object(item)).find((item) => item.id === 'agent')!.config).managed_pi = { provider: 'fixture', model: 'fixture-a', context_window: 64000, system_prompt: 'Initial fixture prompt.',
+      api: 'openai-completions', base_url: 'http://127.0.0.1:1/v1', api_key_env: 'IMBREX_QQ_AGENT_TOKEN', pi_command: process.execPath, mcp_principal_id: 'qq-agent' };
+  }
   const filename = join(directory, 'imbrex.json');
   const config = parseConfig(raw, filename, process.env);
   const modules = await loadModules(config, filename);
@@ -85,7 +94,18 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
     await app!.close(); app = await Host.open(config, modules);
     await setControl({ mcp_url: 'http://127.0.0.1:' + app.port + '/v1/mcp' });
   };
-  return { directory, fake, sim, host, config, modules, raw, filename, values, status, state, stateFile, logs, setControl, input, append, writer: () => writer, restart };
+  const panel = async () => {
+    const response = await fetch('http://127.0.0.1:' + host().port + '/api/admin/panels/agent', { headers: { authorization: 'Bearer ' + values.IMBREX_OPERATOR_TOKEN } });
+    assert.equal(response.status, 200); return object(await response.json());
+  };
+  const action = async (id: string, params: unknown, overrides: Record<string, unknown> = {}, token = values.IMBREX_OPERATOR_TOKEN!) => {
+    const current = await panel();
+    const response = await fetch('http://127.0.0.1:' + host().port + '/api/admin/panels/agent/actions/' + id, { method: 'POST', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+      body: JSON.stringify({ store_id: current.store_id, generation: current.generation, params, ...overrides }),
+    });
+    return { status: response.status, body: object(await response.json()) };
+  };
+  return { directory, fake, sim, panel, action, host, config, modules, raw, filename, values, status, state, stateFile, logs, setControl, input, append, writer: () => writer, restart };
 }
 
 test('consumer starts at now, filters inputs, saves before prompting and keeps platform sessions separate', async (t) => {
@@ -569,4 +589,177 @@ test('Admin observes OneBot and distinguishes idle, active input and unresolved 
   assert.equal(unreadable.state_status, 'unavailable');
   assert.equal(Object.hasOwn(unreadable, 'in_flight'), false);
   assert.equal(Object.hasOwn(unreadable, 'sessions'), false);
+});
+
+test('management applies a saved filter after the current checkpoint, including prefetched records, without replaying skipped history', async (t) => {
+  const f = await fixture(t, 'normal', true, 5000, true);
+  await f.append(201); await until(async () => (await f.state()).last_seq === '1');
+  const state = await f.state();
+  const sessionId = object(state.sessions)['imbrex://qq/123456/main/group/987654'];
+  await f.host().stopPlugin('agent');
+  await f.setControl({ mode: 'wait-release', release: false });
+  await f.append(202); await f.append(203); await f.append(204, 'private');
+  await f.host().startPlugin('agent');
+  await until(async () => (await f.logs('prompt')).length === 2);
+  const revision = object(object((await f.panel()).data).management).revision;
+  const saved = await f.action('save-filter', { revision, filter: { group_ids: [], private_user_ids: ['654321'] } });
+  assert.equal(saved.status, 200); assert.equal(object(saved.body.result).application_status, 'pending');
+  const pending = object((await f.state()).management);
+  assert.equal(object(pending.filter).applied, null); assert.equal(object((await f.state()).in_flight).id, 'message:202');
+  assert.equal((await f.action('save-filter', { revision, filter: { group_ids: [], private_user_ids: [] } })).status, 409);
+  await f.setControl({ release: true });
+  await until(async () => (await f.state()).last_seq === '4');
+  assert.deepEqual((await f.logs('prompt')).map((entry) => entry.id), ['message:201', 'message:202', 'message:204']);
+  assert.equal(object((await f.state()).sessions)['imbrex://qq/123456/main/group/987654'], sessionId);
+  await f.restart(); await until(() => f.status().available);
+  assert.deepEqual(object((await f.state()).selection).filter, { group_ids: [], private_user_ids: ['654321'] });
+  await f.append(205); await until(async () => (await f.state()).last_seq === '5');
+  assert.equal((await f.logs('prompt')).length, 3);
+  const current = object(object((await f.panel()).data).management).revision;
+  await f.action('save-filter', { revision: current, filter: { group_ids: ['987654'], private_user_ids: ['654321'] } });
+  await f.append(206); await until(async () => (await f.state()).last_seq === '6');
+  assert.deepEqual((await f.logs('prompt')).map((entry) => entry.id), ['message:201', 'message:202', 'message:204', 'message:206']);
+});
+
+test('online recovery verifies the exact unresolved event, backs up first, and preserves unknown calls without restarting the Host', async (t) => {
+  const f = await fixture(t, 'reply-crash', true, 5000, true);
+  f.sim.mode = 'async';
+  await f.append(211); await until(() => f.status().last_error?.code === 'consumer_in_flight_unconfirmed');
+  const before = await f.state(), pending = object(before.in_flight);
+  const port = f.host().port, source = String(pending.source);
+  const oldPanel = await f.panel();
+  const params = { source, id: pending.id, seq: pending.seq, disposition: 'processed', reason: 'fixture independent platform verification' };
+  assert.equal((await f.action('recover-input', { ...params, id: 'message:999' })).status, 409);
+  assert.equal((await f.action('recover-input', params, { store_id: 'wrong' })).status, 409);
+  assert.equal((await f.action('recover-input', params, { generation: 'old' })).status, 409);
+  assert.equal((await f.action('recover-input', params, {}, f.values.IMBREX_QQ_AGENT_TOKEN)).status, 403);
+  await f.setControl({ mode: 'normal' });
+  const result = await f.action('recover-input', params);
+  assert.equal(result.status, 200); assert.equal(object(result.body.result).status, 'succeeded');
+  const backup = object(JSON.parse(await readFile(join(f.config.dataDir, 'plugins/agent/recovery', String(object(result.body.result).operation_id) + '.json'), 'utf8')));
+  assert.deepEqual(backup.before, before); assert.equal(backup.action, 'processed'); assert.equal(backup.reason, params.reason);
+  assert.equal((await f.state()).in_flight, null); assert.equal((await f.state()).last_seq, pending.seq);
+  assert.equal(f.host().port, port); assert.equal((await f.panel()).generation, oldPanel.generation);
+  const query = await fetch('http://127.0.0.1:' + port + '/api/admin/calls?store_id=' + before.store_id, { headers: { authorization: 'Bearer ' + f.values.IMBREX_OPERATOR_TOKEN } });
+  const calls = object(await query.json()).calls; assert.ok(Array.isArray(calls)); assert.equal(object(calls[0]).status, 'unknown');
+  assert.equal((await f.action('recover-input', params)).status, 409);
+  await f.append(212); await until(async () => (await f.state()).last_seq === '2');
+  assert.equal(f.sim.actions.length, 1); assert.deepEqual((await f.logs('prompt')).map((entry) => entry.id), ['message:211', 'message:212']);
+});
+
+test('failed backup preserves unresolved input and reset-session only unlinks the selected inactive conversation', async (t) => {
+  const f = await fixture(t, 'normal', true, 5000, true);
+  await f.append(221); await f.append(222, 'private'); await until(async () => (await f.state()).last_seq === '2');
+  const saved = await f.state(), groupSource = 'imbrex://qq/123456/main/group/987654', privateSource = 'imbrex://qq/123456/main/private/654321';
+  const group = object(saved.sessions)[groupSource], privateSession = object(saved.sessions)[privateSource];
+  const boots = (await f.logs('boot')).length;
+  await f.setControl({ mode: 'wait-release', release: false }); await f.append(223); await until(async () => (await f.logs('prompt')).length === 3);
+  assert.equal((await f.action('reset-session', { source: groupSource, session_id: group, reason: 'fixture' })).status, 409);
+  const reset = await f.action('reset-session', { source: privateSource, session_id: privateSession, reason: 'fixture reset only private association' });
+  assert.equal(object(reset.body.result).status, 'succeeded');
+  assert.equal(object((await f.state()).sessions)[groupSource], group); assert.equal(object((await f.state()).sessions)[privateSource], undefined);
+  assert.equal(object((await f.state()).in_flight).id, 'message:223'); assert.equal((await f.logs('boot')).length, boots);
+  assert.equal((await f.action('reset-session', { source: privateSource, session_id: privateSession, reason: 'fixture duplicate' })).status, 409);
+  await f.setControl({ release: true }); await until(async () => (await f.state()).last_seq === '3');
+  await f.setControl({ mode: 'error' }); await f.append(224); await until(() => f.status().last_error?.code === 'consumer_in_flight_unconfirmed');
+  const unresolved = await f.state();
+  const auditDir = join(f.config.dataDir, 'plugins/agent/recovery');
+  await rename(auditDir, auditDir + '-saved'); await writeFile(auditDir, 'fixture blocks backup directory');
+  const flight = object(unresolved.in_flight);
+  const failed = await f.action('recover-input', { source: flight.source, id: flight.id, seq: flight.seq, disposition: 'abandoned', reason: 'fixture failure' });
+  assert.equal(object(failed.body.result).status, 'failed'); assert.deepEqual(await f.state(), unresolved);
+  assert.equal(f.status().available, false);
+  await rm(auditDir); await rename(auditDir + '-saved', auditDir);
+});
+
+test('managed configuration saves without changing the active round, then restarts only the Agent and applies settings to restored sessions', async (t) => {
+  const f = await fixture(t, 'normal', true, 5000, true, true);
+  await f.append(231); await until(async () => (await f.state()).last_seq === '1');
+  const before = await f.state(), first = (await f.logs('configured-prompt'))[0]!;
+  const port = f.host().port, sockets = [...f.sim.server.clients];
+  assert.equal(first.model, 'fixture/fixture-a');
+  assert.ok(String(first.home).startsWith(join(f.config.dataDir, 'plugins/agent/agent')));
+  await f.setControl({ mode: 'wait-release', release: false }); await f.append(232); await until(async () => (await f.logs('prompt')).length === 2);
+  const revision = object(object((await f.panel()).data).management).revision;
+  const nextPrompt = 'Updated fixture prompt.' + ' '.repeat(32768 - 23);
+  const saved = await f.action('save-agent-config', { revision, settings: { model: 'fixture-b', context_window: 500000, system_prompt: nextPrompt } });
+  assert.equal(object(saved.body.result).application_status, 'pending_restart');
+  assert.equal(object(object(object((await f.panel()).data).management).pi).saved !== undefined, true);
+  const nextRevision = object(saved.body.result).revision;
+  assert.equal((await f.action('restart-agent', { revision: nextRevision, reason: 'fixture blocked while active' })).status, 409);
+  assert.equal((await f.logs('configured-prompt'))[1]?.model, 'fixture/fixture-a');
+  await f.setControl({ release: true, mode: 'normal' }); await until(async () => (await f.state()).last_seq === '2');
+  const restarted = await f.action('restart-agent', { revision: nextRevision, reason: 'fixture apply' });
+  assert.equal(object(restarted.body.result).status, 'succeeded');
+  const appliedView = object(object(object((await f.panel()).data).management).pi);
+  assert.equal(object(appliedView.applied).system_prompt, nextPrompt);
+  assert.equal(f.host().port, port); assert.deepEqual([...f.sim.server.clients], sockets);
+  assert.deepEqual((await f.state()).sessions, before.sessions);
+  await f.append(233); await until(async () => (await f.state()).last_seq === '3');
+  const actual = (await f.logs('configured-prompt')).at(-1)!;
+  assert.equal(actual.model, 'fixture/fixture-b'); assert.equal(actual.prompt, nextPrompt);
+  assert.equal(actual.session_id, first.session_id);
+  assert.equal(object(object(object((await f.state()).management).pi).applied).context_window, 500000);
+  await f.restart(); await until(() => f.status().available);
+  await f.append(234); await until(async () => (await f.state()).last_seq === '4');
+  assert.equal((await f.logs('configured-prompt')).at(-1)?.model, 'fixture/fixture-b');
+});
+
+test('failed managed restart keeps session evidence and a pending application marker until explicit correction', async (t) => {
+  const f = await fixture(t, 'normal', true, 5000, true, true);
+  await f.append(241); await until(async () => (await f.state()).last_seq === '1');
+  const before = await f.state();
+  const revision = object(object((await f.panel()).data).management).revision;
+  const saved = await f.action('save-agent-config', { revision, settings: { model: 'fixture-b', context_window: 100000, system_prompt: 'Fixture pending prompt.' } });
+  await f.setControl({ mode: 'load-fail' });
+  const failed = await f.action('restart-agent', { revision: object(saved.body.result).revision, reason: 'fixture expected load failure' });
+  assert.equal(object(failed.body.result).status, 'failed');
+  assert.deepEqual((await f.state()).sessions, before.sessions); assert.equal((await f.state()).last_seq, '1');
+  assert.equal(object(object((await f.state()).management).pi).applying, true);
+  await f.restart(); assert.equal(f.status().available, false);
+  await until(() => f.status().last_error?.code === 'consumer_config_apply_unconfirmed');
+  const sessions = object(before.sessions), source = Object.keys(sessions)[0]!;
+  const reset = await f.action('reset-session', { source, session_id: sessions[source], reason: 'fixture explicit reset after unsupported restoration' });
+  assert.equal(object(reset.body.result).status, 'succeeded');
+  await f.setControl({ mode: 'normal' });
+  const applied = await f.action('restart-agent', { revision: object(saved.body.result).revision, reason: 'fixture retry after reset' });
+  assert.equal(object(applied.body.result).status, 'succeeded');
+  await f.append(242); await until(async () => (await f.state()).last_seq === '2');
+  assert.equal((await f.logs('prompt')).length, 2);
+});
+
+test('saved configuration stays pending during unresolved input and failed persistence never claims application', async (t) => {
+  const f = await fixture(t, 'error', true, 5000, true);
+  await f.append(251); await until(() => f.status().last_error?.code === 'consumer_in_flight_unconfirmed');
+  const unresolved = await f.state(), before = await f.panel();
+  const saved = await f.action('save-filter', { revision: object(object(before.data).management).revision, filter: { group_ids: [], private_user_ids: [] } });
+  assert.equal(object(saved.body.result).status, 'succeeded');
+  const pending = await f.state();
+  assert.deepEqual(pending.in_flight, unresolved.in_flight); assert.equal(pending.last_seq, '0');
+  assert.equal(object(object(pending.management).filter).applied, null);
+  await f.append(252); await delay(40); assert.equal((await f.logs('prompt')).length, 1);
+  await mkdir(f.stateFile + '.tmp');
+  const failed = await f.action('save-filter', { revision: object(pending.management).revision, filter: { group_ids: ['987654'], private_user_ids: [] } });
+  assert.equal(object(failed.body.result).status, 'failed'); assert.equal(object(failed.body.result).resumed, false);
+  assert.deepEqual(await f.state(), pending); assert.equal((await f.logs('prompt')).length, 1);
+  await rm(f.stateFile + '.tmp', { recursive: true });
+});
+
+test('a partial managed file update remains explicitly unresolved across process restart', async (t) => {
+  const f = await fixture(t, 'normal', true, 5000, true, true);
+  await f.append(261); await until(async () => (await f.state()).last_seq === '1');
+  const before = await f.state(), view = object((await f.panel()).data);
+  const saved = await f.action('save-agent-config', { revision: object(view.management).revision, settings: { model: 'fixture-b', context_window: 100000, system_prompt: 'Pending fixture.' } });
+  const promptPath = join(f.config.dataDir, 'plugins/agent/agent/config/SYSTEM.md');
+  await rename(promptPath, promptPath + '.saved'); await mkdir(promptPath);
+  const failed = await f.action('restart-agent', { revision: object(saved.body.result).revision, reason: 'fixture interrupted file application' });
+  assert.equal(object(failed.body.result).status, 'failed'); assert.equal(object(object(failed.body.result).reason).code, 'consumer_managed_config_failed');
+  assert.equal(object(object((await f.state()).management).pi).applying, true);
+  assert.deepEqual((await f.state()).sessions, before.sessions); assert.equal((await f.state()).last_seq, '1');
+  await f.restart(); await until(() => f.status().last_error?.code === 'consumer_config_apply_unconfirmed');
+  assert.equal((await f.logs('prompt')).length, 1);
+  await rm(promptPath, { recursive: true }); await rename(promptPath + '.saved', promptPath);
+  const applied = await f.action('restart-agent', { revision: object(saved.body.result).revision, reason: 'fixture explicit corrected retry' });
+  assert.equal(object(applied.body.result).status, 'succeeded');
+  assert.equal(object(object((await f.state()).management).pi).applying, false);
 });

@@ -112,3 +112,39 @@ test('instance panel registration outlives Admin, failures are isolated, and unl
   assert.equal((await f.request('/api/admin/panels/two')).status, 200);
   await app.startPlugin('one'); assert.notEqual((await f.request('/api/admin/panels/one')).body.generation, before.body.generation);
 });
+
+test('registered operations enforce schema, identity, permission and instance exclusivity and survive Admin unload', async (t) => {
+  const f = await fixture(t);
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  let executions = 0;
+  f.config.plugins.push({ id: 'controlled', module: 'fixture', principalId: 'mock-provider', required: true, enabled: true, config: {} });
+  f.modules.set('controlled', { apply: (ctx) => { ctx.imbrex.forPlugin(ctx).registerAdminPanel({ title: 'Fixture', icon: 'fixture', read: () => ({ executions }),
+    actions: [{ id: 'hold', title: 'Hold fixture operation', inputSchema: { type: 'object', properties: { reason: { type: 'string', minLength: 1 } }, required: ['reason'], additionalProperties: false },
+      execute: async () => { executions += 1; entered.resolve(); await release.promise; return { status: 'succeeded' }; },
+    }],
+  }); } });
+  const app = await f.open(); await app.startPlugin('admin');
+  const descriptor = (await f.request('/api/admin/panels/controlled')).body;
+  const body = { store_id: descriptor.store_id, generation: descriptor.generation, params: { reason: 'fixture' } };
+  const invoke = async (value: unknown, token = 'fixture-operate-secret', origin?: string) => {
+    const response = await fetch('http://127.0.0.1:' + app.port + '/api/admin/panels/controlled/actions/hold', { method: 'POST', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json', ...(origin ? { origin } : {}) }, body: JSON.stringify(value) });
+    return { status: response.status, value: object(await response.json()) };
+  };
+  assert.equal((await invoke(body, 'fixture-admin-secret')).status, 403);
+  assert.equal((await invoke(body, 'fixture-agent-secret')).status, 403);
+  assert.equal((await invoke(body, 'fixture-operate-secret', 'https://foreign.example')).status, 403);
+  assert.equal((await invoke({ ...body, generation: 'stale' })).status, 409);
+  assert.equal((await invoke({ ...body, store_id: 'other' })).status, 409);
+  assert.equal((await invoke({ ...body, params: {} })).status, 400);
+  assert.equal(executions, 0);
+  const running = invoke(body).catch(() => undefined);
+  try {
+    await entered.promise;
+    assert.equal((await invoke(body)).status, 429);
+    const stopping = app.stopPlugin('admin');
+    release.resolve(); await stopping; await running;
+    assert.equal(executions, 1);
+    await app.startPlugin('admin');
+    assert.equal((await f.request('/api/admin/panels/controlled')).body.generation, descriptor.generation);
+  } finally { release.resolve(); await running; }
+});

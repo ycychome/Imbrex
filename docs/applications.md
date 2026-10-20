@@ -116,9 +116,9 @@ consumer-state.json 使用 version=1，包含 input_id、store_id、last_seq、s
 
 Linux stdio 使用 tini 0.19.0 的 subreaper 模式包裹监督进程，再通过显式标准流与 IPC 启动 Agent。Agent 异常退出或其后代脱离原进程组时，孤儿进程由专属 tini 接管，监督进程清理并检查所有后代，tini 负责回收。宿主控制通道关闭后也继续清理；缺少 tini 时拒绝启动该 Consumer。终止与升级终止后检查进程已经退出，清理未完成则报告 stop_failed。部署仍以受信 Agent 和既有本地权限为前提，不提供恶意代码隔离。
 
-Consumer 等待 api.whenReady() 确认 HTTP/MCP 已监听后才读取并投递，避免较晚初始化的插件拖延监听使首轮失败。ACP 过程通知不参与消费确认，直接丢弃；无效报文和未知响应 ID 在 SDK 前拒绝，阻断 SDK 将原始通知或 ID 写入异常日志的路径。
+Consumer 等待 api.whenReady() 确认 HTTP/MCP 已监听后才读取并投递，避免较晚初始化的插件拖延监听使首轮失败。ACP 过程通知不参与消费确认；仅从已知会话的 usage_update 提取有界数字用于观测，其余通知丢弃；无效报文和未知响应 ID 在 SDK 前拒绝，阻断 SDK 将原始通知或 ID 写入异常日志的路径。
 
-## 10. M2 运行态观测（待实现）
+## 10. 管理运行态观测
 
 Admin 展示 Consumer 的事实投影：available=true 且 in_flight=null 为 idle；available=true 且非空为 processing；available=false 且非空为 suspended_in_flight；available=false 且为空为 stopped_or_error。后两者结合实际生命周期、停止过程与错误原因解释，不能把正常处理或正在停止都说成模型卡死。
 
@@ -126,7 +126,7 @@ Admin 展示 Consumer 的事实投影：available=true 且 in_flight=null 为 id
 
 <a id="m2-recovery"></a>
 
-## 11. M2 在线处置与单会话重置（待实现）
+## 11. 在线处置与单会话重置
 
 在线处置保持宿主运行，由宿主协调目标 Consumer，不在 Admin 内直接执行持 data_dir/.lock 的离线 CLI。处置对象包含实例、store_id、未决 seq 和原事件引用，服务端核对与当前状态相同；不能由旧页面按钮推进另一条输入。
 
@@ -141,7 +141,7 @@ Admin 展示 Consumer 的事实投影：available=true 且 in_flight=null 为 id
 
 <a id="m2-config"></a>
 
-## 12. M2 filter 轮次边界应用（待实现）
+## 12. filter 轮次边界应用
 
 管理入口仅编辑 filter.group_ids 与 filter.private_user_ids，OR 匹配、空名单不放行等规则不变。它不修改 OneBot 采集名单或 Principal 授权；扩大到未采集/未授权范围时显示该限制，不虚报已可接收。
 
@@ -150,3 +150,7 @@ Admin 展示 Consumer 的事实投影：available=true 且 in_flight=null 为 id
 应用保留 last_seq 与会话证据，不重新回放已经完成或跳过的历史；新规则只作用于检查点后的未处理输入。有异常未决项时拒绝应用，须先确认/放弃；配置保存不能消除输入责任。
 
 持久配置与绑定一致后才报告已应用。写入/同步失败或部分更新时保持可诊断的待应用/失败状态并停止不确定的新投递，不伪报成功或自动重置。完成受控应用后普通重启可恢复新绑定；手工改文件导致的绑定不一致继续沿用拒绝静默恢复的规则。
+
+management 是 version=1 状态中的可选扩展，旧状态不需要清空或重建。它保存 revision、base_filter、filter.saved/applied，以及托管 pi 的 base、saved、applied 和 applying。base_filter 保留配置文件原绑定；selection.filter 始终是已应用规则。受控更新与检查点共用串行状态写入，防止配置保存覆盖正在完成的输入。普通重启继续接受原配置文件和已应用规则；直接修改配置文件基准仍拒绝启动。离线恢复使用 base_filter 验证原绑定并保留管理扩展。
+
+在线处置备份位于 data_dir/plugins/<instance>/recovery/<operation_id>.json，权限 0600，目录 0700，包含操作者主体、原因、动作与 before 状态。目录同步、备份和消费状态替换均完成后才返回实际结果；失败时 inspect_required 要求重新核验，不自动重试。reset-session 精确匹配 source/session_id，仅解除持久映射和本进程 loaded/model/usage 关联，不删除 Agent 原历史，也不停止其他会话的当前轮次。

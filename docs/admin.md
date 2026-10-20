@@ -1,6 +1,6 @@
 # M2 管理控制台契约
 
-本文规定 M2 的管理行为。当前 admin 插件提供只读观测、实例面板、配置查询与外部静态资产挂载；配置编辑和在线处置按[开发计划](development-plan.md#m2)扩展，具体线上表达见 [HTTP 契约](contracts.md#12-管理-api)。
+本文规定管理认证、观测、配置应用和在线处置；具体线上表达见 [HTTP 契约](contracts.md#12-管理-api)。
 
 ## 1. 交付范围与组成
 
@@ -32,7 +32,7 @@ admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}�
 
 ## 3. 插件管理描述
 
-插件通过绑定 API 的 registerAdminPanel 登记管理描述。当前接受 title、icon 和 read()，每个实例登记一份描述；动作入口随在线控制功能增加。实例身份由 api.instanceId 注入，不能由描述中的任意字符串冒充其他实例。
+插件通过绑定 API 的 registerAdminPanel 登记管理描述。接受 title、icon、read() 和可选 actions，每个实例登记一份描述。实例身份由 api.instanceId 注入，不能由描述中的任意字符串冒充其他实例。
 
 状态和详情使用可序列化的有界数据，序号继续为十进制字符串。一次读取失败显示该实例读取错误，不影响其他面板或改变业务事务结果。仅展示已采集到的指标；例如未取得心跳延迟就显示未提供，不用 0 伪装正常。
 
@@ -72,13 +72,15 @@ Agent data：status、available、phase、last_error 描述处理投影；input_
 
 state_status 为 loaded/missing/unavailable。启动所需环境或绑定检查失败时，仍展示与当前存储身份及序号相符、按原绑定验证过的持久事实；不据此恢复消费。无法验证状态时为 unavailable，并省略 last_seq、in_flight、sessions、agent_info，这些字段此时未知；不能把缺失解释为没有未决项。missing 表示已确认状态文件不存在。
 
-Agent configuration 包含 filter（未配置为 null）、source_prefix、max_event_age_seconds、turn_timeout_ms、reader、agent_environment 和 pi。reader 是 Consumer 读取授权；agent_environment 只返回变量名和是否存在。pi 只检查显式传入的绝对 PI_CODING_AGENT_DIR，不读取默认用户 HOME；status 为 unmanaged/configured_unverified/unavailable。saved 为 {provider,model,context_window,system_prompt,mcp} 或 null，applied/observed 当前为 null。缺少声明时返回 null，不推断 provider 默认值。MCP 只返回无嵌入凭据的地址及环境引用，不回传 headers、密钥或 shell 命令。单个配置文件最大 64 KiB，损坏/超限返回 unavailable。
+Agent configuration 包含 filter（未配置为 null）、source_prefix、max_event_age_seconds、turn_timeout_ms、reader、agent_environment 和 pi。reader 是 Consumer 读取授权；agent_environment 只返回变量名和是否存在。pi 仅检查显式 PI_CODING_AGENT_DIR 或本实例托管目录，不读取默认用户 HOME；status 为 unmanaged/configured_unverified/unavailable。saved 为从磁盘读取的 {provider,model,context_window,system_prompt,mcp} 或 null，文件检查本身不证明运行时应用，applied/observed 为 null。缺少声明时返回 null，不推断 provider 默认值。MCP 只返回无嵌入凭据的地址及环境引用，不回传 headers、密钥或 shell 命令。单个配置文件最大 64 KiB，损坏/超限返回 unavailable。
 
 文件以非阻塞方式打开，仅允许普通文件；读取过程仍限制实际字节数，拒绝 FIFO、符号链接和超限内容。面板派发前和结束后都核对登记身份，已注销实例不会接到尚未开始的读取。
 
+Agent data.management 是实际配置责任状态：revision 为保存时更新的不透明版本；filter 为 saved/applied，filter_status 为 pending/applied；托管 pi 为 saved/applied/applying，pi_status 为 unmanaged/pending_restart/applying/failed/stopped_or_error/awaiting_session/applied。awaiting_session 表示文件与进程就绪，但尚无实际会话确认；applied 要求进程可用且已有 session/set_config_option 返回匹配模型。applied 值记录上次成功加载配置，不能单独当作进程仍在运行的证明。observed_models 按 session ID 返回本进程已确认的模型；observed_usage 为本进程接到的已知会话 usage_update 中有界数字 {used,size}，未观察到时无该项。这些值来自本地 Agent，不证明远端模型真实容量。详情上限为 256 KiB，以容纳保存值与已应用值及会话事实。
+
 ## 5. 配置查看、编辑和应用
 
-M2-02 提供只读配置全景，M2-03 增加编辑和受控应用。首版可编辑项包括 Consumer filter，以及托管 pi 的模型选择、上下文窗口和系统提示词。本文不扩展为任意宿主参数或任意 Agent 的无损热更新。
+可编辑项为 Consumer filter，以及托管 pi 的模型选择、上下文窗口和系统提示词；不扩展为任意宿主参数或任意 Agent 的无损热更新。动作路径、输入 schema、并发版本和失败信封见 HTTP 契约；动作返回成功后仍按 application_status 区分保存与应用。
 
 filter 的完整规则以[应用消费](applications.md#m2-config)为准：当前轮使用旧配置，完成并持久保存进度后应用新规则，已完成或跳过的历史不回放；异常未决先处置。filter 不扩大 OneBot 采集范围或 Principal 授权，页面必须分开展示这些范围。
 
