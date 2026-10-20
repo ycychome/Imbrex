@@ -10,7 +10,7 @@ import type { PluginApi } from '../../host/plugin-api.js';
 import { nativeId } from '../onebot-v11/protocol.js';
 import { AcpAgent } from './agent.js';
 import { ConsumerError, consumerLimits, parseConsumerConfig, prepareAgent, type ConsumerConfig } from './config.js';
-import { bindingFor, loadState, saveState, type ConsumerState } from './state.js';
+import { bindingFor, inspectState, loadState, saveState, type ConsumerState } from './state.js';
 
 export const name = 'agent-chat';
 export const inject = ['imbrex', 'mcp'];
@@ -70,7 +70,7 @@ class Consumer {
       available, phase: this.phase, last_error: this.lastError, input_id: this.state.input_id, store_id: this.state.store_id, last_seq: this.state.last_seq,
       in_flight: this.state.in_flight ? { ...this.state.in_flight } : null, sessions: { ...this.state.sessions }, agent_info: this.state.agent_info ? { ...this.state.agent_info } : null,
       turn_started_at: this.turnStartedAt, elapsed_ms: this.turnStartedAt ? Math.max(0, Date.now() - Date.parse(this.turnStartedAt)) : null,
-      model_stage: null,
+      model_stage: null, state_status: 'loaded',
     };
   }
   start(): void { this.startup = this.initialize().catch((error: unknown) => this.fail(error)); }
@@ -186,12 +186,14 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   const path = join(api.dataDir, 'consumer-state.json');
   let consumer: Consumer | undefined;
   let snapshot: ConsumerState | undefined;
+  let stateStatus = 'unavailable';
   let errorCode: string | null = 'consumer_starting';
   api.registerAdminPanel({ title: 'Agent Chat', icon: 'agent', read: async () => ({
     ...(consumer ? consumer.view() : {
       status: snapshot?.in_flight ? 'suspended_in_flight' : 'stopped_or_error', available: false, phase: 'stopped', last_error: errorCode,
-      input_id: config.inputId, store_id: api.storeId, last_seq: snapshot?.last_seq ?? null,
-      in_flight: snapshot?.in_flight ? { ...snapshot.in_flight } : null, sessions: { ...snapshot?.sessions }, agent_info: snapshot?.agent_info ? { ...snapshot.agent_info } : null,
+      input_id: snapshot?.input_id ?? config.inputId, store_id: api.storeId, state_status: stateStatus,
+      ...(snapshot ? { last_seq: snapshot.last_seq, in_flight: snapshot.in_flight ? { ...snapshot.in_flight } : null, sessions: { ...snapshot.sessions }, agent_info: snapshot.agent_info ? { ...snapshot.agent_info } : null } :
+        stateStatus === 'missing' ? { last_seq: null, in_flight: null, sessions: {}, agent_info: null } : {}),
       turn_started_at: null, elapsed_ms: null, model_stage: null,
     }),
     configuration: {
@@ -201,16 +203,19 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
     },
   }) });
   try {
+    const info = await api.events.info();
+    try { snapshot = await inspectState(path, info.storeId, info.latestSeq); stateStatus = snapshot ? 'loaded' : 'missing'; }
+    catch { stateStatus = 'unavailable'; }
     const prepared = await prepareAgent(config.agent);
     config.agent = prepared.config;
     const binding = bindingFor(config, api.events.readScope());
-    const info = await api.events.info();
     let state = await loadState(path, binding, info.storeId, info.latestSeq);
     if (!state) {
       state = { ...binding, version: 1, store_id: info.storeId, last_seq: info.latestSeq.toString(), agent_info: null, sessions: {}, in_flight: null };
       await saveState(path, state);
     }
     snapshot = state;
+    stateStatus = 'loaded';
     if (state.in_flight) {
       errorCode = 'consumer_in_flight_unconfirmed';
       api.setAvailable(false, { code: 'consumer_in_flight_unconfirmed' });

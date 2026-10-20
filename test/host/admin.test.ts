@@ -8,6 +8,8 @@ import { parseConfig } from '../../src/host/config.js';
 import { loadModules } from '../../src/host/modules.js';
 import type { PluginApi } from '../../src/host/plugin-api.js';
 import { object } from '../../src/core/validation.js';
+import { AdminRegistry } from '../../src/host/admin-registry.js';
+import type { Principal } from '../../src/core/types.js';
 
 async function fixture(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'imbrex-admin-'));
@@ -28,6 +30,17 @@ async function fixture(t: TestContext) {
   };
   return { config, modules, request, open: async () => { app = await Host.open(config, modules); return app; } };
 }
+
+test('a queued panel read cannot dispatch after its instance unregisters', async () => {
+  const registry = new AdminRegistry(), controller = new AbortController();
+  const principal: Principal = { id: 'fixture', permissions: ['admin:inspect'], readSources: [], writeSources: [], invokeCapabilities: [] };
+  let reads = 0;
+  const unregister = registry.register('fixture', controller.signal, { title: 'Fixture', icon: 'fixture', read: () => { reads += 1; return {}; } });
+  const reading = registry.read(principal, 'fixture');
+  controller.abort(); unregister();
+  assert.equal((await reading).error?.code, 'admin_panel_read_failed');
+  assert.equal(reads, 0);
+});
 
 test('management reads authenticate separately and audit persisted calls across principals without widening REST grants', async (t) => {
   const f = await fixture(t);

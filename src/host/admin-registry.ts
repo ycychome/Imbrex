@@ -38,7 +38,10 @@ export class AdminRegistry {
     requirePermission(principal, 'admin:inspect');
     const entry = this.entry(instanceId);
     if (entry.reading) fail('busy');
-    const reading = Promise.resolve().then(() => entry.panel.read()).then((value) => json(value, 65536, 'invalid_request'));
+    const reading = Promise.resolve().then(() => {
+      if (entry.signal.aborted || this.entries.get(instanceId) !== entry) fail('provider_unavailable');
+      return entry.panel.read();
+    }).then((value) => json(value, 65536, 'invalid_request'));
     entry.reading = reading;
     reading.then(() => { entry.reading = undefined; }, () => { entry.reading = undefined; });
     let timer: ReturnType<typeof setTimeout> | undefined;

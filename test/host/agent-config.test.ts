@@ -1,10 +1,29 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { inspectPiConfiguration } from '../../src/plugins/agent-chat/inspect-config.js';
 import { object } from '../../src/core/validation.js';
+
+test('a FIFO configuration is rejected without waiting for a writer', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imbrex-pi-fifo-'));
+  const path = join(directory, 'settings.json');
+  execFileSync('mkfifo', [path]);
+  const reading = inspectPiConfiguration(directory);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([reading, new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 500); })]);
+    assert.notEqual(result, null, 'configuration inspection waited for a FIFO writer');
+    assert.equal(object(result).status, 'unavailable');
+  } finally {
+    clearTimeout(timer);
+    const unblock = await open(path, constants.O_RDWR | constants.O_NONBLOCK); await unblock.close();
+    await reading; await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test('explicit pi configuration is bounded and reports saved values separately from applied facts without copying credentials', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'imbrex-pi-config-'));
