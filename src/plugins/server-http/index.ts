@@ -3,9 +3,10 @@ import { fields, object, string } from '../../core/validation.js';
 import { fail } from '../../core/errors.js';
 import type { JsonObject } from '../../core/types.js';
 import { HttpServer } from './server.js';
+import type {} from '../../host/protocol.js';
 
 export const name = 'server-http';
-export const inject = ['imbrex'];
+export const inject = ['imbrex', 'protocol'];
 export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   const config = object(input);
   fields(config, ['host', 'port'], ['host', 'port']);
@@ -13,7 +14,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   const port = config.port;
   if (typeof port !== 'number' || !Number.isInteger(port) || port < 0 || port > 65535) fail('invalid_request');
   const api = ctx.imbrex.forPlugin(ctx);
-  const http = new HttpServer(host, (code) => api.setAvailable(false, { code }));
+  const http = new HttpServer(host, (code) => api.setAvailable(false, { code }), (code, requestId) => ctx.protocol.reportRequest(ctx, code, requestId));
   ctx.effect(() => () => http.close());
   api.signal.addEventListener('abort', () => http.stop(), { once: true });
   await http.listen(port);

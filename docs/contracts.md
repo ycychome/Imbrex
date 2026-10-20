@@ -289,6 +289,8 @@ store_id 为数据库身份；latest_seq 沿用规范十进制字符串；versio
 | 保存/应用 filter 或托管 Agent 配置 | admin:operate；区分保存与生效，按轮次边界或受控 Agent 重启应用 |
 | 确认/放弃当前未决输入、单会话重置 | admin:operate；匹配 store_id、实例、输入引用/seq 或完整会话 source，保留备份与原因，不修改原 calls 状态 |
 
+宿主尚未完成所有启用插件的初始化时，已监听的 REST/MCP/Admin 入口返回 503 provider_unavailable，不派发业务请求。请求错误记录公共错误码和 request_id，日志失败不影响响应。
+
 身份通过显式 Principal 的 token_env 引用 Bearer 凭据确定，不接受请求体指定管理员身份，不因 loopback 免认证。Admin 停用后撤销路由，普通 Agent Token 不可调用管理操作。管理操作不发布为 Agent 的 MCP 工具。
 
 状态或配置写入失败不能报告成功；旧页面提交的操作若不再对应当前未决项，应拒绝而不推进其他输入。管理请求断开不等于操作取消，后续应查询实际状态；不得把重新提交操作解释成新的外部发送意图。

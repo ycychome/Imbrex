@@ -119,3 +119,44 @@ test('configuration migration preserves data and instance bindings without grant
   assert.ok(config.principals.every((principal) => principal.permissions.length === 0));
   assert.equal(old.config_version, 1);
 });
+
+test('REST and MCP reject business requests until all required plugins initialize, including failed startup', async (t) => {
+  for (const succeeds of [true, false]) await t.test(String(succeeds), async (t) => {
+    const f = await fixture(t);
+    const reached = Promise.withResolvers<{ origin: string; storeId: string }>();
+    const release = Promise.withResolvers<void>();
+    t.after(() => release.resolve());
+    let writes = 0;
+    f.config.principals.find((principal) => principal.id === 'demo-agent')!.invokeCapabilities.push('provider.write');
+    for (const id of ['provider', 'gate']) f.config.plugins.push({ id, module: 'fixture', principalId: 'mock-provider', required: true, enabled: true, config: {} });
+    f.modules.set('provider', { apply: (ctx) => { ctx.imbrex.forPlugin(ctx).capabilities.register({
+      localName: 'write', description: 'fixture', schemaVersion: '1', isSideEffectful: true, inputSchema: { type: 'object' },
+      handler: () => { writes += 1; return { status: 'succeeded', result: null }; },
+    }); } });
+    f.modules.set('gate', { inject: ['http'], apply: async (ctx) => {
+      reached.resolve({ origin: ctx.http.origin, storeId: ctx.imbrex.forPlugin(ctx).storeId });
+      await release.promise;
+      if (!succeeds) throw new Error('fixture failed initialization');
+    } });
+    const opened = f.open().then((app) => ({ app, error: null }), (error: unknown) => ({ app: null, error }));
+    const { origin, storeId } = await reached.promise;
+    const headers = { authorization: 'Bearer fixture-agent', 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+    for (const [path, body] of [
+      ['/v1/info', undefined],
+      ['/v1/capabilities/provider.write/invoke', { store_id: storeId, call_id: 'startup-intent', params: {} }],
+      ['/v1/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'imbrex_invoke', arguments: { store_id: storeId, capability_id: 'provider.write', call_id: 'startup-intent', params: {} } } }],
+    ] as const) {
+      const response = await fetch(origin + path, { method: body ? 'POST' : 'GET', headers, ...(body ? { body: JSON.stringify(body) } : {}) });
+      assert.equal(response.status, 503); assert.equal(object(object(await response.json()).error).code, 'provider_unavailable');
+    }
+    assert.equal(writes, 0); release.resolve();
+    const result = await opened;
+    if (succeeds) {
+      assert.ok(result.app);
+      const info = await fetch(origin + '/v1/info', { headers }); assert.equal(info.status, 200); await info.text();
+      const call = await fetch(origin + '/v1/calls/startup-intent?store_id=' + storeId, { headers });
+      assert.equal(call.status, 404); await call.text();
+    } else { assert.equal(result.app, null); assert.ok(result.error); }
+    assert.equal(writes, 0);
+  });
+});

@@ -4,7 +4,7 @@ import { Context, type Fiber } from 'cordis';
 import { Capabilities } from '../core/capabilities.js';
 import { Events } from '../core/events.js';
 import { requirePermission } from '../core/access.js';
-import { fail, GatewayError, publicError } from '../core/errors.js';
+import { fail, GatewayError, publicError, type ErrorCode } from '../core/errors.js';
 import { limits, namespacePattern, readOptions } from '../core/validation.js';
 import { SqliteStore } from '../storage/store.js';
 import type {} from '../plugins/server-http/server.js';
@@ -32,6 +32,7 @@ export class Host {
   private events!: Events;
   private capabilities!: Capabilities;
   private closing = false;
+  private accepting = false;
   private failed = false;
   private closeTask?: Promise<void>;
   private ready = Promise.withResolvers<void>();
@@ -62,10 +63,13 @@ export class Host {
       if (!runtime || !['builtin:api-rest', 'builtin:adapter-mcp', 'builtin:admin'].includes(runtime.config.module)) fail('forbidden');
       const api = ctx.imbrex.forPlugin(ctx);
       return {
-        authenticate: (authorization) => { if (api.signal.aborted || this.closing) fail('provider_unavailable'); return this.config.authenticate(authorization); },
+        authenticate: (authorization) => { if (!this.accepting || api.signal.aborted || this.closing) fail('provider_unavailable'); return this.config.authenticate(authorization); },
         store: { info: () => this.store.info() }, events: this.events, capabilities: this.capabilities,
         plugins: () => this.plugins(), report: (code, requestId) => this.report(code, { request_id: requestId }),
       };
+    }, reportRequest: (ctx: Context, code: ErrorCode, requestId: string) => {
+      if (this.runtimeFor(ctx.fiber)?.config.module !== 'builtin:server-http') fail('forbidden');
+      this.report(code, { request_id: requestId });
     } });
     this.root.on('internal/status', (fiber) => {
       for (const runtime of this.runtimes.values()) {
@@ -110,6 +114,7 @@ export class Host {
       });
       for (const plugin of config.plugins) if (plugin.enabled) await host.startPlugin(plugin.id);
       if (host.failed) fail('storage_unavailable');
+      host.accepting = true;
       host.ready.resolve();
       return host;
     } catch (error) {

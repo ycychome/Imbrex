@@ -74,10 +74,12 @@ test('the demo publishes and transforms events, exposes tools, and keeps transfo
 });
 
 test('HTTP rejects forged callers, invalid query/body shapes, compressed and oversized requests', async (t) => {
-  const { app } = await fixture(t);
+  const { app, logs } = await fixture(t);
   const id = (await app.info()).storeId;
   assert.equal((await request(app, '/v1/info', undefined, 'wrong')).status, 401);
   assert.equal((await request(app, '/v1/plugins')).status, 403);
+  assert.ok(logs.includes('forbidden'));
+  assert.equal(app.plugins().find((plugin) => plugin.id === 'http')?.available, true);
   assert.equal((await request(app, '/v1/plugins', undefined, operatorToken)).status, 200);
   const event = { specversion: '1.0', source: 'imbrex://fixture/client', id: 'http-001', type: 'fixture.client.created', datacontenttype: 'application/json', data: { text: 'fixture' } };
   const created = await request(app, '/v1/events', { store_id: id, event }, 'fixture-writer-token');
@@ -345,4 +347,19 @@ test('default function modules retain their Config validator and injected depend
     }, { code: 'provider_unavailable' });
     await assert.rejects(access(proof));
   }
+});
+
+
+test('HTTP errors retain request IDs and a throwing diagnostic sink cannot change the response', async (t) => {
+  const { config, filename, cleanup } = await configFixture(t);
+  const logs: { code: string; fields?: Record<string, string | number | boolean> }[] = [];
+  const app = await Host.open(config, await loadModules(config, filename), { report: (code, fields) => { logs.push({ code, fields }); throw new Error('fixture private diagnostic failure'); } });
+  cleanup.push(() => app.close());
+  const response = await fetch('http://127.0.0.1:' + app.port + '/v1/plugins', { headers: { authorization: 'Bearer ' + demoToken } });
+  const body = object(await response.json());
+  assert.equal(response.status, 403);
+  assert.equal(response.headers.get('x-request-id'), body.request_id);
+  assert.ok(logs.some((entry) => entry.code === 'forbidden' && entry.fields?.request_id === body.request_id));
+  assert.ok(!JSON.stringify(body).includes('fixture private diagnostic failure'));
+  assert.equal(app.plugins().find((plugin) => plugin.id === 'http')?.available, true);
 });

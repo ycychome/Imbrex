@@ -6,7 +6,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { Context } from 'cordis';
-import { fail, GatewayError, publicError } from '../../core/errors.js';
+import { fail, GatewayError, publicError, type ErrorCode } from '../../core/errors.js';
 import { limits } from '../../core/validation.js';
 import type {} from '../../host/plugin-api.js';
 
@@ -63,7 +63,7 @@ export class HttpServer {
     this.pending.add(task);
     task.then(() => this.pending.delete(task), () => { this.pending.delete(task); response.destroy(); });
   });
-  constructor(private host: string, private report: (code: string) => void) {
+  constructor(private host: string, private report: (code: string) => void, private reportRequest: (code: ErrorCode, requestId: string) => void) {
     this.server.on('error', () => this.report('http_server_error'));
   }
   async listen(port: number): Promise<void> {
@@ -165,6 +165,7 @@ export class HttpServer {
       await work;
     } catch (cause) {
       const error = publicError(cause);
+      try { this.reportRequest(error.code, requestId); } catch { /* Reporting does not change the response or listener availability. */ }
       if (response.headersSent) { response.destroy(); return; }
       response.setHeader('connection', 'close');
       send(error.status, { error: { code: error.code, message: error.message }, request_id: requestId });

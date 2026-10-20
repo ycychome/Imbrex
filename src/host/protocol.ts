@@ -3,6 +3,7 @@ import type { Capabilities } from '../core/capabilities.js';
 import type { Events } from '../core/events.js';
 import type { GatewayStore } from '../core/store.js';
 import type { Principal } from '../core/types.js';
+import type { ErrorCode } from '../core/errors.js';
 
 // Only the built-in protocol plugins receive this request-side service.
 export interface ProtocolApi {
@@ -13,5 +14,8 @@ export interface ProtocolApi {
   plugins(): unknown[];
   report(code: string, requestId: string): void;
 }
-export interface ProtocolService { forPlugin(ctx: Context): ProtocolApi }
+export interface ProtocolService {
+  forPlugin(ctx: Context): ProtocolApi;
+  reportRequest(ctx: Context, code: ErrorCode, requestId: string): void;
+}
 declare module 'cordis' { interface Context { protocol: ProtocolService } }
