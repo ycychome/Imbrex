@@ -1,3 +1,4 @@
+import type { AdminPanel } from './admin-registry.js';
 import type { Context } from 'cordis';
 import type { CapabilityDefinition, InvokeResult } from '../core/capabilities.js';
 import type { AppendResult, EventPage, EventRecord, EventRef, JsonValue, ReadOptions, SourceRule } from '../core/types.js';
@@ -10,6 +11,7 @@ export interface PluginApi {
   readonly dataDir: string;
   readonly signal: AbortSignal;
   whenReady(): Promise<void>;
+  registerAdminPanel(panel: AdminPanel): () => void;
   events: {
     info(): Promise<{ storeId: string; latestSeq: bigint }>;
     readScope(): ReadScope;

@@ -12,6 +12,7 @@ export interface HostConfig {
   dataDir: string;
   externalWritesEnabled: boolean;
   principals: Principal[];
+  credentialReferences: Record<string, string>;
   plugins: PluginConfig[];
   authenticate: (authorization: string | undefined) => Principal;
 }
@@ -45,6 +46,7 @@ export function parseConfig(input: unknown, filename: string, environment: NodeJ
   fields(config, keys, keys);
   if (config.config_version !== 2) fail('invalid_request', 'Unsupported config_version');
   const credentials: { digest: Buffer; principal: Principal }[] = [];
+  const credentialReferences: Record<string, string> = Object.create(null) as Record<string, string>;
   const principals = list(config.principals).map((entry): Principal => {
     const item = object(entry);
     fields(item, ['id', 'token_env', 'permissions', 'read_sources', 'write_sources', 'invoke_capabilities'],
@@ -68,6 +70,7 @@ export function parseConfig(input: unknown, filename: string, environment: NodeJ
       const digest = createHash('sha256').update(token).digest();
       if (credentials.some((entry) => timingSafeEqual(entry.digest, digest))) fail('invalid_request', 'Duplicate credentials');
       credentials.push({ digest, principal });
+      credentialReferences[principal.id] = name;
     }
     return principal;
   });
@@ -85,7 +88,7 @@ export function parseConfig(input: unknown, filename: string, environment: NodeJ
   if (new Set(plugins.map((plugin) => plugin.id)).size !== plugins.length) fail('invalid_request', 'Duplicate plugin instance');
   return {
     dataDir: resolve(dirname(resolve(filename)), string(config.data_dir, 4096)),
-    externalWritesEnabled: boolean(config.external_writes_enabled), principals, plugins,
+    externalWritesEnabled: boolean(config.external_writes_enabled), principals, credentialReferences, plugins,
     authenticate: (authorization) => {
       const match = /^Bearer ([\x21-\x7e]+)$/i.exec(authorization ?? '');
       if (!match?.[1]) fail('unauthorized');

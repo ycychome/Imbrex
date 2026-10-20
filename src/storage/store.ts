@@ -57,6 +57,7 @@ export class SqliteStore implements GatewayStore {
   read: GatewayStore['read'] = (...args) => this.request('read', args);
   lookup: GatewayStore['lookup'] = (...args) => this.request('lookup', args);
   getCall: GatewayStore['getCall'] = (...args) => this.request('getCall', args);
+  listCalls: GatewayStore['listCalls'] = (...args) => this.request('listCalls', args);
   createCall: GatewayStore['createCall'] = (...args) => this.request('createCall', args);
   finishCall: GatewayStore['finishCall'] = (...args) => this.request('finishCall', args);
   close(): Promise<void> {

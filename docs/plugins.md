@@ -29,6 +29,7 @@ Cordis 的 apply、inject、Context 与 effect 负责依赖和作用域。本方
 | `api.capabilities.invoke(id, params, {callId?})` | 使用绑定主体；遵循能力契约中的只读/外部写规则 |
 | `api.capabilities.getCall(callId)` | 查询本主体有权查看的记录 |
 | `api.setAvailable(boolean, reason?)` | 更新该插件对外服务可用性，不伪造业务成功 |
+| `api.registerAdminPanel({title,icon,read})` | 按绑定实例登记有界状态读取函数，返回注销函数；详情见第 11 节 |
 | `api.events.readScope()` | 需要 events:read；返回绑定主体的 principalId 与 sources 副本，用于将本地进度绑定到实际读取范围；不返回凭据 |
 
 所有公开对象使用 JSON 值与基本领域类型，只有内部位置使用 bigint。API 不暴露网关 SQL、全局 token、其他应用状态或任意主体 impersonation。需要恢复的插件启动后先核对自己保存的 store_id，再继续调用绑定客户端。
@@ -141,7 +142,7 @@ adapter-mcp 登记 /v1/mcp 后才提供 mcp 服务，agent-chat 声明 mcp 依�
 
 ## 11. M2 管理描述登记与动作
 
-宿主维护轻量 AdminRegistry，绑定 API 新增 registerAdminPanel(descriptor)。身份来自 api.instanceId；描述不允许冒充其他实例。描述包含标题、图标、状态/指标/详情读取函数以及可选的带输入 schema 的动作，返回注销入口并随实例释放。
+宿主常驻 AdminRegistry，绑定 API 提供 registerAdminPanel(descriptor)。身份来自 api.instanceId；描述不允许冒充其他实例。当前描述包含 title、icon、read()，返回注销入口并随实例释放；read 返回状态、指标和详情 JSON。每个实例最多一份描述，总登记上限 128，详情最多 64 KiB、读取截止 5 秒；动作入口随在线控制功能增加。
 
 Admin 只读取注册表并提供认证后的页面/API；业务插件不依赖 Admin 服务存在，因此不采用一次性的 ctx.admin?.register 而错过晚启动，也不因 Admin 卸载而卸载业务。需要停止/重启目标实例的动作由宿主协调，不继续调用已经注销的实例闭包。
 

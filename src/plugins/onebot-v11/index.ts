@@ -44,14 +44,26 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   let draining = false;
   let worker = Promise.resolve();
   let lastCode = 'onebot_connecting';
+  const startedAt = new Date().toISOString();
+  let accepted = 0n;
+  let duplicates = 0n;
   const unavailable = (code: string) => { lastCode = code; ready = false; api.setAvailable(false, { code }); };
   unavailable(lastCode);
+  api.registerAdminPanel({ title: 'OneBot v11', icon: 'onebot', read: () => ({
+    connected: ready && Boolean(connection?.connected), account_verified: ready, account_id: config.accountId, identity_namespace: config.identityNamespace,
+    binding: binding ? { ...binding } : null, started_at: startedAt, last_error: ready ? null : lastCode,
+    accepted_events: accepted.toString(), duplicate_events: duplicates.toString(), queued_events: queue.length,
+    connection_metrics: connection?.metrics() ?? null,
+  }) });
   const drain = () => {
     if (draining || !ready || !queue.length || api.signal.aborted) return;
     draining = true;
     worker = (async () => {
       try {
-        while (ready && queue.length && !api.signal.aborted) await api.events.append(queue.shift()!);
+        while (ready && queue.length && !api.signal.aborted) {
+          const result = await api.events.append(queue.shift()!);
+          if (result.status === 'created') accepted += 1n; else duplicates += 1n;
+        }
       } catch { unavailable('onebot_ingress_failed'); connection?.close(); }
       finally { draining = false; }
     })();
