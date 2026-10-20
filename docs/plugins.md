@@ -115,9 +115,11 @@ host.startPlugin/stopPlugin 当前是受信内部控制入口，供生命周期�
 | agent-chat | 读取入站事件，通过 ACP stdio 驱动现成 Agent | 保留会话、进度与未决语义，M2 增加管理描述和受控配置应用 |
 | server-http | 提供 ctx.http 共享监听与路由注册 | 路由随插件注销，统一请求预算和连接清理 |
 | api-rest / adapter-mcp | 从 adapters 迁移现有 REST/MCP 入口 | 路径、授权和结果语义不变 |
-| admin（M2） | 管理 API 与 Vue 控制台，消费宿主 AdminRegistry | Admin 晚启动、卸载和重启不影响业务实例 |
+| admin（M2） | 管理 API 与静态资产注册；前端源码在独立 `web/` 构建包，消费宿主 AdminRegistry | Admin 晚启动、卸载和重启不影响业务实例 |
 
 onebot-v11、agent-chat 与三个演示插件使用绑定业务 API。observer 已移除；旧实验记录保留原名称和当时的验证范围。所有业务入口继续按绑定身份使用核心；协议插件按实际远端主体执行授权，管理操作另受 admin 权限约束。不向演示插件开放绕过权限或事务的测试捷径。
+
+`web/` 是管理前端的构建包，不是 Cordis 插件，不通过 `PluginApi` 注册或读取服务。admin 插件是唯一的管理运行时插件：它提供管理 API、消费 AdminRegistry，并默认解析 `@imbrex/admin-web/dist` 后调用 server-http 静态挂载；`assets_dir` 仅作外部构建目录覆盖。
 
 ## 8. 插件开发完成条件
 

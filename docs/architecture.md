@@ -1,6 +1,6 @@
 # 系统设计
 
-统一开发基线 0.3；M2 架构于 2026-10-20 定稿。M0/M1 已实现的范围见[实测记录](experiments/m1-live.md)。本文组件图包含 M2 的完整管理目标；代码采用协议插件及 agent-chat 目录，完整管理后台尚未交付。状态与阅读顺序见[入口](README.md)。
+统一开发基线 0.3；M2 架构于 2026-10-20 定稿。M0/M1 已实现的范围见[实测记录](experiments/m1-live.md)。本文组件图包含 M2 的完整管理目标；代码采用协议插件及 agent-chat 目录，基础管理页已实现，完整管理后台尚未交付。状态与阅读顺序见[入口](README.md)。
 
 ## 1. 产品目标
 
@@ -39,7 +39,7 @@ flowchart LR
 
 M2 中所有外部协议和业务由 Cordis 插件装配：server-http 提供共享监听，api-rest、adapter-mcp、admin 分别注册可注销路由；宿主只保留配置、存储/服务装配、实例锁、注册表与生命周期协调。协议插件通过宿主提供的服务和实际请求主体复用内核授权，不以插件自身身份替代远端调用者。
 
-agent-chat 是现有 acp-consumer 的目标名称，通过 ACP stdio 驱动独立 Agent。AdminRegistry 常驻宿主，管理页面晚启动或重启不影响业务插件。其他外部应用仍可通过 HTTP 接入，但不再要求交付第二消费者；远程 ACP 不在本阶段。
+agent-chat 是原 acp-consumer 的现名称，通过 ACP stdio 驱动独立 Agent。AdminRegistry 常驻宿主，管理页面晚启动或重启不影响业务插件。其他外部应用仍可通过 HTTP 接入，但不再要求交付第二消费者；远程 ACP 不在本阶段。
 
 事件路径：连接器校验和映射原生事实 → 内核提交事件 → 返回接纳回执 → 尝试通知读取者。动作路径：鉴权与参数校验 → 保存调用记录 → 调用明确提供者 → 保存结果。两条路径没有跨平台共同事务。
 
@@ -55,9 +55,9 @@ agent-chat 是现有 acp-consumer 的目标名称，通过 ACP stdio 驱动独�
 | server-http | 共享监听、注册/注销路由与静态资源、限额和连接清理 | 不实现事件/调用业务规则 |
 | api-rest / adapter-mcp | 按实际请求主体鉴权、校验、映射领域调用 | 保留 /v1 REST 与 /v1/mcp 契约，共用内核服务 |
 | 宿主 AdminRegistry | 按实例绑定管理描述与受控操作入口 | 登记随业务实例清理，Admin 启停不影响业务 |
-| admin | 管理认证、聚合面板、管理动作入口与 Vue SPA | admin:inspect / admin:operate，与 Agent 工具权限分离 |
+| admin | 管理认证、聚合面板、管理动作入口与静态资产注册；前端源码在独立构建包 `web/` | admin:inspect / admin:operate，与 Agent 工具权限分离 |
 | 平台插件 | 连接、身份映射、平台操作与可用性 | 使用内核接口，拥有自己的连接状态 |
-| agent-chat（当前 acp-consumer） | 筛选触发、ACP 会话关联、进度、未决输入与托管配置应用 | 绑定 API 读事件，ACP stdio 提交输入；不实现模型循环 |
+| agent-chat（原 acp-consumer） | 筛选触发、ACP 会话关联、进度、未决输入与托管配置应用 | 绑定 API 读事件，ACP stdio 提交输入；不实现模型循环 |
 | Agent | 上下文、模型、工具选择和 Agent 历史 | 首接复用 pi/pi-acp，通过 MCP 使用网关；内核不依赖具体 Agent |
 
 内核服务是必需组件，启动失败则整个实例启动失败，不提供运行中替换存储。协议和业务插件按 required/optional 及依赖关系装配；模块初始化失败与运行时外部服务断线分别报告。底层监听和所需协议路由均就绪后才投递 Agent 输入；依赖卸载时停止新投递，不能把 TCP 监听成功当作全部服务就绪。
@@ -92,9 +92,9 @@ ACP Consumer 在提交 prompt 前持久保存 in_flight；未确认结束时暂�
 | 编译器 | TypeScript 5.9.3 | 与 Node/ws 类型依赖一起锁定并通过检查 |
 | OneBot WS 客户端 | ws 8.22.0 | 超时、释放、限额及发送结果分类通过模拟；SnowLuma 指定群正常单次收发通过 |
 | 单实例启动 | Linux util-linux flock 包装 | 非阻塞排他锁、实际宿主持锁，验证崩溃后释放 |
-| 管理前端（M2 目标） | Vue 3 + Vite + TailwindCSS | M2-01 锁定实际兼容版本并验证构建；资产随网关托管 |
+| 管理前端（M2） | Vue 3.5.44、Vite 8.3.4、TailwindCSS 4.3.3；原生 HTML + Tailwind，不引入第三方 UI 组件库 | `web/` 是 npm workspace 构建包，不是 Cordis 插件；构建产物由 admin 插件默认按包名解析，缺失时 `/admin` 返回 404 且不阻塞宿主 |
 
-已锁定的后端组合及探针范围见[工程基线](development.md)，宿主与内核验证见[M0 运行验收](experiments/m0-runtime.md)，OneBot/Agent 验证见对应 M1 记录。新增 M2 前端组合尚待锁定版本和构建验证。来源与限制见[技术依据](references.md)；后续兼容问题须在保持契约的前提下依据实际验证处理。
+已锁定的后端组合及探针范围见[工程基线](development.md)，宿主与内核验证见[M0 运行验收](experiments/m0-runtime.md)，OneBot/Agent 验证见对应 M1 记录。M2 前端组合已锁定版本并通过类型检查与构建；实际压缩体积与浏览器验收在 M2-04 记录。来源与限制见[技术依据](references.md)；后续兼容问题须在保持契约的前提下依据实际验证处理。
 
 ## 6. 首版的可靠性范围
 
@@ -117,14 +117,15 @@ src/
     adapter-mcp/   现有 /v1/mcp 协议入口
     onebot-v11/    OneBot v11 连接器与 reply
     agent-chat/    ACP Client、输入消费、会话和托管配置
-    admin/         管理 API、声明式面板与 Vue SPA
+    admin/         管理 API、AdminRegistry 消费与静态资产注册
     fixture.ts / transform.ts / mock.ts  必要演示插件
   cli/              启动、配置检查与本地诊断入口
+web/                Vue 3 + Vite + TailwindCSS 管理前端构建包；不是 Cordis 插件
 examples/          运行配置、插件模板；M1 补充 pi 接入演示
 test/              对应 T01—T09 的必要测试
 ```
 
-后端采用上图的协议目录，adapters 与 observer 已移除，acp-consumer 更名 agent-chat；Vue 资产和完整管理功能按 M2 目标交付。core 保持无网络/宿主框架依赖，可继续使用已有 schema 校验库；不因目录迁移引入第二套插件运行时。管理接口见 [Admin 契约](admin.md)，协议职责见 [Agent 接入](agent-integration.md)。
+后端采用上图的协议目录，adapters 与 observer 已移除，acp-consumer 更名 agent-chat。`web/` 只负责前端构建，产出 `web/dist`；admin 插件通过 `@imbrex/admin-web/package.json` 解析该目录并调用 server-http 的静态挂载，`assets_dir` 仅作为外部构建目录的覆盖。前端资产缺失时 `/admin` 返回 404，admin API 与宿主启动不受影响。core 保持无网络/宿主框架依赖，可继续使用已有 schema 校验库；不因目录迁移引入第二套插件运行时。管理接口见 [Admin 契约](admin.md)，协议职责见 [Agent 接入](agent-integration.md)。
 
 迁移调整模块名称与配置入口时保留实例 ID、主体、数据目录、消费位置及会话关联；格式变更须有明确的迁移步骤，不静默新建状态。M0/M1 实验文档保留当时路径与证据。
 

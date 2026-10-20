@@ -14,5 +14,6 @@
 # Installed dependencies and generated output
 node_modules/
 /dist/
+/web/dist/
 /coverage/
 *.tsbuildinfo

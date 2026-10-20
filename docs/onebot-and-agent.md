@@ -13,7 +13,7 @@
 | 传输 | 首版正向通用 WebSocket | Imbrex 作为客户端，一条连接收事件和调动作 |
 | Imbrex 插件 | builtin:onebot-v11 | 协议编解码、连接管理、QQ 事件映射与能力封装 |
 | 通用内核 | events/capabilities | 存储、读取、授权及调用记录，不认识具体 QQ 实现 |
-| 输入消费 | acp-consumer 插件 | 筛选入站触发、通过 ACP 提交给 Agent、保存最少进度与未决状态 |
+| 输入消费 | agent-chat 插件 | 筛选入站触发、通过 ACP 提交给 Agent、保存最少进度与未决状态 |
 | Agent | 现成 pi/pi-acp | 分析与上下文管理，通过 MCP 查询网关并按需调用能力 |
 
 不调用 NapCat/SnowLuma 的私有 SDK，不访问其数据库或把它们的运行时嵌入 Imbrex。其他来源插件也不需要先伪装成 OneBot。
@@ -31,7 +31,7 @@ flowchart LR
     C["按证据增加的兼容适配"] -.-> V
     M <--> K["Imbrex 通用内核"]
     A["独立 Agent"] -->|MCP 上下文 / 调用| K
-    U["acp-consumer"] -->|绑定 API 读取| K
+    U["agent-chat"] -->|绑定 API 读取| K
     U <-->|ACP / stdio| A
 ```
 
@@ -163,13 +163,13 @@ status=ok、retcode 与合法的 message_id 等确定结果共同核验后，才
 
 ## 8. Agent 与 M2 管理接入
 
-M1 首接复用 pi 与现成 pi-acp。acp-consumer 通过绑定 API 读取并筛选输入，再经 ACP stdio 提交；Agent 通过同一个 MCP adapter 查询上下文与调用 reply，模型循环和历史由 Agent 管理。具体协议分工见 [Agent 接入](agent-integration.md)。
+M1 首接复用 pi 与现成 pi-acp。agent-chat 通过绑定 API 读取并筛选输入，再经 ACP stdio 提交；Agent 通过同一个 MCP adapter 查询上下文与调用 reply，模型循环和历史由 Agent 管理。具体协议分工见 [Agent 接入](agent-integration.md)。
 
 Consumer 保存输入位置、会话关联和 prompt 提交前的 in_flight；中断未确认时暂停，不重跑整轮 Agent。正常 end_turn 不证明平台回复成功，动作结果仍按 calls 查询。不再建设参考 Agent 决策库或独立发送循环，恢复流程见[应用消费](applications.md)。
 
 输入来自哪个 OneBot 实现不改变 Agent 的工具 schema、调用协议或内核访问方式。历史上下文、自发回流和诊断事件不成为新回复触发；旧消息策略在真实试用前明确。
 
-M2-01 将 acp-consumer 更名 agent-chat，取消第二消费者与 observer 产品交付。OneBot 与 Agent 分别提供实例绑定的管理面板，Admin 启停不打断消息链路。后台 filter 只调整 Consumer 触发范围，不扩大本章的连接器采集名单或主体授权；具体见 [Admin 契约](admin.md)。
+M2-01 已将 acp-consumer 更名 agent-chat，取消第二消费者与 observer 产品交付。OneBot 与 Agent 分别提供实例绑定的管理面板，Admin 启停不打断消息链路。后台 filter 只调整 Consumer 触发范围，不扩大本章的连接器采集名单或主体授权；具体见 [Admin 契约](admin.md)。
 
 ## 9. 兼容性怎样记录
 

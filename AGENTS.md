@@ -25,9 +25,9 @@
   - `src/core/`：核心业务逻辑与状态机，保持纯净，**严禁依赖 Cordis 或外部 HTTP/WS 框架**，确保可独立测试。
   - `src/storage/`：SQLite 存储与数据库 Worker，封装所有 SQL 操作，不向上层泄漏原生 SQL。
   - `src/host/`：负责 Cordis 宿主装配、依赖注入、实例生命周期；M2 增加轻量管理注册表与受控操作协调。
-  - `src/adapters/`：当前 M1 的协议映射目录；按已定稿的 M2-01 目标一次迁入 `src/plugins/server-http/`、`api-rest/`、`adapter-mcp/` 后移除。
-  - `src/plugins/`：业务、连接器及 M2 的协议和管理插件，通过绑定服务与核心交互，不直接操作存储或篡改其他插件状态。M2 将 `acp-consumer` 更名 `agent-chat`、删除 `observer`；具体管理权限和生命周期遵循 `docs/`，不因目录迁移绕过授权。
-- **依赖控制**：新增 npm 依赖必须有明确依据，优先复用 Node.js 内置能力与已锁定的核心库，避免无节制引入三方库。
+  - `src/plugins/`：业务、连接器、协议和管理插件，通过绑定服务与核心交互，不直接操作存储或篡改其他插件状态。M2-01 已将 adapters 迁入 `server-http/`、`api-rest/`、`adapter-mcp/`，将 `acp-consumer` 更名 `agent-chat` 并删除 `observer`；具体管理权限和生命周期遵循 `docs/`，不因目录迁移绕过授权。
+  - `web/`：管理前端的 npm workspace 构建包（Vue 3 + Vite + TailwindCSS），**不是 Cordis 插件**，不参与宿主装配。admin 插件默认按包名解析其 `dist` 并通过 server-http 静态挂载；`assets_dir` 仅作外部构建目录覆盖。
+- **依赖控制**：新增 npm 依赖必须有明确依据，优先复用 Node.js 内置能力与已锁定的核心库，避免无节制引入三方库。M2-01 管理前端使用原生 HTML + Tailwind，不引入第三方 UI 组件库。
 
 ### 2.2 类型安全与数据校验
 - **杜绝 `any` 滥用**：使用精确的 TypeScript 类型；无法确定来源类型的外部输入一律使用 `unknown`，并在校验后收敛类型。

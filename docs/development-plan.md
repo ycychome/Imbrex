@@ -1,6 +1,6 @@
 # 开发目标与实施计划
 
-统一开发基线 0.3；M2 目标于 2026-10-20 修订定稿。M0-01—M0-08 已实现，范围与证据见[M0 运行验收](experiments/m0-runtime.md)；M1 的 OneBot、MCP、ACP Consumer 和离线恢复已实现。M2 改为全插件化与管理控制台，先观测、后控制。下文为完整 M2 目标；后端协议迁移及基础管理 API 已实现，前端和管理功能分别验收。阶段按依赖推进，不给未经估算的日历承诺。
+统一开发基线 0.3；M2 目标于 2026-10-20 修订定稿。M0-01—M0-08 已实现，范围与证据见[M0 运行验收](experiments/m0-runtime.md)；M1 的 OneBot、MCP、ACP Consumer 和离线恢复已实现。M2 改为全插件化与管理控制台，先观测、后控制。下文为完整 M2 目标；M2-01 的协议迁移、基础管理 API 与前端骨架已实现，M2-02/03/04 待实现。阶段按依赖推进，不给未经估算的日历承诺。
 
 ## 1. 第一版目标
 
@@ -64,12 +64,14 @@ M1-01、M1-02 及 ACP 消费、恢复、生命周期的模拟验证可自动推�
 
 | 任务 | 产物 | 退出检查 |
 | --- | --- | --- |
-| M2-01（协议后端已实现，前端待实现） | 一次完成目录重构：删除 observer，acp-consumer 更名 agent-chat；移除 adapters，建立 server-http、api-rest、adapter-mcp；建立 admin 服务端与 Vue 3 + Vite + TailwindCSS 骨架 | 编译通过；REST/MCP 原路径、鉴权、序号与调用结果语义保留；对应 M1 回归用例通过；路由可注销，就绪包含监听与依赖路由；/admin 可显示基础页面 |
+| M2-01（已实现，待独立审核） | 一次完成目录重构：删除 observer，acp-consumer 更名 agent-chat；移除 adapters，建立 server-http、api-rest、adapter-mcp；建立 admin 服务端与 Vue 3 + Vite + TailwindCSS 骨架 | 编译通过；REST/MCP 原路径、鉴权、序号与调用结果语义保留；对应 M1 回归用例通过；路由可注销，就绪包含监听与依赖路由；/admin 可显示基础页面 |
 | M2-02（待实现） | 宿主常驻 AdminRegistry；OneBot/Agent 声明式面板；全局状态、事件浏览、能力与跨主体调用审计；模型、窗口、提示词及触发白名单配置展示 | 同类多实例不混淆；Admin 启停不重启业务；处理中、空闲、未决挂起准确区分；断线与原因可见；admin:inspect 与 Agent 权限隔离 |
 | M2-03（待实现） | 在线确认/放弃未决输入、单会话重置；filter 在轮次边界应用；模型、上下文窗口与系统提示词可编辑，保存后受控重启 Agent | 宿主不停机；旧轮使用旧配置，已完成/跳过历史不回放；异常未决先处置；仅重启 pi-acp/pi，OneBot/HTTP 与其他插件连续运行；保留会话证据，恢复失败可解释；不篡改 calls 或自动补发 |
 | M2-04（待实现） | SPA 自动构建与静态资产打包；配置/迁移/部署和后台手册；完整 M2 验收与版本记录，目标版本 v0.2.0 | 完成依赖安装与构建后，单个网关启动命令提供 API 和后台；故障恢复、过滤更新、Agent 重启端到端通过；G01—G04、G06、G07 有证据；验证后才标记版本交付 |
 
 M2-01 同步清理 observer 专属配置和测试；仍覆盖存储、协议、插件生命周期等有效行为的测试保留并适配新目录。模块更名时保留实例 ID、主体、数据和会话关联，不把迁移当作建立空白实例。旧实验记录不改写。
+
+M2-01 前端收敛为 `web/` npm workspace 构建包，使用原生 HTML + Tailwind，不引入第三方 UI 组件库；admin 插件默认按包名解析 `@imbrex/admin-web/dist`，`assets_dir` 仅作外部覆盖；资产缺失时 `/admin` 返回 404，不阻塞宿主。前端构建先于全量 `node --test`，基础页面与缺失资产降级由 `test/host/admin.test.ts` 覆盖；1–2 MB 压缩体积预算在 M2-04 实测记录。
 
 管理后台的功能与权限见 [Admin 契约](admin.md)，轮次边界与在线恢复见[应用消费](applications.md)，Agent 托管配置与受控重启见[Agent 接入](agent-integration.md)。管理员通过显式 Principal 和 token_env 认证，不使用本机来源免密，也不向 Agent 的 MCP 工具列表暴露管理动作。
 
