@@ -6,8 +6,8 @@ import { parseArgs } from 'node:util';
 import type { SourceRule } from '../core/types.js';
 import { fields, json, namespacePattern, object, position, string, uri } from '../core/validation.js';
 import { inspectRecoveryStore } from '../storage/recovery.js';
-import { consumerLimits, parseConsumerConfig } from '../plugins/acp-consumer/config.js';
-import { bindingFor, loadState, type Binding } from '../plugins/acp-consumer/state.js';
+import { consumerLimits, parseConsumerConfig } from '../plugins/agent-chat/config.js';
+import { bindingFor, loadState, type Binding } from '../plugins/agent-chat/state.js';
 
 export const recoveryUsage = 'npm --silent run consumer:recover -- --data-dir <directory> --instance <id> --store-id <expected> --seq <expected> --action <processed|abandoned|reset-sessions> --reason <text> [--new-session]';
 export interface RecoveryOptions {

@@ -9,7 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Host } from '../../src/host/host.js';
 import { parseConfig } from '../../src/host/config.js';
-import type { PluginModule } from '../../src/host/modules.js';
+import { loadModules, type PluginModule } from '../../src/host/modules.js';
 import { object } from '../../src/core/validation.js';
 import { SqliteStore } from '../../src/storage/store.js';
 
@@ -41,13 +41,15 @@ async function fixture(t: TestContext, largeSeq = false) {
     seed.close();
   }
   const config = parseConfig({
-    config_version: 1, data_dir: dir, http: { host: '127.0.0.1', port: 0 }, external_writes_enabled: true,
+    config_version: 2, data_dir: dir, external_writes_enabled: true,
     principals: [
       { id: 'provider', permissions: ['events:read', 'events:write'], read_sources: [{ prefix: 'imbrex://' }], write_sources: [{ prefix: 'imbrex://' }], invoke_capabilities: [] },
       { id: 'agent', token_env: 'AGENT_TOKEN', permissions: ['events:read', 'capabilities:list', 'capabilities:invoke', 'calls:read'], read_sources: [{ prefix: 'imbrex://visible/' }], write_sources: [], invoke_capabilities: ['provider.echo', 'provider.write'] },
       { id: 'other', token_env: 'OTHER_TOKEN', permissions: ['capabilities:list', 'capabilities:invoke', 'calls:read'], read_sources: [], write_sources: [], invoke_capabilities: [] },
     ],
-    plugins: [{ id: 'provider', module: 'fixture', principal_id: 'provider', enabled: true, required: true, config: {} }],
+    plugins: [
+      ...['server-http', 'api-rest', 'adapter-mcp'].map((module) => ({ id: module, module: 'builtin:' + module, principal_id: 'provider', enabled: true, required: true, config: module === 'server-http' ? { host: '127.0.0.1', port: 0 } : {} })),
+      { id: 'provider', module: 'fixture', principal_id: 'provider', enabled: true, required: true, config: {} }],
   }, join(dir, 'config.json'), { AGENT_TOKEN: agentToken, OTHER_TOKEN: otherToken });
   const provider: PluginModule = { name: 'mcp-fixture', apply: async (ctx) => {
     const api = ctx.imbrex.forPlugin(ctx);
@@ -61,7 +63,9 @@ async function fixture(t: TestContext, largeSeq = false) {
       return control.outcome === 'succeeded' ? { status: 'succeeded', result: { id: 'fixture' } } : { status: 'unknown', reason: { code: 'fixture_unknown', message: 'No confirmed receipt.' } };
     } });
   } };
-  app = await Host.open(config, new Map([['provider', provider]]));
+  const modules = await loadModules({ ...config, plugins: config.plugins.filter((plugin) => plugin.id !== 'provider') }, join(dir, 'config.json'));
+  modules.set('provider', provider);
+  app = await Host.open(config, modules);
   const url = new URL('http://127.0.0.1:' + app.port + '/v1/mcp');
   const connect = async (token = agentToken) => {
     const client = new Client({ name: 'imbrex-test', version: '1' });

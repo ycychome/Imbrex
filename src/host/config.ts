@@ -4,13 +4,14 @@ import { dirname, resolve } from 'node:path';
 import { fail } from '../core/errors.js';
 import { fields, json, object, string, namespacePattern, capabilityPattern, limits, uri } from '../core/validation.js';
 import { permissions, type JsonObject, type Principal, type SourceRule } from '../core/types.js';
+import { parseServerHttpConfig } from '../plugins/server-http/config.js';
+import { serverHttpModule } from './modules.js';
 
 export interface PluginConfig {
   id: string; module: string; principalId: string; required: boolean; enabled: boolean; config: JsonObject;
 }
 export interface HostConfig {
   dataDir: string;
-  http: { host: string; port: number };
   externalWritesEnabled: boolean;
   principals: Principal[];
   plugins: PluginConfig[];
@@ -40,16 +41,21 @@ function sourceRules(value: unknown): SourceRule[] {
   });
 }
 
-export function parseConfig(input: unknown, filename: string, environment: NodeJS.ProcessEnv = process.env): HostConfig {
+export interface ParseConfigOptions {
+  resolveCredentials?: boolean;
+}
+
+export function parseConfig(
+  input: unknown,
+  filename: string,
+  environment: NodeJS.ProcessEnv = process.env,
+  options: ParseConfigOptions = {},
+): HostConfig {
   const config = object(json(input, limits.httpBytes, 'invalid_request'));
-  const keys = ['config_version', 'data_dir', 'http', 'external_writes_enabled', 'principals', 'plugins'];
+  const keys = ['config_version', 'data_dir', 'external_writes_enabled', 'principals', 'plugins'];
   fields(config, keys, keys);
-  if (config.config_version !== 1) fail('invalid_request', 'Unsupported config_version');
-  const http = object(config.http);
-  fields(http, ['host', 'port'], ['host', 'port']);
-  const host = string(http.host, 253);
-  const port = http.port;
-  if (typeof port !== 'number' || !Number.isInteger(port) || port < 0 || port > 65535) fail('invalid_request');
+  if (config.config_version !== 2) fail('invalid_request', 'Unsupported config_version');
+  const resolveCredentials = options.resolveCredentials !== false;
   const credentials: { digest: Buffer; principal: Principal }[] = [];
   const principals = list(config.principals).map((entry): Principal => {
     const item = object(entry);
@@ -69,11 +75,13 @@ export function parseConfig(input: unknown, filename: string, environment: NodeJ
     if (item.token_env !== undefined) {
       const name = string(item.token_env, 256);
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) fail('invalid_request');
-      const token = environment[name];
-      if (!token || !/^[\x21-\x7e]+$/.test(token)) fail('invalid_request', 'Missing or invalid token environment variable');
-      const digest = createHash('sha256').update(token).digest();
-      if (credentials.some((entry) => timingSafeEqual(entry.digest, digest))) fail('invalid_request', 'Duplicate credentials');
-      credentials.push({ digest, principal });
+      if (resolveCredentials) {
+        const token = environment[name];
+        if (!token || !/^[\x21-\x7e]+$/.test(token)) fail('invalid_request', 'Missing or invalid token environment variable');
+        const digest = createHash('sha256').update(token).digest();
+        if (credentials.some((entry) => timingSafeEqual(entry.digest, digest))) fail('invalid_request', 'Duplicate credentials');
+        credentials.push({ digest, principal });
+      }
     }
     return principal;
   });
@@ -83,15 +91,18 @@ export function parseConfig(input: unknown, filename: string, environment: NodeJ
     fields(item, ['id', 'module', 'principal_id', 'required', 'enabled', 'config'], ['id', 'module', 'principal_id', 'required', 'enabled', 'config']);
     const principalId = id(item.principal_id);
     if (!principals.some((principal) => principal.id === principalId)) fail('invalid_request', 'Unknown plugin principal');
+    const module = string(item.module, 1024);
+    const pluginConfig = object(item.config) as JsonObject;
+    if (module === serverHttpModule) parseServerHttpConfig(pluginConfig);
     return {
-      id: id(item.id), module: string(item.module, 1024), principalId,
-      required: boolean(item.required), enabled: boolean(item.enabled), config: object(item.config) as JsonObject,
+      id: id(item.id), module, principalId,
+      required: boolean(item.required), enabled: boolean(item.enabled), config: pluginConfig,
     };
   });
   if (new Set(plugins.map((plugin) => plugin.id)).size !== plugins.length) fail('invalid_request', 'Duplicate plugin instance');
   return {
     dataDir: resolve(dirname(resolve(filename)), string(config.data_dir, 4096)),
-    http: { host, port }, externalWritesEnabled: boolean(config.external_writes_enabled), principals, plugins,
+    externalWritesEnabled: boolean(config.external_writes_enabled), principals, plugins,
     authenticate: (authorization) => {
       const match = /^Bearer ([\x21-\x7e]+)$/i.exec(authorization ?? '');
       if (!match?.[1]) fail('unauthorized');

@@ -24,7 +24,7 @@ async function configFixture(t: TestContext) {
     for (const result of results) if (result.status === 'rejected') throw result.reason;
   });
   const raw = object(JSON.parse(await readFile(new URL('../../../examples/demo.json', import.meta.url), 'utf8')));
-  raw.data_dir = join(dir, 'data'); object(raw.http).port = 0;
+  raw.data_dir = join(dir, 'data'); object(((raw.plugins as unknown[]).map((value) => object(value)).find((plugin) => plugin.module === 'builtin:server-http')!).config).port = 0;
   assert.ok(Array.isArray(raw.principals));
   raw.principals.push({ id: 'http-writer', token_env: 'TEST_WRITER_TOKEN', permissions: ['events:read', 'events:write', 'calls:read'], read_sources: [{ prefix: 'imbrex://fixture/' }], write_sources: [{ exact: 'imbrex://fixture/client' }], invoke_capabilities: [] });
   const filename = join(dir, 'config.json');
@@ -53,7 +53,7 @@ async function request(app: Host, path: string, data?: unknown, token = demoToke
   return { status: response.status, value: object(await response.json()) };
 }
 
-test('the demo publishes and transforms events, exposes tools, and keeps independent consumer positions', async (t) => {
+test('the demo publishes and transforms events, exposes tools, and keeps transform progress', async (t) => {
   const { app, config, close, modules, cleanup } = await fixture(t);
   const info = await request(app, '/v1/info');
   assert.equal(info.status, 200); assert.equal(info.value.latest_seq, '4');
@@ -63,13 +63,8 @@ test('the demo publishes and transforms events, exposes tools, and keeps indepen
   assert.ok(Array.isArray(page.value.records)); assert.equal(page.value.records.length, 4);
   const derived = page.value.records.map((value: unknown) => object(value)).filter((record) => object(record.event).source === 'imbrex://fixture/derived');
   assert.equal(derived.length, 2); assert.deepEqual(derived[0]!.parents, [{ source: 'imbrex://fixture/messages', id: 'message-001' }]);
-  const observer = object(JSON.parse(await readFile(join(config.dataDir, 'plugins/observer/position.json'), 'utf8')));
-  assert.equal(observer.last_seq, '4');
   const result = await request(app, '/v1/capabilities/mock.echo/invoke', { store_id: id, params: { text: 'hello' } });
   assert.equal(result.status, 200); assert.deepEqual(result.value.result, { text: 'hello' });
-  await app.stopPlugin('observer');
-  assert.equal(app.plugins().find((item) => item.id === 'transform')?.state, 'active');
-  await app.startPlugin('observer');
   await close();
   await assert.rejects(fetch('http://127.0.0.1:' + app.port + '/v1/info'));
   const restarted = await Host.open(config, modules);
@@ -79,10 +74,12 @@ test('the demo publishes and transforms events, exposes tools, and keeps indepen
 });
 
 test('HTTP rejects forged callers, invalid query/body shapes, compressed and oversized requests', async (t) => {
-  const { app } = await fixture(t);
+  const { app, logs } = await fixture(t);
   const id = (await app.info()).storeId;
   assert.equal((await request(app, '/v1/info', undefined, 'wrong')).status, 401);
   assert.equal((await request(app, '/v1/plugins')).status, 403);
+  assert.ok(logs.includes('forbidden'));
+  assert.equal(app.plugins().find((plugin) => plugin.id === 'http')?.available, true);
   assert.equal((await request(app, '/v1/plugins', undefined, operatorToken)).status, 200);
   const event = { specversion: '1.0', source: 'imbrex://fixture/client', id: 'http-001', type: 'fixture.client.created', datacontenttype: 'application/json', data: { text: 'fixture' } };
   const created = await request(app, '/v1/events', { store_id: id, event }, 'fixture-writer-token');
@@ -126,6 +123,10 @@ test('HTTP bounds unfinished bodies and survives their disconnects and chunked o
   }
   assert.equal((await request(app, '/v1/info')).status, 429);
   await Promise.all(held.map((req) => new Promise<void>((resolve) => { req.once('close', () => resolve()); req.destroy(); })));
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if ((await request(app, '/v1/info')).status === 200) break;
+    await setImmediate();
+  }
   const oversized = await new Promise<number>((resolve, reject) => {
     const req = httpRequest({ host: '127.0.0.1', port: app.port, path: '/v1/events', method: 'POST', headers: { authorization: 'Bearer ' + demoToken, 'content-type': 'application/json' } }, (response) => {
       response.resume(); response.once('end', () => resolve(response.statusCode!));
@@ -346,4 +347,19 @@ test('default function modules retain their Config validator and injected depend
     }, { code: 'provider_unavailable' });
     await assert.rejects(access(proof));
   }
+});
+
+
+test('HTTP errors retain request IDs and a throwing diagnostic sink cannot change the response', async (t) => {
+  const { config, filename, cleanup } = await configFixture(t);
+  const logs: { code: string; fields?: Record<string, string | number | boolean> }[] = [];
+  const app = await Host.open(config, await loadModules(config, filename), { report: (code, fields) => { logs.push({ code, fields }); throw new Error('fixture private diagnostic failure'); } });
+  cleanup.push(() => app.close());
+  const response = await fetch('http://127.0.0.1:' + app.port + '/v1/plugins', { headers: { authorization: 'Bearer ' + demoToken } });
+  const body = object(await response.json());
+  assert.equal(response.status, 403);
+  assert.equal(response.headers.get('x-request-id'), body.request_id);
+  assert.ok(logs.some((entry) => entry.code === 'forbidden' && entry.fields?.request_id === body.request_id));
+  assert.ok(!JSON.stringify(body).includes('fixture private diagnostic failure'));
+  assert.equal(app.plugins().find((plugin) => plugin.id === 'http')?.available, true);
 });

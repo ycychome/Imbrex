@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { eventInput, json, maxSeq, position } from '../../src/core/validation.js';
 import { compileSchema } from '../../src/core/schema.js';
-import { appendBody, readQuery, wireRecord } from '../../src/adapters/http/dto.js';
+import { appendBody, readQuery, wireRecord } from '../../src/plugins/api-rest/dto.js';
 
 const event = { specversion: '1.0', source: 'imbrex://fixture/messages', id: 'message-1', type: 'fixture.message.created', datacontenttype: 'application/json', data: { text: 'hello' } };
 

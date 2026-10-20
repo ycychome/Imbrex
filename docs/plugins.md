@@ -1,6 +1,6 @@
 # 插件开发契约与演示模板
 
-统一开发基线 0.3；2026-10-20 增补 M2 目标契约。现有业务绑定 API 的类型见 src/host/plugin-api.ts，尚未独立发布 SDK 包。下文明确标为 M2 的 HTTP 服务、管理注册与目标插件名称尚待实现。
+统一开发基线 0.3；2026-10-20 增补 M2 目标契约。现有业务绑定 API 的类型见 src/host/plugin-api.ts，尚未独立发布 SDK 包。共享 HTTP 与协议插件已采用下文接口；管理注册与操作按第 11 节的 M2 契约实现。
 
 ## 1. 插件是什么
 
@@ -19,7 +19,7 @@ Cordis 的 apply、inject、Context 与 effect 负责依赖和作用域。本方
 | `api.storeId` | 当前绑定存储的只读 string |
 | `api.instanceId` / `api.dataDir` | 宿主分配的实例与私有目录 |
 | `api.signal` | 停止时触发的 AbortSignal；不等于远端撤销 |
-| `api.whenReady()` | 当前等待启动完成；M2 必须同时确认监听成功及声明依赖的所需协议路由已注册，依赖不可用时停止新投递 |
+| `api.whenReady()` | 等待宿主启动完成；Agent 同时通过 mcp 服务依赖保证监听与协议路由已就绪，依赖卸载使其停止新投递 |
 | `api.events.info()` | 返回 storeId 与 latestSeq: bigint |
 | `api.events.append({event, parents?})` | 使用绑定主体与 storeId，返回接纳回执；seq 为 bigint |
 | `api.events.read({afterSeq, limit?, sourcePrefix?, type?})` | 返回 records、throughSeq、nextAfterSeq、caughtUp |
@@ -102,7 +102,7 @@ required 指插件模块与初始化必须成功，不保证外部平台一直�
 
 host.startPlugin/stopPlugin 当前是受信内部控制入口，供生命周期测试和本地集成使用。M2 管理操作通过专属权限及宿主协调调用所需生命周期入口；不得把宿主对象直接暴露给远端或普通 Agent。停止未完成则报告失败，禁止同实例重复启动后台循环。
 
-初次装配按配置顺序进行，提供被依赖服务的插件应排在消费者前；缺少服务时初始化失败。模块支持命名导出的 apply 或默认 apply 函数/对象，可带 Config（Cordis Standard Schema）与字符串数组 inject。内置四个演示插件的 config 为空对象。加载/停止期间的重复管理操作拒绝；生命周期等待默认上限 15 秒。运行中依赖卸载使用 Cordis 原生作用域，宿主同步撤销旧绑定与能力，依赖恢复后重新建立绑定。
+初次装配按配置顺序进行，提供被依赖服务的插件应排在消费者前；缺少服务时初始化失败。模块支持命名导出的 apply 或默认 apply 函数/对象，可带 Config（Cordis Standard Schema）与字符串数组 inject。内置三个演示插件的 config 为空对象。加载/停止期间的重复管理操作拒绝；生命周期等待默认上限 15 秒。运行中依赖卸载使用 Cordis 原生作用域，宿主同步撤销旧绑定与能力，依赖恢复后重新建立绑定。
 
 ## 7. 当前插件与 M2 目标清单
 
@@ -111,14 +111,15 @@ host.startPlugin/stopPlugin 当前是受信内部控制入口，供生命周期�
 | fixture | 有限可重复的 fixture.message.created 事件 | 无需账号验证事件发布与重复身份 |
 | transform | 读取 fixture，发布稳定派生事件 | 验证应用可同时消费和生产 |
 | mock | 注册 mock.echo；测试环境另配可控副作用提供者 | 验证发现、schema、授权与调用记录 |
-| observer（当前遗留） | M0 按范围读取并保存位置，M2-01 删除 | 原 G05 产品目标已取消，不再扩展事件副本 |
 | onebot-v11 | 通过标准 v11 接口接纳 QQ 事实与封装 reply | 验证不同服务实现可复用同一插件 |
-| acp-consumer → agent-chat | M2-01 更名，读取入站事件，通过 ACP stdio 驱动现成 Agent | 保留会话、进度与未决语义，M2 增加管理描述和受控配置应用 |
-| server-http（M2） | 提供 ctx.http 共享监听与路由注册 | 路由随插件注销，统一请求预算和连接清理 |
-| api-rest / adapter-mcp（M2） | 从 adapters 迁移现有 REST/MCP 入口 | 路径、授权和结果语义不变 |
-| admin（M2） | 管理 API 与 Vue 控制台，消费宿主 AdminRegistry | Admin 晚启动、卸载和重启不影响业务实例 |
+| agent-chat | 读取入站事件，通过 ACP stdio 驱动现成 Agent | 保留会话、进度与未决语义，M2 增加管理描述和受控配置应用 |
+| server-http | 提供 ctx.http 共享监听与路由注册 | 路由随插件注销，统一请求预算和连接清理 |
+| api-rest / adapter-mcp | 从 adapters 迁移现有 REST/MCP 入口 | 路径、授权和结果语义不变 |
+| admin（M2） | 管理 API 与静态资产注册；前端源码在独立 `web/` 构建包，M2-02 消费宿主 AdminRegistry | Admin 晚启动、卸载和重启不影响业务实例 |
 
-现有 onebot-v11、acp-consumer 与演示插件已经实现。M2-01 删除 observer 专属代码、配置及测试，保留仍覆盖公共行为的有效用例。所有业务入口继续按绑定身份使用核心；协议插件按实际远端主体执行授权，管理操作另受 admin 权限约束。不向演示插件开放绕过权限或事务的测试捷径。
+onebot-v11、agent-chat 与三个演示插件使用绑定业务 API。observer 已移除；旧实验记录保留原名称和当时的验证范围。所有业务入口继续按绑定身份使用核心；协议插件按实际远端主体执行授权，管理操作另受 admin 权限约束。不向演示插件开放绕过权限或事务的测试捷径。
+
+`web/` 是管理前端的构建包，不是 Cordis 插件，不通过 `PluginApi` 注册或读取服务。admin 插件是唯一的管理运行时插件：它提供管理 API 与静态资产注册；AdminRegistry 在 M2-02 接入，届时由 admin 消费。admin 默认解析 `@imbrex/admin-web/dist` 后调用 server-http 静态挂载；`assets_dir` 仅作外部构建目录覆盖。
 
 ## 8. 插件开发完成条件
 
@@ -132,11 +133,13 @@ host.startPlugin/stopPlugin 当前是受信内部控制入口，供生命周期�
 
 ## 10. M2 共享 HTTP 服务与就绪
 
-server-http 向 Cordis 提供 ctx.http；协议插件声明 inject: ["http"]，在自身作用域登记路由或静态目录。register(method, pattern, handler) 和 static(prefix, rootDir) 必须返回 dispose，插件用 ctx.effect 或等价作用域机制绑定注销。接口只覆盖 REST、MCP、Admin 的实际需要，具体 TypeScript 类型在 M2-01 同步落地。
+server-http 监听成功后向 Cordis 提供 ctx.http。协议插件声明 http 依赖，通过 ctx.http.scope(ctx) 取得 HttpScope：register(method, pattern, handler): () => void；static(prefix, rootDir): Promise<() => void>。注销同时绑定调用插件的生命周期，接口类型位于 src/plugins/server-http/server.ts。支持字面路径、:参数段及末尾 *资产路径；不含 * 的具体路由优先于通配路由，:参数段不接受空段；请求路径不做点段归一化，保留不透明 call_id。静态资源按文件大小与 mtime 生成弱 ETag，对匹配的 If-None-Match 返回 304。
+
+Handler 收到 request/response、requestId、origin、params、query、queryText（原始查询串），以及 readBody()/send()/ensureActive()。readBody 按公共 JSON 限额读取且在返回前确认路由仍有效；鉴权由协议插件根据真实请求主体执行；api-rest 对未匹配的 /v1 路径先认证再返回 404，避免未认证请求枚举路由。宿主 protocol 服务只向内置协议实例提供请求侧接口，不加入普通 PluginApi。REST DTO 位于 src/plugins/api-rest/dto.ts，MCP 与其共享。
 
 插件卸载后移除对应路由与静态映射，不留可执行旧回调。重复路由不能静默覆盖其他实例；统一处理请求体大小、JSON 边界、并发预算与连接关闭，协议业务鉴权不由通用路由器猜测。协议 DTO 可复用，但 REST 不静态调用 MCP 的处理入口。
 
-ready 同时要求监听成功和所需路由完成注册。后台消费不得在 apply 中等待只有全体初始化结束才会完成的屏障；依赖未就绪或卸载时停止新投递，恢复就绪后才继续。HTTP 服务停用会影响其依赖入口，Admin 停用只撤销管理路由。已派发外部调用仍按核心规则保存结果，不能因路由关闭当作撤销。
+adapter-mcp 登记 /v1/mcp 后才提供 mcp 服务，agent-chat 声明 mcp 依赖。ready 同时要求监听成功和所需路由完成注册。后台消费不得在 apply 中等待只有全体初始化结束才会完成的屏障；依赖未就绪或卸载时停止新投递，恢复就绪后才继续。HTTP 服务停用会影响其依赖入口，Admin 停用只撤销管理路由。已派发外部调用仍按核心规则保存结果，不能因路由关闭当作撤销。
 
 ## 11. M2 管理描述登记与动作
 

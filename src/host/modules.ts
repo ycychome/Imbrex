@@ -12,13 +12,21 @@ export interface PluginModule {
   Config?: Plugin.Object<JsonObject>['Config'];
   apply(ctx: Context, config: JsonObject): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
 }
+// Request-side plugins receive ctx.protocol; server-http only reports runtime errors.
+export const serverHttpModule = 'builtin:server-http';
+export const protocolModules: readonly string[] = ['builtin:api-rest', 'builtin:adapter-mcp', 'builtin:admin'];
+// Protocol plugins synthesized by the version 1 to version 2 configuration migration.
+export const migratedProtocolModules: readonly string[] = ['server-http', 'api-rest', 'adapter-mcp'];
 const builtins: Record<string, URL> = {
+  'server-http': new URL('../plugins/server-http/index.js', import.meta.url),
+  'api-rest': new URL('../plugins/api-rest/index.js', import.meta.url),
+  'adapter-mcp': new URL('../plugins/adapter-mcp/index.js', import.meta.url),
+  admin: new URL('../plugins/admin/index.js', import.meta.url),
   fixture: new URL('../plugins/fixture.js', import.meta.url),
   transform: new URL('../plugins/transform.js', import.meta.url),
-  observer: new URL('../plugins/observer.js', import.meta.url),
   mock: new URL('../plugins/mock.js', import.meta.url),
   'onebot-v11': new URL('../plugins/onebot-v11/index.js', import.meta.url),
-  'acp-consumer': new URL('../plugins/acp-consumer/index.js', import.meta.url),
+  'agent-chat': new URL('../plugins/agent-chat/index.js', import.meta.url),
 };
 
 export async function loadModules(config: HostConfig, filename: string): Promise<Map<string, PluginModule | undefined>> {
@@ -30,7 +38,7 @@ export async function loadModules(config: HostConfig, filename: string): Promise
         const url = builtins[specifier.slice(8)];
         if (!url) fail('invalid_request', 'Unknown builtin plugin');
         specifier = url.href;
-        if (['fixture', 'transform', 'observer', 'mock'].includes(plugin.module.slice(8)) && Object.keys(plugin.config).length) fail('invalid_request', 'Demo plugin configuration must be empty');
+        if (['fixture', 'transform', 'mock'].includes(plugin.module.slice(8)) && Object.keys(plugin.config).length) fail('invalid_request', 'Demo plugin configuration must be empty');
       } else if (isAbsolute(specifier) || /^\.\.?\//.test(specifier)) {
         specifier = pathToFileURL(resolve(dirname(resolve(filename)), specifier)).href;
       } else if (!/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+(?:\/[a-z0-9._/-]+)?$/i.test(specifier)) {

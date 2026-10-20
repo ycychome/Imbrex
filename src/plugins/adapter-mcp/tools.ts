@@ -7,7 +7,7 @@ import { compileSchema } from '../../core/schema.js';
 import type { GatewayStore } from '../../core/store.js';
 import type { Permission, Principal } from '../../core/types.js';
 import { capabilityPattern, eventRef, json, limits, object, position, readOptions, string } from '../../core/validation.js';
-import { invokeBody, wireCall, wireCapability, wireInvocation, wirePage, wireRecord } from '../http/dto.js';
+import { invokeBody, wireCall, wireCapability, wireInvocation, wirePage, wireRecord } from '../api-rest/dto.js';
 
 const storeIdSchema = { type: 'string', minLength: 1, maxLength: 256 };
 const callIdSchema = { type: 'string', minLength: 1, maxLength: 128, description: 'Stable intent ID (ASCII letters, digits, . _ : -). Preserve this ID after an uncertain outcome.' };
@@ -43,7 +43,7 @@ const definitions: { permission?: Permission; tool: Tool }[] = [
 const tools = definitions.map((item) => ({ ...item, validate: compileSchema(item.tool.inputSchema).validate }));
 
 export interface ToolContext {
-  principal: Principal; store: GatewayStore; events: Events; capabilities: Capabilities; requestId: string;
+  principal: Principal; store: Pick<GatewayStore, 'info'>; events: Events; capabilities: Capabilities; requestId: string;
   report: (code: string) => void;
 }
 

@@ -2,7 +2,7 @@
 
 统一开发基线 0.3 · 2026-10-19。M0 演示消费者与 M1-04 ACP Consumer 已实现，模拟链路与故障验证见[运行记录](experiments/m1-acp.md)，真实模型与指定群的单次自动回复已通过，范围见[实测记录](experiments/m1-live.md)。Agent 协议分工见 [Agent 接入](agent-integration.md)，读取规则见[事件与存储](storage-and-recovery.md)，动作结果见[能力契约](capabilities.md)。
 
-2026-10-20 定稿的 M2 将 acp-consumer 更名为 agent-chat；第 10—12 节定义待实现的观测、在线恢复和配置应用。当前 M1 的离线恢复与状态格式仍有效，不将目标能力视为已上线。
+Consumer 模块名为 agent-chat（原 acp-consumer）；实例 ID、消费状态 version=1 和离线恢复语义保持。第 10—12 节定义观测、在线恢复及配置应用的 M2 目标。
 
 ## 1. 三种消费方式
 
@@ -24,7 +24,7 @@
 
 ## 3. ACP Consumer 的最少状态
 
-`src/plugins/acp-consumer/` 是普通消费者插件，按绑定 API 读取事件，再通过 ACP 向现成 Agent 提交输入。首版每个插件实例串行处理一条输入；模型循环、回复内容、上下文裁剪和历史持久化归 Agent，不另建参考 Agent 决策库。
+`src/plugins/agent-chat/` 是普通消费者插件，按绑定 API 读取事件，再通过 ACP 向现成 Agent 提交输入。首版每个插件实例串行处理一条输入；模型循环、回复内容、上下文裁剪和历史持久化归 Agent，不另建参考 Agent 决策库。
 
 插件使用 `api.dataDir/consumer-state.json` 保存以下元数据；文件内位置使用十进制字符串，内存读取 API 仍使用 bigint。
 
@@ -84,7 +84,7 @@ Consumer 只对连接器映射的允许入站消息触发。自己发送的回�
 
 ## 7. 演示消费者
 
-M0 已提供 fixture-transform 与 observer 的位置持久化和读取循环；M2-01 删除 observer，取消原 G05 第二消费者交付及事件副本计划。ACP Consumer 是 M1 实现，M2 更名 agent-chat。
+fixture-transform 保留位置持久化和读取循环。observer 已删除，原 G05 第二消费者及事件副本交付取消；M0 实验记录保留当时范围。ACP Consumer 的现模块名为 agent-chat。
 
 - fixture-transform 只处理受控 fixture 事件，生成确定内容和稳定派生身份；发布成功后保存位置。崩溃重试同一输出由网关 first-write-wins 处理，不承诺任意业务的恰好一次变换。
 - observer 专属代码、配置与用例在 M2-01 清理；仍验证公共存储与插件行为的测试保留，不为 Admin 另建观察数据库。
@@ -100,7 +100,7 @@ M1 要验证当前存储中的事件续读、正常自动触发、未决输入�
 
 ## 9. M1-04 配置与状态格式
 
-builtin:acp-consumer 的配置包括 input_id、source_prefix、max_event_age_seconds、agent，另可指定 turn_timeout_ms 和 filter。source_prefix 必须是规范的 imbrex://qq/<account>/<namespace>/；只触发该范围内可信的 qq.message.group/private 原始入站事件。最大年龄须显式给出，范围 1—86400 秒，示例为 300；超过当前时间 5 秒的来源时间也跳过。未提供来源时间时使用 accepted_at。
+builtin:agent-chat 的配置包括 input_id、source_prefix、max_event_age_seconds、agent，另可指定 turn_timeout_ms 和 filter。source_prefix 必须是规范的 imbrex://qq/<account>/<namespace>/；只触发该范围内可信的 qq.message.group/private 原始入站事件。最大年龄须显式给出，范围 1—86400 秒，示例为 300；超过当前时间 5 秒的来源时间也跳过。未提供来源时间时使用 accepted_at。
 
 filter 同时包含 group_ids、private_user_ids 两个数组，ID 使用 OneBot 支持范围内的规范正十进制字符串，保存前去重排序。例如 `{ "group_ids": ["987654"], "private_user_ids": ["654321"] }` 允许指定群的入站消息（不额外限制发送者），或指定用户的私聊消息；私聊名单不放行该用户在其他群的消息。空数组不允许对应类型，两个空数组不触发任何输入；未配置 filter 保持原行为。过滤发生在创建/恢复会话和提交 prompt 之前，被排除的事件仍推进 last_seq，并记录 consumer_skip_filter。该配置仅控制 Consumer 触发，不改变连接器采集范围或 Agent 的 MCP 读取与调用权限。
 

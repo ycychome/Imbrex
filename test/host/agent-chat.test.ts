@@ -12,7 +12,7 @@ import { parseConfig } from '../../src/host/config.js';
 import { loadModules } from '../../src/host/modules.js';
 import type { PluginApi } from '../../src/host/plugin-api.js';
 import { object } from '../../src/core/validation.js';
-import { parseConsumerConfig } from '../../src/plugins/acp-consumer/config.js';
+import { parseConsumerConfig } from '../../src/plugins/agent-chat/config.js';
 import { mapMessage, parseOneBotConfig } from '../../src/plugins/onebot-v11/protocol.js';
 import { numericFixture, stringFixture } from '../../examples/onebot/fixtures.js';
 import { startSimulator } from '../../examples/onebot/simulator.js';
@@ -47,12 +47,12 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
   };
   await setControl({});
   const raw = object(JSON.parse(await readFile(new URL('../../../examples/onebot/imbrex.json', import.meta.url), 'utf8')));
-  raw.data_dir = join(directory, 'gateway'); raw.external_writes_enabled = true; object(raw.http).port = 0;
-  assert.ok(Array.isArray(raw.plugins)); object(object(raw.plugins[0]).config).ws_url = 'ws://127.0.0.1:' + sim.port + '/';
+  raw.data_dir = join(directory, 'gateway'); raw.external_writes_enabled = true; object(((raw.plugins as unknown[]).map((value) => object(value)).find((plugin) => plugin.module === 'builtin:server-http')!).config).port = 0;
+  assert.ok(Array.isArray(raw.plugins)); object(raw.plugins.map((value) => object(value)).find((plugin) => plugin.id === 'qq-main')!.config).ws_url = 'ws://127.0.0.1:' + sim.port + '/';
   assert.ok(Array.isArray(raw.principals));
   raw.principals.push({ id: 'qq-consumer', permissions: ['events:read'], read_sources: [{ prefix: 'imbrex://qq/123456/main/' }], write_sources: [], invoke_capabilities: [] });
   raw.principals.push({ id: 'test-writer', permissions: ['events:read', 'events:write'], read_sources: [{ prefix: 'imbrex://' }], write_sources: [{ prefix: 'imbrex://' }], invoke_capabilities: [] });
-  raw.plugins.push({ id: 'agent', module: 'builtin:acp-consumer', principal_id: 'qq-consumer', required: true, enabled, config: {
+  raw.plugins.push({ id: 'agent', module: 'builtin:agent-chat', principal_id: 'qq-consumer', required: true, enabled, config: {
     input_id: 'qq-inbound', source_prefix: 'imbrex://qq/123456/main/', max_event_age_seconds: 300, turn_timeout_ms: turnTimeout,
     agent: { command: process.execPath, args: [fileURLToPath(new URL('../fixtures/acp-agent.js', import.meta.url))], cwd: fake,
       env_vars: ['IMBREX_FAKE_AGENT_DIR', 'IMBREX_FAKE_STATE_FILE', 'IMBREX_QQ_AGENT_TOKEN'] },
@@ -76,7 +76,7 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
       return event === undefined ? entries : entries.filter((entry) => entry.event === event);
     } catch { return []; }
   };
-  const onebot = parseOneBotConfig(config.plugins[0]!.config);
+  const onebot = parseOneBotConfig(config.plugins.find((plugin) => plugin.id === 'qq-main')!.config);
   const input = (id: number, kind: 'group' | 'private' = 'group', override: Record<string, unknown> = {}) => {
     return mapMessage({ ...(kind === 'group' ? numericFixture : stringFixture), time: Math.floor(Date.now() / 1000), message_id: id, ...override }, onebot)!;
   };
@@ -236,7 +236,7 @@ test('malformed Agent notifications and messages never enter the SDK raw logging
 
 test('inputs arriving during a later plugin initialization wait until MCP is listening', async (t) => {
   const f = await fixture(t, 'reply', false);
-  f.config.http.port = f.host().port;
+  f.config.plugins.find((plugin) => plugin.module === 'builtin:server-http')!.config.port = f.host().port;
   await f.host().close();
   f.config.plugins.find((plugin) => plugin.id === 'agent')!.enabled = true;
   f.modules.set('writer', { name: 'slow-writer', apply: async (ctx) => {
@@ -491,4 +491,31 @@ test('offline recovery preserves an unknown call and resumes with only a new inp
   assert.equal(f.sim.actions.length, 2); assert.equal((await f.logs('prompt')).length, 2);
   assert.notEqual((await f.logs('prompt'))[1]!.session_id, oldSession);
   assert.equal((await f.logs('call'))[1]?.status, 'succeeded');
+});
+
+test('HTTP listening alone never permits delivery and unloading MCP stops the dependent Consumer', async (t) => {
+  const f = await fixture(t);
+  await f.append(131); await until(async () => (await f.state()).last_seq === '1');
+  await f.host().close();
+  const original = f.modules.get('mcp')!;
+  let checked = false;
+  f.modules.set('mcp', { ...original, apply: async (ctx, config) => {
+    // server-http is already listening, but the MCP route/service does not exist yet.
+    const response = await fetch(ctx.http.origin + '/v1/mcp', { headers: { authorization: 'Bearer ' + f.values.IMBREX_QQ_AGENT_TOKEN } });
+    assert.equal(response.status, 404); await response.text();
+    await delay(50);
+    assert.equal((await f.logs('prompt')).length, 1);
+    checked = true;
+    return original.apply(ctx, config);
+  } });
+  await f.restart(); await until(() => f.status().available);
+  assert.equal(checked, true);
+  await f.host().stopPlugin('mcp');
+  assert.equal(f.status().state, 'waiting');
+  await f.append(132); await delay(50);
+  assert.equal((await f.logs('prompt')).length, 1);
+  f.modules.set('mcp', original);
+  await f.host().startPlugin('mcp'); await until(() => f.status().available);
+  await until(async () => (await f.state()).last_seq === '2');
+  assert.equal((await f.logs('prompt')).length, 2);
 });

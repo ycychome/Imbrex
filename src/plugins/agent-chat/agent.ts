@@ -82,7 +82,7 @@ export class AcpAgent {
       if (signal.aborted || agent.stopping) throw new ConsumerError('consumer_agent_stopped');
       // Unencoded child stdout yields Uint8Array bytes; Node and DOM declarations differ for the same Web Stream.
       const output = Readable.toWeb(agent.child.stdout!) as unknown as ReadableStream<Uint8Array>;
-      agent.connection = client({ name: 'imbrex-acp-consumer' })
+      agent.connection = client({ name: 'imbrex-agent-chat' })
         .onRequest('session/request_permission', () => { onPermissionDenied(); return { outcome: { outcome: 'cancelled' } }; })
         .connect(guardedStream(ndJsonStream(Writable.toWeb(agent.child.stdin!), output, { maxMessageBytes: consumerLimits.frameBytes })));
       agent.connection.closed.then(() => {

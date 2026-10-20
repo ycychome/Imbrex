@@ -2,21 +2,21 @@
 
 统一开发基线 0.3 · 2026-10-19。**M1-01 OneBot、M1-02 MCP 与 M1-04 ACP Consumer 已实现，协议模拟与故障路径通过验证；真实模型与指定 QQ 群的单次自动回复已通过，扩展范围见[实测记录](experiments/m1-live.md)。** M0 现有 HTTP 与插件 API 继续有效；具体任务见[开发计划](development-plan.md#m1)。
 
-2026-10-20 定稿的 M2 将 adapters/mcp 迁入 plugins/adapter-mcp，acp-consumer 更名 agent-chat。下面 M1 路径和行为是当前实现；第 5 节为待实现的托管配置与受控重启，不改变既有 MCP 工具或 ACP 协议语义。
+MCP 位于 plugins/adapter-mcp，Consumer 名称为 agent-chat（原 acp-consumer）。模块迁移不改变 MCP 工具、ACP 协议及既有数据绑定；第 5 节为托管配置与受控重启的 M2 目标。
 
 ## 1. 模块与协议职责
 
 | 模块 | 角色 | 职责 |
 | --- | --- | --- |
 | `src/plugins/onebot-v11/` | 平台连接器插件 | 接纳事件、注册 `<instance>.reply`，将能力调用转成标准 OneBot Action |
-| `src/adapters/mcp/` | MCP Server | 让 Agent 查询网关上下文、发现获授权能力、调用并查询结果 |
-| `src/plugins/acp-consumer/` | 普通 Consumer 插件、ACP Client | 主动读事件、筛选触发、管理协议会话关联与最少消费状态 |
+| `src/plugins/adapter-mcp/` | MCP Server | 让 Agent 查询网关上下文、发现获授权能力、调用并查询结果 |
+| `src/plugins/agent-chat/` | 普通 Consumer 插件、ACP Client | 主动读事件、筛选触发、管理协议会话关联与最少消费状态 |
 | pi + pi-acp（首接组合） | ACP Agent 端、MCP Client | 模型循环、工具选择、上下文、Agent 历史与会话恢复 |
 
 ```mermaid
 flowchart LR
     O["OneBot 插件"] -->|发布事件| E["内核 events"]
-    U["acp-consumer"] -->|绑定 API 读取| E
+    U["agent-chat"] -->|绑定 API 读取| E
     U <-->|ACP / stdio| A["pi-acp → pi"]
     A <-->|MCP / Streamable HTTP| M["MCP adapter"]
     M --> E

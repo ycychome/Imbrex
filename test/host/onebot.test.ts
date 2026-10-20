@@ -26,9 +26,9 @@ async function fixture(t: TestContext, stringIds = false, available = true) {
   if (stringIds) { sim.loginId = '123456'; sim.appName = 'standard-string-fixture'; }
   if (!available) sim.loginId = 222222;
   const raw = object(JSON.parse(await readFile(new URL('../../../examples/onebot/imbrex.json', import.meta.url), 'utf8')));
-  raw.data_dir = dir; raw.external_writes_enabled = true; object(raw.http).port = 0;
-  assert.ok(Array.isArray(raw.plugins)); object(object(raw.plugins[0]).config).ws_url = 'ws://127.0.0.1:' + sim.port + '/';
-  object(object(raw.plugins[0]).config).access_token_env = envKey;
+  raw.data_dir = dir; raw.external_writes_enabled = true; object(((raw.plugins as unknown[]).map((value) => object(value)).find((plugin) => plugin.module === 'builtin:server-http')!).config).port = 0;
+  assert.ok(Array.isArray(raw.plugins)); object(raw.plugins.map((value) => object(value)).find((plugin) => plugin.id === 'qq-main')!.config).ws_url = 'ws://127.0.0.1:' + sim.port + '/';
+  object(raw.plugins.map((value) => object(value)).find((plugin) => plugin.id === 'qq-main')!.config).access_token_env = envKey;
   assert.ok(Array.isArray(raw.principals));
   raw.principals.push({ id: 'other', token_env: 'OTHER_TOKEN', permissions: ['events:read', 'capabilities:invoke', 'calls:read'], read_sources: [{ prefix: 'imbrex://other/' }], write_sources: [], invoke_capabilities: ['qq-main.reply'] });
   const filename = join(dir, 'config.json');
@@ -36,7 +36,7 @@ async function fixture(t: TestContext, stringIds = false, available = true) {
   const modules = await loadModules(config, filename);
   const app = await Host.open(config, modules);
   t.after(async () => { await app.close(); await sim.close(); await rm(dir, { recursive: true, force: true }); });
-  const ready = () => app.plugins()[0]?.available === true;
+  const ready = () => app.plugins().find((plugin) => plugin.id === 'qq-main')?.available === true;
   if (available) await until(ready);
   const request = async (path: string, data?: unknown, token = 'fixture-agent') => {
     const response = await fetch('http://127.0.0.1:' + app.port + path, {
@@ -89,7 +89,7 @@ test('reply enforces actual caller reads, namespace and inbound direction before
   assert.equal(object((await invoke('self', 'group', '99')).value.call).status, 'failed');
   assert.equal(sim.actions.length, 0);
   await app.stopPlugin('qq-main');
-  config.plugins[0]!.config.identity_namespace = 'other';
+  config.plugins.find((plugin) => plugin.id === 'qq-main')!.config.identity_namespace = 'other';
   await assert.rejects(app.startPlugin('qq-main'), { code: 'provider_unavailable' });
   assert.equal(sim.actions.length, 0);
 });
@@ -112,14 +112,14 @@ test('unknown responses and disconnects are persisted without repeating an Actio
 
 test('account mismatch, oversized input and implementation changes remain unavailable and shutdown releases sockets', async (t) => {
   const { app, sim, ready, config } = await fixture(t, false, false);
-  await until(() => app.plugins()[0]?.last_error?.code === 'onebot_account_mismatch');
+  await until(() => app.plugins().find((plugin) => plugin.id === 'qq-main')?.last_error?.code === 'onebot_account_mismatch');
   sim.broadcast(numericFixture); assert.equal((await app.info()).latestSeq, 0n);
   sim.loginId = 123456; await until(ready);
   for (const client of sim.server.clients) client.send('x'.repeat(65537));
   await until(() => !ready()); await until(ready);
   sim.appName = 'another-implementation';
   for (const client of sim.server.clients) client.terminate();
-  await until(() => app.plugins()[0]?.last_error?.code === 'onebot_implementation_changed');
+  await until(() => app.plugins().find((plugin) => plugin.id === 'qq-main')?.last_error?.code === 'onebot_implementation_changed');
   await app.stopPlugin('qq-main');
   await until(() => sim.server.clients.size === 0);
   assert.equal((await app.info()).latestSeq, 0n);
@@ -131,21 +131,21 @@ test('account mismatch, oversized input and implementation changes remain unavai
 
 test('invalid native IDs and unsupported segments cannot enter storage; demo builtins still reject configuration', async (t) => {
   const { config } = await fixture(t);
-  const parsed = parseOneBotConfig(config.plugins[0]!.config);
+  const parsed = parseOneBotConfig(config.plugins.find((plugin) => plugin.id === 'qq-main')!.config);
   for (const event of [
     { ...numericFixture, message_id: 9007199254740992 }, { ...numericFixture, self_id: 222222 },
     { ...numericFixture, message: '[CQ:image,file=example]' }, { ...numericFixture, message: '[CQ:reply,id=01]' },
     { ...numericFixture, message: [{ type: 'image', data: { file: 'example' } }] },
   ]) assert.throws(() => mapMessage(event, parsed));
-  assert.throws(() => parseOneBotConfig({ ...config.plugins[0]!.config, compatibility_profile: 'imaginary' }));
-  config.plugins[0]!.module = 'builtin:mock';
+  assert.throws(() => parseOneBotConfig({ ...config.plugins.find((plugin) => plugin.id === 'qq-main')!.config, compatibility_profile: 'imaginary' }));
+  config.plugins.find((plugin) => plugin.id === 'qq-main')!.module = 'builtin:mock';
   await assert.rejects(loadModules(config, '/tmp/fixture-config.json'), { code: 'invalid_request' });
 });
 
 test('burst ingress is bounded and the connection recovers without automatically sending', async (t) => {
   const { app, sim, ready } = await fixture(t);
   for (let i = 0; i < 200; i += 1) sim.broadcast({ ...numericFixture, message_id: i });
-  await until(() => app.plugins()[0]?.last_error?.code === 'onebot_ingress_overflow');
+  await until(() => app.plugins().find((plugin) => plugin.id === 'qq-main')?.last_error?.code === 'onebot_ingress_overflow');
   assert.ok((await app.info()).latestSeq < 200n);
   await until(ready);
   assert.equal(sim.actions.length, 0);

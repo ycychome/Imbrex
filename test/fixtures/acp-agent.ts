@@ -4,7 +4,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { object } from '../../src/core/validation.js';
-import { consumerLimits } from '../../src/plugins/acp-consumer/config.js';
+import { consumerLimits } from '../../src/plugins/agent-chat/config.js';
 
 const directory = process.env.IMBREX_FAKE_AGENT_DIR!;
 const stateFile = process.env.IMBREX_FAKE_STATE_FILE!;

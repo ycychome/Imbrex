@@ -11,8 +11,8 @@ import { AcpAgent } from './agent.js';
 import { ConsumerError, consumerLimits, parseConsumerConfig, prepareAgent, type ConsumerConfig } from './config.js';
 import { bindingFor, loadState, saveState, type ConsumerState } from './state.js';
 
-export const name = 'acp-consumer';
-export const inject = ['imbrex'];
+export const name = 'agent-chat';
+export const inject = ['imbrex', 'mcp'];
 
 function report(api: PluginApi, inputId: string, code: string, ref?: EventRef): void {
   const fingerprint = ref ? createHash('sha256').update(JSON.stringify([ref.source, ref.id])).digest('hex').slice(0, 20) : undefined;
