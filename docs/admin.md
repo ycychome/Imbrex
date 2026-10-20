@@ -70,7 +70,11 @@ OneBot data：connected 表示当前连接已核验且在线；account_verified 
 
 Agent data：status、available、phase、last_error 描述处理投影；input_id、store_id、last_seq、in_flight、sessions、agent_info 对应消费状态。turn_started_at 为实际 prompt 开始时间，elapsed_ms 从其计算；无计时依据时为 null。phase 为 starting/idle/session/prompt/checkpoint/error/stopping；model_stage 当前为 null，不猜测模型细节。正常 end_turn 且检查点成功后回到 idle。
 
+state_status 为 loaded/missing/unavailable。启动所需环境或绑定检查失败时，仍展示与当前存储身份及序号相符、按原绑定验证过的持久事实；不据此恢复消费。无法验证状态时为 unavailable，并省略 last_seq、in_flight、sessions、agent_info，这些字段此时未知；不能把缺失解释为没有未决项。missing 表示已确认状态文件不存在。
+
 Agent configuration 包含 filter（未配置为 null）、source_prefix、max_event_age_seconds、turn_timeout_ms、reader、agent_environment 和 pi。reader 是 Consumer 读取授权；agent_environment 只返回变量名和是否存在。pi 只检查显式传入的绝对 PI_CODING_AGENT_DIR，不读取默认用户 HOME；status 为 unmanaged/configured_unverified/unavailable。saved 为 {provider,model,context_window,system_prompt,mcp} 或 null，applied/observed 当前为 null。缺少声明时返回 null，不推断 provider 默认值。MCP 只返回无嵌入凭据的地址及环境引用，不回传 headers、密钥或 shell 命令。单个配置文件最大 64 KiB，损坏/超限返回 unavailable。
+
+文件以非阻塞方式打开，仅允许普通文件；读取过程仍限制实际字节数，拒绝 FIFO、符号链接和超限内容。面板派发前和结束后都核对登记身份，已注销实例不会接到尚未开始的读取。
 
 ## 5. 配置查看、编辑和应用
 

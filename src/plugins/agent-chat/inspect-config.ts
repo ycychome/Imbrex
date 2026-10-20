@@ -6,11 +6,18 @@ import type { JsonValue } from '../../core/types.js';
 
 async function textFile(path: string): Promise<string | null> {
   try {
-    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const stat = await file.stat();
       if (!stat.isFile() || stat.size > 65536) throw new Error('Configuration unavailable');
-      return new TextDecoder('utf-8', { fatal: true }).decode(await file.readFile());
+      const buffer = Buffer.alloc(65537);
+      let length = 0;
+      while (length < buffer.length) {
+        const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+        if (!bytesRead) return new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length));
+        length += bytesRead;
+      }
+      throw new Error('Configuration unavailable');
     } finally { await file.close(); }
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null;
