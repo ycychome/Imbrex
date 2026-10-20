@@ -161,7 +161,7 @@ status=ok、retcode 与合法的 message_id 等确定结果共同核验后，才
 
 `qq-main` 是配置实例的例子，能力通用形式为 `<instance>.reply`，MCP 不硬编码 QQ 或具体 OneBot 实现。当前插件选定的 v11 事件类型、账号与消息段仍有 QQ 语义；这不构成跨平台兼容承诺。
 
-## 8. Agent 与第二消费者
+## 8. Agent 与 M2 管理接入
 
 M1 首接复用 pi 与现成 pi-acp。acp-consumer 通过绑定 API 读取并筛选输入，再经 ACP stdio 提交；Agent 通过同一个 MCP adapter 查询上下文与调用 reply，模型循环和历史由 Agent 管理。具体协议分工见 [Agent 接入](agent-integration.md)。
 
@@ -169,7 +169,7 @@ Consumer 保存输入位置、会话关联和 prompt 提交前的 in_flight；�
 
 输入来自哪个 OneBot 实现不改变 Agent 的工具 schema、调用协议或内核访问方式。历史上下文、自发回流和诊断事件不成为新回复触发；旧消息策略在真实试用前明确。
 
-第二消费者独立保存自己的进度，验证暂停/恢复和有限事件查询，不与 Agent 共享确认。
+M2-01 将 acp-consumer 更名 agent-chat，取消第二消费者与 observer 产品交付。OneBot 与 Agent 分别提供实例绑定的管理面板，Admin 启停不打断消息链路。后台 filter 只调整 Consumer 触发范围，不扩大本章的连接器采集名单或主体授权；具体见 [Admin 契约](admin.md)。
 
 ## 9. 兼容性怎样记录
 

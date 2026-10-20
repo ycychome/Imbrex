@@ -1,10 +1,10 @@
 # 系统设计
 
-统一开发基线 0.3 · 2026-10-19。本文规定本方案的架构；M0、M1-01 OneBot、M1-02 MCP 与 M1-04 ACP Consumer 已实现，真实 pi/模型与 SnowLuma 指定群的单次自动回复已通过，实际范围见[实测记录](experiments/m1-live.md)。状态与阅读顺序见[入口](README.md)。
+统一开发基线 0.3；M2 架构于 2026-10-20 定稿。M0/M1 已实现的范围见[实测记录](experiments/m1-live.md)。本文的组件图与目标目录包含待实现的 M2 全插件化和管理后台；当前代码仍使用 adapters 与 acp-consumer。状态与阅读顺序见[入口](README.md)。
 
 ## 1. 产品目标
 
-把来源接入、可重读事件与可调用工具放进一个易扩展的网关，让独立应用组合使用。第一条真实链路是 QQ 消息经 OneBot v11 服务进入、Agent 读取并分析、Agent 按需调用回复能力；第一版同时提供模拟来源、变换和观察插件。
+把来源接入、可重读事件与可调用工具放进一个易扩展的网关，让应用按自己的策略使用。第一条真实链路是 QQ 消息经 OneBot v11 服务进入、Agent 分析并按需回复；M2 交付可观测、可配置、可人工处置异常的管理后台。保留必要的模拟来源、变换和工具示例，取消 observer 与第二消费者产品交付目标。
 
 内核不编排模型思考、不管理通用工作流，也不把归档或记忆做成固定角色。应用可以发布派生事件；其他应用按自己的进度消费。插件是本地代码装配方式，外部应用是同等有效的接入方式。
 
@@ -19,18 +19,27 @@ flowchart LR
     F["模拟来源 / 变换插件"] <--> E
     E <--> DB["单数据库 worker / SQLite"]
     C <--> DB
-    H["HTTP 插件"] --> E
+    S["server-http 共享监听"] --> H["api-rest"]
+    S --> M["adapter-mcp"]
+    S --> UI["admin API / Vue SPA"]
+    H --> E
     H --> C
-    M["MCP adapter"] --> E
+    M --> E
     M --> C
-    U["acp-consumer 插件"] -->|绑定 API 读取| E
+    U["agent-chat 插件"] -->|绑定 API 读取| E
     U <-->|ACP / stdio| A["独立 Agent：首接 pi-acp + pi"]
     A -->|查上下文 / 调工具| M
-    O["第二消费者"] -->|独立读取| H
+    UI --> R["宿主 AdminRegistry / 管理协调"]
+    P -->|登记面板| R
+    U -->|登记面板| R
+    UI -->|管理员只读查询| E
+    UI -->|管理员调用审计| C
     C -->|调用已注册 handler| P
 ```
 
-Cordis 根上下文装配内核服务适配、HTTP 与 MCP adapter 及业务插件。MCP 挂载到现有 HTTP 监听并直接调用内核。M1 的 acp-consumer 通过 stdio 启动独立 Agent 进程；其他外部应用仍可通过 HTTP 接入，远程 ACP 不在本阶段。
+M2 中所有外部协议和业务由 Cordis 插件装配：server-http 提供共享监听，api-rest、adapter-mcp、admin 分别注册可注销路由；宿主只保留配置、存储/服务装配、实例锁、注册表与生命周期协调。协议插件通过宿主提供的服务和实际请求主体复用内核授权，不以插件自身身份替代远端调用者。
+
+agent-chat 是现有 acp-consumer 的目标名称，通过 ACP stdio 驱动独立 Agent。AdminRegistry 常驻宿主，管理页面晚启动或重启不影响业务插件。其他外部应用仍可通过 HTTP 接入，但不再要求交付第二消费者；远程 ACP 不在本阶段。
 
 事件路径：连接器校验和映射原生事实 → 内核提交事件 → 返回接纳回执 → 尝试通知读取者。动作路径：鉴权与参数校验 → 保存调用记录 → 调用明确提供者 → 保存结果。两条路径没有跨平台共同事务。
 
@@ -43,13 +52,15 @@ Cordis 根上下文装配内核服务适配、HTTP 与 MCP adapter 及业务插�
 | 内核 access | 主体、来源范围和能力授权 | HTTP、MCP 与插件入口共同使用 |
 | SQLite worker | 短事务、持久数据与迁移版本 | 只接受内核定义的命令，不向插件暴露 SQL |
 | Cordis 适配 | 创建内核、绑定插件服务、清理资源 | [插件接口](plugins.md) |
-| HTTP 插件 | 鉴权、校验、序列化、状态码 | 不另写事件/调用业务规则 |
-| MCP adapter | 按主体映射上下文与能力 | `/v1/mcp` Streamable HTTP，直接复用内核服务 |
+| server-http | 共享监听、注册/注销路由与静态资源、限额和连接清理 | 不实现事件/调用业务规则 |
+| api-rest / adapter-mcp | 按实际请求主体鉴权、校验、映射领域调用 | 保留 /v1 REST 与 /v1/mcp 契约，共用内核服务 |
+| 宿主 AdminRegistry | 按实例绑定管理描述与受控操作入口 | 登记随业务实例清理，Admin 启停不影响业务 |
+| admin | 管理认证、聚合面板、管理动作入口与 Vue SPA | admin:inspect / admin:operate，与 Agent 工具权限分离 |
 | 平台插件 | 连接、身份映射、平台操作与可用性 | 使用内核接口，拥有自己的连接状态 |
-| acp-consumer 插件 | 筛选触发、ACP 会话关联、进度与未决输入 | 绑定 API 读事件，ACP stdio 提交输入；不实现模型循环 |
+| agent-chat（当前 acp-consumer） | 筛选触发、ACP 会话关联、进度、未决输入与托管配置应用 | 绑定 API 读事件，ACP stdio 提交输入；不实现模型循环 |
 | Agent | 上下文、模型、工具选择和 Agent 历史 | 首接复用 pi/pi-acp，通过 MCP 使用网关；内核不依赖具体 Agent |
 
-内核服务是必需组件，启动失败则整个实例启动失败，首版不提供运行中卸载或热替换。业务插件失败可以被报告并停止；声明为 required 的插件失败影响整个实例就绪，optional 插件失败只形成降级。
+内核服务是必需组件，启动失败则整个实例启动失败，不提供运行中替换存储。协议和业务插件按 required/optional 及依赖关系装配；模块初始化失败与运行时外部服务断线分别报告。底层监听和所需协议路由均就绪后才投递 Agent 输入；依赖卸载时停止新投递，不能把 TCP 监听成功当作全部服务就绪。
 
 来源和变换插件都可依赖日志服务，但变换插件不因读取 QQ 历史而依赖 OneBot 服务在线。服务依赖用于装配，事件选择用于业务，分别维护。
 
@@ -81,8 +92,9 @@ ACP Consumer 在提交 prompt 前持久保存 in_flight；未确认结束时暂�
 | 编译器 | TypeScript 5.9.3 | 与 Node/ws 类型依赖一起锁定并通过检查 |
 | OneBot WS 客户端 | ws 8.22.0 | 超时、释放、限额及发送结果分类通过模拟；SnowLuma 指定群正常单次收发通过 |
 | 单实例启动 | Linux util-linux flock 包装 | 非阻塞排他锁、实际宿主持锁，验证崩溃后释放 |
+| 管理前端（M2 目标） | Vue 3 + Vite + TailwindCSS | M2-01 锁定实际兼容版本并验证构建；资产随网关托管 |
 
-上述组合已通过 M0-01 的类型检查、编译和 4 项依赖风险探针，实际版本及范围见[工程基线](development.md)。后续宿主与内核验证见[M0 运行验收](experiments/m0-runtime.md)，不代表 OneBot 或 Agent 接入已验证。node:sqlite 在参考 Node 文档中仍标为 release candidate。来源与限制见[技术依据](references.md)。后续发现兼容问题时，在保持契约的前提下处理具体依赖问题。
+已锁定的后端组合及探针范围见[工程基线](development.md)，宿主与内核验证见[M0 运行验收](experiments/m0-runtime.md)，OneBot/Agent 验证见对应 M1 记录。新增 M2 前端组合尚待锁定版本和构建验证。来源与限制见[技术依据](references.md)；后续兼容问题须在保持契约的前提下依据实际验证处理。
 
 ## 6. 首版的可靠性范围
 
@@ -98,19 +110,23 @@ ACP Consumer 在提交 prompt 前持久保存 in_flight；未确认结束时暂�
 src/
   core/             事件、能力、授权和共享领域类型
   storage/          SQLite worker、内部命令和迁移
-  host/             Cordis 装配、配置、插件状态
-  adapters/http/    HTTP 参数与输出转换
-  adapters/mcp/     MCP 上下文与能力映射（M1）
-  plugins/          fixture、transform、mock、observer
-    onebot-v11/     OneBot v11 连接器与 reply（M1）
-    acp-consumer/   ACP Client、输入筛选和消费状态（M1）
-  clients/          HTTP 客户端与位置持久化辅助
+  host/             Cordis 装配、配置、插件状态、AdminRegistry 与管理协调
+  plugins/
+    server-http/   共享 HTTP 服务与路由生命周期
+    api-rest/      现有 /v1 REST 映射
+    adapter-mcp/   现有 /v1/mcp 协议入口
+    onebot-v11/    OneBot v11 连接器与 reply
+    agent-chat/    ACP Client、输入消费、会话和托管配置
+    admin/         管理 API、声明式面板与 Vue SPA
+    fixture.ts / transform.ts / mock.ts  必要演示插件
   cli/              启动、配置检查与本地诊断入口
 examples/          运行配置、插件模板；M1 补充 pi 接入演示
 test/              对应 T01—T09 的必要测试
 ```
 
-M0 已实现 core、storage、host、adapters/http、plugins、cli 及对应测试；examples/plugins 提供编译模板，examples/demo.json 提供运行配置。独立 clients 随实际需求创建。M1 在同一工程内实现上述具体目录，复用现成 Agent，不预先发布多个包或增加 Runner、决策引擎和第二套插件运行时。协议职责见 [Agent 接入](agent-integration.md)。
+上图为 M2-01 目标目录，届时一次移除 adapters、迁移 acp-consumer 并删除 observer；当前 M1 代码和可运行示例尚未迁移。core 保持无网络/宿主框架依赖，可继续使用已有 schema 校验库；不因目录迁移引入第二套插件运行时。管理接口见 [Admin 契约](admin.md)，协议职责见 [Agent 接入](agent-integration.md)。
+
+迁移调整模块名称与配置入口时保留实例 ID、主体、数据目录、消费位置及会话关联；格式变更须有明确的迁移步骤，不静默新建状态。M0/M1 实验文档保留当时路径与证据。
 
 ## 8. 协议连接器与具体实现
 

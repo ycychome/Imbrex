@@ -4,6 +4,8 @@
 
 M1-02 已在同一监听提供 `/v1/mcp`，采用 MCP Streamable HTTP 而非本文件的 REST 路由表达；共用领域授权、类型与调用语义，具体工具、参数及错误映射见 [Agent 接入](agent-integration.md)。此端点不启用事件订阅 SSE。
 
+2026-10-20 定稿的 M2 将协议迁入插件并新增 /api/admin/* 管理入口。下面 /v1 行为保持不变；第 12 节为待实现的管理 API 边界，不表示当前已经提供管理路由。
+
 ## 1. 公共约定
 
 - 路径前缀 `/v1`，请求/响应为 UTF-8 application/json；发布封装内部 event 才是 CloudEvent。
@@ -232,7 +234,7 @@ call_id 是不透明标识，路径段百分号解码一次后保留原值，点
 
 `GET /v1/plugins` 返回 `{store_id,plugins}`。每项包含 id、module_name、state、required、available，以及可选的脱敏 last_error。state 为 waiting/loading/active/failed/stopping/stopped；插件实例配置、访问 token 和消息正文不返回。
 
-该接口只读；管理者通过配置与宿主重启管理加载，受信开发/测试入口可单独 start/stop，不承诺 HTTP 远程管理功能。
+该接口继续只读；当前 M1 通过配置与宿主重启管理加载。M2 管理动作使用专属 /api/admin/* 入口及管理权限，不改变 /v1/plugins 的语义，也不把 runtime:inspect 升级为操作权限。
 
 ## 10. 错误契约
 
@@ -265,3 +267,18 @@ call_id 是不透明标识，路径段百分号解码一次后保留原值，点
 ## 11. 类型与生成文档
 
 实现以共享领域类型和运行时校验器承载本契约，HTTP 适配层负责 bigint/字符串和字段命名映射。M0 类型稳定后可生成 OpenAPI/客户端，不另外手写一套与运行实现独立演进的完整 schema。OneBot 原始协议报文只属于连接器，不透传为 Imbrex 的外部调用契约。
+
+## 12. M2 管理 API 边界（待实现）
+
+管理 API 位于 /api/admin/*，静态控制台位于 /admin 与 /admin/*。具体资源路径、方法和请求/响应 schema 随 M2-02/M2-03 的实现 PR 补齐；不得为尚未实现的操作返回占位成功。功能与状态含义以 [Admin 契约](admin.md)为准。
+
+| 管理交互 | 权限与不变量 |
+| --- | --- |
+| 全局/插件状态、事件浏览、能力清单、跨主体调用审计、脱敏配置 | admin:inspect；有界查询和十进制序号；不复用 calls:read 绕过主体限制；不回传秘密 |
+| 执行已注册的插件管理动作 | admin:operate；服务端验证输入 schema、稳定实例和当前运行状态；不能凭按钮可见性授权 |
+| 保存/应用 filter 或托管 Agent 配置 | admin:operate；区分保存与生效，按轮次边界或受控 Agent 重启应用 |
+| 确认/放弃当前未决输入、单会话重置 | admin:operate；匹配 store_id、实例、输入引用/seq 或完整会话 source，保留备份与原因，不修改原 calls 状态 |
+
+身份通过显式 Principal 的 token_env 引用 Bearer 凭据确定，不接受请求体指定管理员身份，不因 loopback 免认证。Admin 停用后撤销路由，普通 Agent Token 不可调用管理操作。管理操作不发布为 Agent 的 MCP 工具。
+
+状态或配置写入失败不能报告成功；旧页面提交的操作若不再对应当前未决项，应拒绝而不推进其他输入。管理请求断开不等于操作取消，后续应查询实际状态；不得把重新提交操作解释成新的外部发送意图。
