@@ -4,7 +4,7 @@
 
 ## 1. 配置来源
 
-使用一个显式 JSON 配置文件，config_version=2。相对数据路径以配置文件目录为基准；插件模块只从 builtin 映射、已安装包或明确本地文件加载，不在线下载安装代码。无效字段、未知插件、重复实例 ID、未知主体或不支持的配置在启动前报错。
+使用一个显式 JSON 配置文件，config_version=2。相对数据路径以配置文件目录为基准；插件模块只从 builtin 映射、已安装包或明确本地文件加载，不在线下载安装代码。无效字段、未知插件、重复实例 ID、未知主体或不支持的配置在启动前报错；server-http 的 host/port 在配置解析阶段校验，其他插件模块的结构化配置在对应插件装配时校验。
 
 配置的 JSON 值受 256 KiB 与 32 层嵌套上限约束。server-http 插件的 config.port 为 0 时由系统分配临时端口，适用于本地测试；固定部署使用明确端口。配置校验、主体认证、模块加载与进程启动均已实现。
 
@@ -85,7 +85,7 @@ npm --silent run config:migrate -- /absolute/path/v1.json /absolute/path/v2.json
 npm start -- --config /absolute/path/v2.json
 ```
 
-迁移只读取旧配置并创建权限 0600 的新文件，目标必须不存在；失败不覆盖旧文件。data_dir 与相对插件模块按原配置位置转换为绝对路径；HTTP 拆成显式协议插件，协议主体无业务或管理权限。业务实例 ID、主体、Agent 程序/工作目录/filter 保留，acp-consumer 仅改为 agent-chat，observer 配置移除但旧数据不删除。
+迁移只读取旧配置并创建权限 0600 的新文件，目标必须不存在；失败不覆盖旧文件。迁移只做结构和名称校验，不要求导出 token_env；新配置启动时仍需原凭据环境变量。data_dir 与相对插件模块按原配置位置转换为绝对路径；HTTP 拆成显式协议插件，协议主体无业务或管理权限。业务实例 ID、主体、Agent 程序/工作目录/filter 保留，acp-consumer 仅改为 agent-chat，observer 配置移除但旧数据不删除。
 
 数据库 store_id、data_dir/plugins/<原实例ID>/consumer-state.json、消费位置和会话均不由配置迁移工具修改。状态仍为 version=1；绑定不匹配或未决输入沿用暂停规则。工具不会添加管理员身份或提升原 operator/Agent 权限。
 

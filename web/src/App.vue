@@ -8,6 +8,7 @@ const error = ref<AdminApiError | null>(null);
 const loading = ref(false);
 const lastUpdated = ref<Date | null>(null);
 const copied = ref(false);
+let generation = 0;
 
 const errorText = computed(() => {
   if (!error.value) return '';
@@ -19,7 +20,7 @@ const errorText = computed(() => {
     case 403:
       return '当前凭据没有 admin:inspect 权限，或 Origin 与网关监听地址不一致。';
     case 404:
-      return 'Admin 入口未启用，或管理 UI 尚未构建。';
+      return 'Admin 入口未启用，请检查 admin 插件是否加载。';
     case 503:
       return '网关尚未完成初始化，请稍后重试。';
     default:
@@ -30,12 +31,16 @@ const errorText = computed(() => {
 async function load(): Promise<void> {
   const value = token.value.trim();
   if (!value || loading.value) return;
+  const current = ++generation;
   loading.value = true;
   error.value = null;
   try {
-    info.value = await fetchAdminInfo(value);
+    const next = await fetchAdminInfo(value);
+    if (current !== generation) return;
+    info.value = next;
     lastUpdated.value = new Date();
   } catch (cause) {
+    if (current !== generation) return;
     const failure = cause instanceof AdminApiError
       ? cause
       : new AdminApiError(0, 'network_error');
@@ -45,11 +50,13 @@ async function load(): Promise<void> {
       token.value = '';
     }
   } finally {
-    loading.value = false;
+    if (current === generation) loading.value = false;
   }
 }
 
 function disconnect(): void {
+  generation += 1;
+  loading.value = false;
   token.value = '';
   info.value = null;
   error.value = null;
@@ -136,9 +143,12 @@ async function copyStoreId(): Promise<void> {
           <h1 class="text-base font-semibold">概览</h1>
         </div>
         <div class="flex items-center gap-2">
-          <span class="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
-            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-            已连接
+          <span
+            class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium"
+            :class="error ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300'"
+          >
+            <span class="h-1.5 w-1.5 rounded-full" :class="error ? 'bg-amber-500' : 'bg-emerald-500'"></span>
+            {{ error ? '刷新失败' : '已连接' }}
           </span>
           <button type="button" :disabled="loading" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800" @click="load">
             {{ loading ? '刷新中…' : '刷新' }}

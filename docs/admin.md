@@ -11,7 +11,7 @@ admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}�
 | 组成 | 职责 |
 | --- | --- |
 | server-http | 共享监听、路由和静态资源生命周期、请求限额与连接清理 |
-| 宿主 AdminRegistry | 保存按实例绑定的管理描述，随实例清理；无 HTTP 入口时仍可登记 |
+| 宿主 AdminRegistry（M2-02） | 保存按实例绑定的管理描述，随实例清理；无 HTTP 入口时仍可登记 |
 | admin | 管理认证与动作派发、数据聚合、静态资产注册；页面由 `web/` 构建 |
 | onebot-v11 / agent-chat | 提供自身状态、指标、详情和受控操作，不在 Admin 中复制业务判断 |
 

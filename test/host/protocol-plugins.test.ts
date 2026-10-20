@@ -101,6 +101,34 @@ test('unloading REST removes admission but lets an already dispatched external c
   assert.equal(sends, 1);
 });
 
+test('closing the host drains an in-flight HTTP response', async (t) => {
+  const f = await fixture(t);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  t.after(() => release.resolve());
+  f.config.principals.find((principal) => principal.id === 'demo-agent')!.invokeCapabilities.push('slow.send');
+  f.config.plugins.push({ id: 'slow', module: 'fixture', principalId: 'mock-provider', required: true, enabled: true, config: {} });
+  f.modules.set('slow', { apply: (ctx) => { ctx.imbrex.forPlugin(ctx).capabilities.register({
+    localName: 'send', description: 'fixture slow write', schemaVersion: '1', isSideEffectful: true, inputSchema: { type: 'object' },
+    handler: async () => { entered.resolve(); await release.promise; return { status: 'succeeded', result: 'fixture receipt' }; },
+  }); } });
+  const app = await f.open();
+  const url = 'http://127.0.0.1:' + app.port;
+  const storeId = (await app.info()).storeId;
+  const response = fetch(url + '/v1/capabilities/slow.send/invoke', {
+    method: 'POST',
+    headers: { authorization: 'Bearer fixture-agent', 'content-type': 'application/json' },
+    body: JSON.stringify({ store_id: storeId, call_id: 'close-intent', params: {} }),
+  });
+  await entered.promise;
+  const closing = app.close();
+  release.resolve();
+  const result = await response;
+  assert.equal(result.status, 200);
+  assert.equal(object(object(await result.json()).call).status, 'succeeded');
+  await closing;
+});
+
 test('configuration migration preserves data and instance bindings without granting management permissions', () => {
   const old = { config_version: 1, data_dir: '../state', http: { host: '127.0.0.1', port: 8080 }, external_writes_enabled: false,
     principals: [{ id: 'protocol', permissions: [], read_sources: [], write_sources: [], invoke_capabilities: [] }],
@@ -118,6 +146,11 @@ test('configuration migration preserves data and instance bindings without grant
   assert.ok(!config.plugins.some((plugin) => plugin.id === 'observer'));
   assert.ok(config.principals.every((principal) => principal.permissions.length === 0));
   assert.equal(old.config_version, 1);
+  const malformed = { ...old, http: { host: '127.0.0.1', port: 70000 } };
+  assert.throws(
+    () => parseConfig(migrateConfig(malformed, '/tmp/fixture/config/v1.json'), '/tmp/elsewhere/v2.json', {}),
+    { code: 'invalid_request' },
+  );
 });
 
 test('REST and MCP reject business requests until all required plugins initialize, including failed startup', async (t) => {

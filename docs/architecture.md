@@ -39,7 +39,7 @@ flowchart LR
 
 M2 中所有外部协议和业务由 Cordis 插件装配：server-http 提供共享监听，api-rest、adapter-mcp、admin 分别注册可注销路由；宿主只保留配置、存储/服务装配、实例锁、注册表与生命周期协调。协议插件通过宿主提供的服务和实际请求主体复用内核授权，不以插件自身身份替代远端调用者。
 
-agent-chat 是原 acp-consumer 的现名称，通过 ACP stdio 驱动独立 Agent。AdminRegistry 常驻宿主，管理页面晚启动或重启不影响业务插件。其他外部应用仍可通过 HTTP 接入，但不再要求交付第二消费者；远程 ACP 不在本阶段。
+agent-chat 是原 acp-consumer 的现名称，通过 ACP stdio 驱动独立 Agent。M2-02 将让 AdminRegistry 常驻宿主，管理页面晚启动或重启不影响业务插件。其他外部应用仍可通过 HTTP 接入，但不再要求交付第二消费者；远程 ACP 不在本阶段。
 
 事件路径：连接器校验和映射原生事实 → 内核提交事件 → 返回接纳回执 → 尝试通知读取者。动作路径：鉴权与参数校验 → 保存调用记录 → 调用明确提供者 → 保存结果。两条路径没有跨平台共同事务。
 
@@ -54,8 +54,8 @@ agent-chat 是原 acp-consumer 的现名称，通过 ACP stdio 驱动独立 Agen
 | Cordis 适配 | 创建内核、绑定插件服务、清理资源 | [插件接口](plugins.md) |
 | server-http | 共享监听、注册/注销路由与静态资源、限额和连接清理 | 不实现事件/调用业务规则 |
 | api-rest / adapter-mcp | 按实际请求主体鉴权、校验、映射领域调用 | 保留 /v1 REST 与 /v1/mcp 契约，共用内核服务 |
-| 宿主 AdminRegistry | 按实例绑定管理描述与受控操作入口 | 登记随业务实例清理，Admin 启停不影响业务 |
-| admin | 管理认证、聚合面板、管理动作入口与静态资产注册；前端源码在独立构建包 `web/` | admin:inspect / admin:operate，与 Agent 工具权限分离 |
+| 宿主 AdminRegistry（M2-02） | 按实例绑定管理描述与受控操作入口 | 登记随业务实例清理，Admin 启停不影响业务 |
+| admin | 管理认证与静态资产注册；M2-02 增加聚合面板与管理动作入口；前端源码在独立构建包 `web/` | admin:inspect / admin:operate，与 Agent 工具权限分离 |
 | 平台插件 | 连接、身份映射、平台操作与可用性 | 使用内核接口，拥有自己的连接状态 |
 | agent-chat（原 acp-consumer） | 筛选触发、ACP 会话关联、进度、未决输入与托管配置应用 | 绑定 API 读事件，ACP stdio 提交输入；不实现模型循环 |
 | Agent | 上下文、模型、工具选择和 Agent 历史 | 首接复用 pi/pi-acp，通过 MCP 使用网关；内核不依赖具体 Agent |
@@ -110,14 +110,14 @@ ACP Consumer 在提交 prompt 前持久保存 in_flight；未确认结束时暂�
 src/
   core/             事件、能力、授权和共享领域类型
   storage/          SQLite worker、内部命令和迁移
-  host/             Cordis 装配、配置、插件状态、AdminRegistry 与管理协调
+  host/             Cordis 装配、配置、插件状态与管理协调；AdminRegistry 在 M2-02 接入
   plugins/
     server-http/   共享 HTTP 服务与路由生命周期
     api-rest/      现有 /v1 REST 映射
     adapter-mcp/   现有 /v1/mcp 协议入口
     onebot-v11/    OneBot v11 连接器与 reply
     agent-chat/    ACP Client、输入消费、会话和托管配置
-    admin/         管理 API、AdminRegistry 消费与静态资产注册
+    admin/         管理 API、认证与静态资产注册；AdminRegistry 在 M2-02 接入
     fixture.ts / transform.ts / mock.ts  必要演示插件
   cli/              启动、配置检查与本地诊断入口
 web/                Vue 3 + Vite + TailwindCSS 管理前端构建包；不是 Cordis 插件

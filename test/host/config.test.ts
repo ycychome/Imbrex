@@ -32,3 +32,17 @@ test('authorization uses literal case-sensitive source scopes and exact capabili
   assert.throws(() => requireSource(identity, 'imbrex://Fixture/messages', true), { code: 'forbidden' });
   assert.throws(() => requireCapability(identity, 'other.echo'), { code: 'forbidden' });
 });
+
+test('server-http listener configuration is validated while parsing', () => {
+  const plugin = (value: unknown) => ({ id: 'http', module: 'builtin:server-http', principal_id: 'fixture', enabled: true, required: true, config: value });
+  for (const value of [{ host: '127.0.0.1', port: 70000 }, { host: '127.0.0.1', port: '8080' }, { host: '127.0.0.1' }]) {
+    assert.throws(() => parseConfig({ ...config, plugins: [plugin(value)] }, 'config.json', environment), { code: 'invalid_request' });
+  }
+  assert.doesNotThrow(() => parseConfig({ ...config, plugins: [plugin({ host: '127.0.0.1', port: 0 })] }, 'config.json', environment));
+});
+
+test('configuration structure can be validated without resolving token environment variables', () => {
+  const validated = parseConfig(config, '/tmp/imbrex-fixture/config.json', {}, { resolveCredentials: false });
+  assert.equal(validated.principals[0]!.id, 'fixture');
+  assert.throws(() => validated.authenticate('Bearer ' + environment.TEST_TOKEN), { code: 'unauthorized' });
+});

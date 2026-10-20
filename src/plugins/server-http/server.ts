@@ -76,7 +76,7 @@ export class HttpServer {
   scope(ctx: Context): HttpScope {
     const signal = ctx.imbrex.forPlugin(ctx).signal;
     const owned: Route[] = [];
-    const remove = (route: Route) => { route.active = false; this.routes.delete(route); for (const request of route.requests) request.destroy(); };
+    const remove = (route: Route) => { route.active = false; this.routes.delete(route); };
     const stop = () => { for (const route of owned) remove(route); };
     signal.addEventListener('abort', stop, { once: true });
     ctx.effect(() => async () => {
@@ -175,7 +175,12 @@ export class HttpServer {
     if (this.stopped) return;
     this.stopped = true;
     this.closed = new Promise<void>((done) => { this.server.close(() => done()); });
-    this.server.closeAllConnections();
+    this.server.closeIdleConnections();
   }
-  close(): Promise<void> { return this.shutdown ??= (async () => { this.stop(); await Promise.allSettled([...this.pending]); await this.closed; })(); }
+  close(): Promise<void> { return this.shutdown ??= (async () => {
+    this.stop();
+    await Promise.allSettled([...this.pending]);
+    this.server.closeIdleConnections();
+    await this.closed;
+  })(); }
 }

@@ -240,6 +240,9 @@ export class Host {
       this.ready.resolve();
       let failure = this.failed;
       this.root.get('http')?.stop();
+      // Stop admission first, then let already-dispatched calls settle before their
+      // owners are torn down. Each invocation is bounded by its own call timeout.
+      await this.bounded(this.capabilities?.drain() ?? Promise.resolve()).catch(() => { failure = true; });
       this.capabilities?.stop();
       this.events?.stop();
       for (const runtime of this.runtimes.values()) runtime.controller?.abort();
