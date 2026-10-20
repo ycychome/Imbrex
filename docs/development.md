@@ -113,3 +113,22 @@ Ctrl-C 或 SIGTERM 正常关闭；第二个进程使用同一数据目录会以 
 复制 [uppercase 模板](../examples/plugins/uppercase.ts)，使用绑定 API，实现实际需要的配置和资源清理。运行 npm run build 后，在配置中增加独立实例、主体和模块路径，例如从 examples/demo.json 引用 ../dist/examples/plugins/uppercase.js；同时为调用方授权该实例的完整能力 ID。初次启动按配置顺序装配，服务提供者须在依赖它的插件之前。
 
 当前示例使用配置 version 2 与协议插件，observer 已移除。旧配置使用 [迁移命令](operations.md#11-旧配置迁移)升级，保持原 data_dir 和业务实例 ID。M0/M1 实验记录保留原版本路径与验证范围。
+
+## 7. 后端与外部静态资产打包
+
+使用本项目锁定的 Node/npm 安装依赖、编译后，再把前端交付方已经构建的静态目录交给打包入口。打包不会选择前端依赖或运行未提供的前端工程：
+
+~~~sh
+npm ci
+npm run check
+npm --silent run package -- --assets-dir /absolute/path/to/frontend-build --out-dir /tmp/imbrex-bundle
+cd /tmp/imbrex-bundle
+npm ci --omit=dev
+npm start -- --config /absolute/path/to/deployment.json
+~~~
+
+部署配置启用 builtin:admin，并将 assets_dir 设为该输出的 /tmp/imbrex-bundle/admin（移动产物后同步更新为最终绝对路径）。一条 npm start 命令提供 API、/admin 及其静态子路径。原有绝对 data_dir 和实例 ID 保持；生产配置由部署者持有，打包不复制真实配置、凭据、node_modules、数据库或 .private。可以省略 --assets-dir 生成仅后端包，此时不会宣称包含管理页面。
+
+输出包含 dist/src、运行入口与锁文件、Node 版本声明、现有正式文档和 Agent 接入样例；依赖通过锁文件安装。产物不包含构建器和前端源码。out-dir 的父目录须存在，out-dir 本身必须不存在，不能覆盖原目录或位于输入目录之内（含符号链接别名）；失败只删除本次建立的不完整产物。静态目录必须有普通 index.html，拒绝目录内的特殊文件/符号链接、超过10000个文件或大于64MiB的单个文件。
+
+bundle.json 记录实际产品 version 与静态文件路径、SHA-256、原始字节数、逐文件 gzip level9 字节数、逐文件 Brotli 默认参数字节数，以及各项总和。两种压缩值是独立测量口径，不是相加的传输大小；打包未启用 HTTP 预压缩协商。现有1–2MB压缩体积预算由实际前端产物测量，测试用静态标记不能替代前端构建和浏览器验收。打包不改变产品版本；v0.2.0须等完整M2验收。

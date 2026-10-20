@@ -175,3 +175,13 @@ M2-01 更名模块与拆分 HTTP 配置时，保留稳定实例/主体、store_i
 管理操作使用 POST /api/admin/panels/<instance>/actions/<action>，先读取对应面板的 store_id、generation 和 management.revision。保存配置后重新读取 saved/applied/pi_status/filter_status；resumed:false 或 inspect_required:true 时保留现场，核对私有 recovery/ 备份与当前消费状态，不能按 HTTP 200 推断已经恢复。精确请求和错误示例见 contracts.md 第 12 节。
 
 在线 recover-input 仅用于异常暂停中的当前输入，processed 与 abandoned 都保留原 calls，包括 unknown。恢复加载失败时原会话继续保留，可在无该会话活跃/未决责任时用 reset-session 精确解除 source/session_id，再显式重启托管 Agent。客户端重试前核对实际状态；备份不是证明最终状态已写入的收据。
+
+### 8.1 后台部署与升级
+
+先完成依赖安装与 npm run check，再按 development.md 第7节生成后端/静态资产包；在最终路径安装生产依赖并显式配置 assets_dir。只提供后端时省略 assets_dir，/api/admin 继续可用而 /admin 为404。静态目录本身公开，不放置管理数据或密钥；所有管理数据仍从鉴权API取得。
+
+从version1升级时，停止旧宿主并备份完整数据目录和外部Agent历史，运行 config:migrate 到一个不存在的新配置文件，再人工增加独立管理员Principal和admin插件。核对迁移后的绝对data_dir、原实例ID/主体及Agent绑定，不更换空目录、不清in_flight、不把old unknown当作未发送。首次使用原方式启动并检查store_id、last_seq、未决输入和会话；有未决时继续核验、通过在线或离线入口明确处置后再启用新消费。只修改模型设置不需要停止整个宿主，使用托管配置动作和实际应用状态；非托管历史接管不由配置迁移工具自动执行。
+
+Admin入口故障时，HTTP仍在且具备受信宿主控制的环境可独立停用/启用Admin，不重启OneBot和Agent。远端API没有暴露任意插件启停或代码安装。重启失败、backup/state写入失败、响应丢失时先核对面板及recovery备份；完整宿主关闭仍执行原实例锁与Agent树回收流程。
+
+后端包的干净目录验收应安装锁定生产依赖，通过一个正式launcher验证未认证管理请求为401、正确Bearer查询store_id与ready一致、/admin及前端路由回落和显式资产可读、SIGTERM正常退出。恢复/过滤/托管Agent的功能验收使用对应自动化测试及examples/agent/check-managed.mjs。前端资产大小、真实浏览器交互和完整M2产品版本需要独立前端交付完成后验收，不能由后端测试替代。
