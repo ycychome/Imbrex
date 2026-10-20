@@ -9,7 +9,7 @@ export const inject = ['imbrex', 'protocol'];
 export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   const { host, port } = parseServerHttpConfig(input);
   const api = ctx.imbrex.forPlugin(ctx);
-  const http = new HttpServer(host, (code) => api.setAvailable(false, { code }), (code, requestId) => ctx.protocol.reportRequest(ctx, code, requestId));
+  const http = new HttpServer(host, (code) => ctx.protocol.reportRuntime(ctx, code), (code, requestId) => ctx.protocol.reportRequest(ctx, code, requestId));
   ctx.effect(() => () => http.close());
   api.signal.addEventListener('abort', () => http.stop(), { once: true });
   await http.listen(port);

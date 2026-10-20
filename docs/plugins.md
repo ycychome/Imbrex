@@ -133,9 +133,9 @@ onebot-v11、agent-chat 与三个演示插件使用绑定业务 API。observer �
 
 ## 10. M2 共享 HTTP 服务与就绪
 
-server-http 监听成功后向 Cordis 提供 ctx.http。协议插件声明 http 依赖，通过 ctx.http.scope(ctx) 取得 HttpScope：register(method, pattern, handler): () => void；static(prefix, rootDir): Promise<() => void>。注销同时绑定调用插件的生命周期，接口类型位于 src/plugins/server-http/server.ts。支持字面路径、:参数段及末尾 *资产路径；请求路径不做点段归一化，保留不透明 call_id。
+server-http 监听成功后向 Cordis 提供 ctx.http。协议插件声明 http 依赖，通过 ctx.http.scope(ctx) 取得 HttpScope：register(method, pattern, handler): () => void；static(prefix, rootDir): Promise<() => void>。注销同时绑定调用插件的生命周期，接口类型位于 src/plugins/server-http/server.ts。支持字面路径、:参数段及末尾 *资产路径；不含 * 的具体路由优先于通配路由，:参数段不接受空段；请求路径不做点段归一化，保留不透明 call_id。静态资源按文件大小与 mtime 生成弱 ETag，对匹配的 If-None-Match 返回 304。
 
-Handler 收到 request/response、requestId、origin、params、query，以及 readBody()/send()/ensureActive()。readBody 按公共 JSON 限额读取且在返回前确认路由仍有效；鉴权由协议插件根据真实请求主体执行。宿主 protocol 服务只向内置协议实例提供请求侧接口，不加入普通 PluginApi。REST DTO 位于 src/plugins/api-rest/dto.ts，MCP 与其共享。
+Handler 收到 request/response、requestId、origin、params、query、queryText（原始查询串），以及 readBody()/send()/ensureActive()。readBody 按公共 JSON 限额读取且在返回前确认路由仍有效；鉴权由协议插件根据真实请求主体执行；api-rest 对未匹配的 /v1 路径先认证再返回 404，避免未认证请求枚举路由。宿主 protocol 服务只向内置协议实例提供请求侧接口，不加入普通 PluginApi。REST DTO 位于 src/plugins/api-rest/dto.ts，MCP 与其共享。
 
 插件卸载后移除对应路由与静态映射，不留可执行旧回调。重复路由不能静默覆盖其他实例；统一处理请求体大小、JSON 边界、并发预算与连接关闭，协议业务鉴权不由通用路由器猜测。协议 DTO 可复用，但 REST 不静态调用 MCP 的处理入口。
 

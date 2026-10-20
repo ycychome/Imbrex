@@ -12,21 +12,21 @@ import type {} from '../../host/plugin-api.js';
 
 export interface HttpRequest {
   request: IncomingMessage; response: ServerResponse; requestId: string; origin: string;
-  params: Record<string, string>; query: URLSearchParams;
+  params: Record<string, string>; query: URLSearchParams; queryText: string;
   readBody(): Promise<unknown>;
   send(status: number, value: unknown): void;
   ensureActive(): void;
 }
 export type HttpHandler = (request: HttpRequest) => void | Promise<void>;
 interface Route {
-  method: string; pattern: string; parts: string[]; handler: HttpHandler; active: boolean;
+  method: string; pattern: string; parts: string[]; wildcard: boolean; handler: HttpHandler; active: boolean;
   pending: Set<Promise<void>>; requests: Set<IncomingMessage>;
 }
 export interface HttpScope {
   register(method: string, pattern: string, handler: HttpHandler): () => void;
   static(prefix: string, rootDir: string): Promise<() => void>;
 }
-declare module 'cordis' { interface Context { http: HttpServer; mcp: { path: '/v1/mcp' } } }
+declare module 'cordis' { interface Context { http: HttpServer } }
 
 function readBody(request: IncomingMessage): Promise<unknown> {
   if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers['content-type'] ?? '')) fail('invalid_request', 'Expected UTF-8 application/json');
@@ -87,7 +87,8 @@ export class HttpServer {
       if (signal.aborted || this.stopped) fail('provider_unavailable');
       if (!pattern.startsWith('/') || !/^(GET|POST|HEAD|PUT|DELETE|\*)$/.test(method)) fail('invalid_request');
       if ([...this.routes].some((route) => route.pattern === pattern && (route.method === method || method === '*' || route.method === '*'))) fail('invalid_request', 'Duplicate HTTP route');
-      const route: Route = { method, pattern, parts: pattern.split('/'), handler, active: true, pending: new Set(), requests: new Set() };
+      const parts = pattern.split('/');
+      const route: Route = { method, pattern, parts, wildcard: parts.some((part) => part.startsWith('*')), handler, active: true, pending: new Set(), requests: new Set() };
       this.routes.add(route); owned.push(route);
       return () => remove(route);
     };
@@ -108,7 +109,14 @@ export class HttpServer {
         const info = await stat(candidate);
         if (!info.isFile()) fail('not_found');
         const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
-        response.writeHead(200, { 'content-type': types[extname(candidate)] ?? 'application/octet-stream', 'content-length': info.size, 'x-content-type-options': 'nosniff', 'cache-control': 'no-cache' });
+        const etag = `W/"${info.size.toString(16)}-${Math.trunc(info.mtimeMs).toString(16)}"`;
+        const cache = { etag, 'cache-control': 'no-cache' };
+        if (request.headers['if-none-match']?.split(',').some((tag) => tag.trim() === etag)) {
+          response.writeHead(304, cache);
+          response.end();
+          return;
+        }
+        response.writeHead(200, { 'content-type': types[extname(candidate)] ?? 'application/octet-stream', 'content-length': info.size, 'x-content-type-options': 'nosniff', 'last-modified': info.mtime.toUTCString(), ...cache });
         if (request.method === 'HEAD') response.end();
         else await pipeline(createReadStream(candidate), response);
       };
@@ -118,21 +126,27 @@ export class HttpServer {
   }
   private match(method: string, path: string): { route: Route; params: Record<string, string> } | undefined {
     const parts = path.split('/');
-    for (const route of this.routes) {
-      if (route.method !== '*' && route.method !== method) continue;
-      const params: Record<string, string> = Object.create(null) as Record<string, string>;
-      let matches = true;
-      for (let i = 0; i < route.parts.length; i += 1) {
-        const part = route.parts[i]!;
-        if (part.startsWith('*')) { params[part.slice(1)] = decodeURIComponent(parts.slice(i).join('/')); break; }
-        if (parts[i] === undefined) { matches = false; break; }
-        if (part.startsWith(':')) params[part.slice(1)] = decodeURIComponent(parts[i]!);
-        else if (part !== parts[i]) { matches = false; break; }
-        if (i === route.parts.length - 1 && parts.length !== route.parts.length) matches = false;
+    const find = (wildcard: boolean) => {
+      for (const route of this.routes) {
+        if (route.wildcard !== wildcard || (route.method !== '*' && route.method !== method)) continue;
+        const params: Record<string, string> = Object.create(null) as Record<string, string>;
+        let matches = true;
+        for (let i = 0; i < route.parts.length; i += 1) {
+          const part = route.parts[i]!;
+          if (part.startsWith('*')) { params[part.slice(1)] = decodeURIComponent(parts.slice(i).join('/')); break; }
+          if (parts[i] === undefined) { matches = false; break; }
+          if (part.startsWith(':')) {
+            if (parts[i] === '') { matches = false; break; }
+            params[part.slice(1)] = decodeURIComponent(parts[i]!);
+          } else if (part !== parts[i]) { matches = false; break; }
+          if (i === route.parts.length - 1 && parts.length !== route.parts.length) matches = false;
+        }
+        if (matches) return { route, params };
       }
-      if (matches) return { route, params };
-    }
-    return undefined;
+      return undefined;
+    };
+    // Literal and :param routes win over trailing * routes regardless of registration order.
+    return find(false) ?? find(true);
   }
   private async serve(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const requestId = randomUUID();
@@ -153,12 +167,13 @@ export class HttpServer {
       // Preserve opaque call IDs such as '.' and '..'; never normalize the HTTP path.
       const boundary = target.indexOf('?');
       const path = boundary < 0 ? target : target.slice(0, boundary);
+      const queryText = boundary < 0 ? '' : target.slice(boundary + 1);
       const matched = this.match(request.method ?? '', path) ?? fail('not_found');
       route = matched.route; route.requests.add(request);
       const active = route;
       const ensureActive = () => { if (!active.active || this.stopped) fail('provider_unavailable'); };
       work = Promise.resolve().then(() => route!.handler({ request, response, requestId, origin: this.origin, params: matched.params,
-        query: new URLSearchParams(boundary < 0 ? '' : target.slice(boundary + 1)), send, ensureActive,
+        query: new URLSearchParams(queryText), queryText, send, ensureActive,
         readBody: async () => { const value = await readBody(request); ensureActive(); return value; },
       }));
       route.pending.add(work);

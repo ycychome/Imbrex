@@ -17,5 +17,6 @@ export interface ProtocolApi {
 export interface ProtocolService {
   forPlugin(ctx: Context): ProtocolApi;
   reportRequest(ctx: Context, code: ErrorCode, requestId: string): void;
+  reportRuntime(ctx: Context, code: string): void;
 }
 declare module 'cordis' { interface Context { protocol: ProtocolService } }

@@ -6,7 +6,7 @@
 
 管理后台面向单所有者网关，按“先观测，后控制”交付。前端源码位于 `web/`，使用 Vue 3 + Vite + TailwindCSS 和原生 HTML 标签，不引入第三方 UI 组件库；`web/` 是 npm workspace 构建包，不是 Cordis 插件。构建产物由 server-http 在 /admin 与 /admin/* 提供；管理 API 使用 /api/admin/*。不需要独立前端运行进程，不新增第二消费者或事件副本作为后台前置。
 
-admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}。默认按包名解析 `@imbrex/admin-web/package.json` 对应的 `dist`，不需要部署者填写绝对路径；`assets_dir` 仅作为外部构建目录的覆盖，必须为绝对目录。只有解析到实际存在的目录时才注册 GET/HEAD /admin 与 /admin/*；目录不存在、不是目录或缺少 `index.html` 时 `/admin` 返回 404，不阻止 admin API 或宿主启动。目录应仅包含部署者提供的静态构建资产，不嵌入凭据或管理数据。扩展名缺失的路由回落 index.html，缺失显式文件返回 404；不列目录，拒绝路径穿越和根目录外符号链接。
+admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}。默认按包名解析 `@imbrex/admin-web/package.json` 对应的 `dist`，不需要部署者填写绝对路径；`assets_dir` 仅作为外部构建目录的覆盖，必须为绝对目录。只有解析到实际存在的目录时才注册 GET/HEAD /admin 与 /admin/*；目录不存在、不是目录、无法读取或缺少 `index.html` 时 `/admin` 返回 404，不阻止 admin API 或宿主启动。目录应仅包含部署者提供的静态构建资产，不嵌入凭据或管理数据。扩展名缺失的路由回落 index.html，缺失显式文件返回 404；不列目录，拒绝路径穿越和根目录外符号链接。
 
 | 组成 | 职责 |
 | --- | --- |

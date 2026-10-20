@@ -101,6 +101,23 @@ test('unloading REST removes admission but lets an already dispatched external c
   assert.equal(sends, 1);
 });
 
+test('unmatched protocol paths authenticate first, and malformed identifiers or queries do not match', async (t) => {
+  const f = await fixture(t);
+  const app = await f.open();
+  const base = 'http://127.0.0.1:' + app.port;
+  const status = async (path: string, token?: string, method = 'GET') => {
+    const response = await fetch(base + path, { method, headers: token ? { authorization: 'Bearer ' + token } : {} });
+    await response.text();
+    return response.status;
+  };
+  assert.equal(await status('/v1/nope'), 401);
+  assert.equal(await status('/v1/nope', 'fixture-agent'), 404);
+  assert.equal(await status('/v1/info', undefined, 'POST'), 401);
+  const storeId = (await app.info()).storeId;
+  assert.equal(await status('/v1/calls/?store_id=' + storeId, 'fixture-agent'), 404);
+  assert.equal(await status('/v1/info?&', 'fixture-agent'), 400);
+});
+
 test('closing the host drains an in-flight HTTP response', async (t) => {
   const f = await fixture(t);
   const entered = Promise.withResolvers<void>();

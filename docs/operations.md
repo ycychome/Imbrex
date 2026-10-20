@@ -136,7 +136,7 @@ agent-chat 还须停止 ACP 投递、保留未决输入，并关闭标准流、�
 
 运行日志使用 request_id、call_id、plugin_instance_id 与事件 source/id 定位行为；正文和参数的调试输出默认关闭。插件状态区分 waiting/loading/active/failed/stopping/stopped，并另有 available 与最近脱敏错误。
 
-记录数据库队列拒绝、追加失败、读取错误、来源断线、能力不可用、unknown 调用和停止失败。首版用结构化日志及只读状态接口即可，不先搭建监控平台。
+记录数据库队列拒绝、追加失败、读取错误、来源断线、能力不可用、unknown 调用和停止失败。server-http 监听服务器的运行时 error 只记录 http_server_error，不改变插件可用性；可用性由监听与路由生命周期决定。首版用结构化日志及只读状态接口即可，不先搭建监控平台。
 
 ## 6. 备份与手工恢复
 

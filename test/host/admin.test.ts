@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -66,6 +67,11 @@ test('default package resolution serves the built admin UI and info', async (t) 
   assert.ok(asset, 'built index must reference an admin asset');
   const response = await fetch(base + asset);
   assert.equal(response.status, 200);
+  const etag = response.headers.get('etag');
+  assert.ok(etag, 'static assets must be revalidatable');
+  const revalidated = await fetch(base + asset, { headers: { 'if-none-match': etag } });
+  assert.equal(revalidated.status, 304);
+  await revalidated.text();
   const info = await fetch(base + '/api/admin/info', { headers: { authorization: 'Bearer ' + token } });
   assert.equal(info.status, 200);
   const body = object(await info.json());
@@ -76,6 +82,19 @@ test('default package resolution serves the built admin UI and info', async (t) 
 
 test('missing explicit assets_dir returns 404 without blocking the admin API', async (t) => {
   const app = await fixture(t, (directory) => ({ assets_dir: join(directory, 'missing') }));
+  const base = 'http://127.0.0.1:' + app.port;
+  const page = await fetch(base + '/admin');
+  assert.equal(page.status, 404);
+  const info = await fetch(base + '/api/admin/info', { headers: { authorization: 'Bearer ' + token } });
+  assert.equal(info.status, 200);
+});
+
+test('non-directory assets_dir degrades to 404 without blocking the admin API', async (t) => {
+  const app = await fixture(t, (directory) => {
+    const file = join(directory, 'not-a-directory');
+    writeFileSync(file, 'fixture');
+    return { assets_dir: file };
+  });
   const base = 'http://127.0.0.1:' + app.port;
   const page = await fetch(base + '/admin');
   assert.equal(page.status, 404);

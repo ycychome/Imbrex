@@ -2,6 +2,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fail } from '../core/errors.js';
 import { fields, json, limits, object, string } from '../core/validation.js';
 import type { JsonObject } from '../core/types.js';
+import { migratedProtocolModules } from './modules.js';
 
 export function migrateConfig(input: unknown, filename: string): JsonObject {
   const config = object(json(input, limits.httpBytes, 'invalid_request'));
@@ -23,7 +24,7 @@ export function migrateConfig(input: unknown, filename: string): JsonObject {
     const module = string(plugin.module, 1024);
     if (/^\.\.?\//.test(module) && !isAbsolute(module)) plugin.module = resolve(directory, module);
   }
-  const protocols = ['server-http', 'api-rest', 'adapter-mcp'].map((module) => ({
+  const protocols = migratedProtocolModules.map((module) => ({
     id: unique(module, plugins.map((plugin) => plugin.id)), module: 'builtin:' + module, principal_id: principalId,
     enabled: true, required: true, config: module === 'server-http' ? config.http : {},
   }));

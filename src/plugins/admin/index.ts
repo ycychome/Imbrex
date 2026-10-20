@@ -1,4 +1,3 @@
-import { stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join } from 'node:path';
 import type { Context } from 'cordis';
@@ -24,11 +23,11 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   fields(input, ['assets_dir'], []);
   const service = ctx.protocol.forPlugin(ctx);
   const http = ctx.http.scope(ctx);
-  http.register('GET', '/api/admin/info', async ({ request, origin, query, send }) => {
+  http.register('GET', '/api/admin/info', async ({ request, origin, queryText, send }) => {
     const principal = service.authenticate(request.headers.authorization);
     requirePermission(principal, 'admin:inspect');
     if (request.headers.origin !== undefined && request.headers.origin !== origin) fail('forbidden');
-    if (query.size) fail('invalid_request');
+    if (queryText) fail('invalid_request');
     const info = await service.store.info();
     send(200, { store_id: info.storeId, latest_seq: info.latestSeq.toString(), version: '0.1.0-dev' });
   });
@@ -36,15 +35,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   const root = configured === undefined ? bundledAssetsDir() : string(configured, 4096);
   if (root !== undefined) {
     if (!isAbsolute(root)) fail('invalid_request', 'assets_dir must be absolute');
-    let available = false;
-    try { available = (await stat(root)).isDirectory(); } catch { available = false; }
-    if (available) {
-      try {
-        await http.static('/admin', root);
-      } catch (cause) {
-        // Missing assets must not block the admin API or the host.
-        if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause;
-      }
-    }
+    try { await http.static('/admin', root); }
+    catch { /* Missing or unreadable assets must not block the admin API or the host. */ }
   }
 }

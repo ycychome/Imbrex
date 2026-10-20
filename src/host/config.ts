@@ -5,6 +5,7 @@ import { fail } from '../core/errors.js';
 import { fields, json, object, string, namespacePattern, capabilityPattern, limits, uri } from '../core/validation.js';
 import { permissions, type JsonObject, type Principal, type SourceRule } from '../core/types.js';
 import { parseServerHttpConfig } from '../plugins/server-http/config.js';
+import { serverHttpModule } from './modules.js';
 
 export interface PluginConfig {
   id: string; module: string; principalId: string; required: boolean; enabled: boolean; config: JsonObject;
@@ -92,7 +93,7 @@ export function parseConfig(
     if (!principals.some((principal) => principal.id === principalId)) fail('invalid_request', 'Unknown plugin principal');
     const module = string(item.module, 1024);
     const pluginConfig = object(item.config) as JsonObject;
-    if (module === 'builtin:server-http') parseServerHttpConfig(pluginConfig);
+    if (module === serverHttpModule) parseServerHttpConfig(pluginConfig);
     return {
       id: id(item.id), module, principalId,
       required: boolean(item.required), enabled: boolean(item.enabled), config: pluginConfig,

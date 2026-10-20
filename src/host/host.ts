@@ -10,7 +10,7 @@ import { SqliteStore } from '../storage/store.js';
 import type {} from '../plugins/server-http/server.js';
 import type { ProtocolApi } from './protocol.js';
 import type { HostConfig, PluginConfig } from './config.js';
-import type { PluginModule } from './modules.js';
+import { protocolModules, serverHttpModule, type PluginModule } from './modules.js';
 import type { PluginApi } from './plugin-api.js';
 import type { JsonObject } from '../core/types.js';
 
@@ -60,7 +60,7 @@ export class Host {
     } });
     this.root.provide('protocol', { forPlugin: (ctx: Context): ProtocolApi => {
       const runtime = this.runtimeFor(ctx.fiber);
-      if (!runtime || !['builtin:api-rest', 'builtin:adapter-mcp', 'builtin:admin'].includes(runtime.config.module)) fail('forbidden');
+      if (!runtime || !protocolModules.includes(runtime.config.module)) fail('forbidden');
       const api = ctx.imbrex.forPlugin(ctx);
       return {
         authenticate: (authorization) => { if (!this.accepting || api.signal.aborted || this.closing) fail('provider_unavailable'); return this.config.authenticate(authorization); },
@@ -68,8 +68,11 @@ export class Host {
         plugins: () => this.plugins(), report: (code, requestId) => this.report(code, { request_id: requestId }),
       };
     }, reportRequest: (ctx: Context, code: ErrorCode, requestId: string) => {
-      if (this.runtimeFor(ctx.fiber)?.config.module !== 'builtin:server-http') fail('forbidden');
+      if (this.runtimeFor(ctx.fiber)?.config.module !== serverHttpModule) fail('forbidden');
       this.report(code, { request_id: requestId });
+    }, reportRuntime: (ctx: Context, code: string) => {
+      if (this.runtimeFor(ctx.fiber)?.config.module !== serverHttpModule) fail('forbidden');
+      this.report(code);
     } });
     this.root.on('internal/status', (fiber) => {
       for (const runtime of this.runtimes.values()) {

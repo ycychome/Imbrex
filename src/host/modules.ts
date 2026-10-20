@@ -12,6 +12,11 @@ export interface PluginModule {
   Config?: Plugin.Object<JsonObject>['Config'];
   apply(ctx: Context, config: JsonObject): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
 }
+// Request-side plugins receive ctx.protocol; server-http only reports runtime errors.
+export const serverHttpModule = 'builtin:server-http';
+export const protocolModules: readonly string[] = ['builtin:api-rest', 'builtin:adapter-mcp', 'builtin:admin'];
+// Protocol plugins synthesized by the version 1 to version 2 configuration migration.
+export const migratedProtocolModules: readonly string[] = ['server-http', 'api-rest', 'adapter-mcp'];
 const builtins: Record<string, URL> = {
   'server-http': new URL('../plugins/server-http/index.js', import.meta.url),
   'api-rest': new URL('../plugins/api-rest/index.js', import.meta.url),
