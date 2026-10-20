@@ -519,3 +519,31 @@ test('HTTP listening alone never permits delivery and unloading MCP stops the de
   await until(async () => (await f.state()).last_seq === '2');
   assert.equal((await f.logs('prompt')).length, 2);
 });
+
+test('Admin observes OneBot and distinguishes idle, active input and unresolved input without exposing Agent credentials', async (t) => {
+  const f = await fixture(t, 'normal', true, 1500);
+  f.config.principals.find((principal) => principal.id === 'operator')!.permissions.push('admin:inspect');
+  const admin = { id: 'admin', module: 'builtin:admin', principalId: 'qq-consumer', required: true, enabled: true, config: {} };
+  const loaded = await loadModules({ ...f.config, plugins: [admin] }, f.filename);
+  f.config.plugins.push(admin); f.modules.set('admin', loaded.get('admin'));
+  await f.restart(); await until(() => f.status().available);
+  const read = async (instance: string) => {
+    const response = await fetch('http://127.0.0.1:' + f.host().port + '/api/admin/panels/' + instance, { headers: { authorization: 'Bearer ' + f.values.IMBREX_OPERATOR_TOKEN } });
+    assert.equal(response.status, 200); return object(object(await response.json()).data);
+  };
+  assert.equal((await read('agent')).status, 'idle');
+  const onebot = await read('qq-main'); assert.equal(onebot.account_verified, true);
+  assert.equal(object(onebot.connection_metrics).heartbeat_rtt_ms, null);
+  await f.append(141); await until(async () => (await f.state()).last_seq === '1');
+  const completed = await read('agent'); assert.equal(completed.status, 'idle'); assert.equal(completed.in_flight, null);
+  assert.equal(f.sim.actions.length, 0);
+  await f.setControl({ mode: 'hold' }); await f.append(142);
+  await until(async () => (await f.logs('prompt')).length === 2);
+  const processing = await read('agent'); assert.equal(processing.status, 'processing');
+  assert.equal(object(processing.in_flight).id, 'message:142'); assert.equal(typeof processing.elapsed_ms, 'number');
+  await f.host().stopPlugin('admin'); await f.host().startPlugin('admin');
+  assert.equal((await f.logs('prompt')).length, 2);
+  await until(() => f.status().last_error?.code === 'consumer_in_flight_unconfirmed');
+  const suspended = await read('agent'); assert.equal(suspended.status, 'suspended_in_flight'); assert.equal(suspended.last_seq, '1');
+  assert.ok(!JSON.stringify(suspended).includes(f.values.IMBREX_QQ_AGENT_TOKEN!));
+});

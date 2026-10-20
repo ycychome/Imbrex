@@ -14,6 +14,7 @@ port.on('message', (request: Request) => {
       case 'read': result = database.read(...request.args); break;
       case 'lookup': result = database.lookup(...request.args); break;
       case 'getCall': result = database.getCall(...request.args); break;
+      case 'listCalls': result = database.listCalls(...request.args); break;
       case 'createCall': result = database.createCall(...request.args); break;
       case 'finishCall': result = database.finishCall(...request.args); break;
       case 'close': database.close(); break;

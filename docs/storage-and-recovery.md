@@ -94,6 +94,8 @@ calls 的状态与派发语义见[能力契约](capabilities.md)。配置和插�
 
 ## 6. 数据库 worker 与事务纪律
 
+管理员调用列表复用 calls 主键，按 (caller_id,call_id) 字典序及可选主体/状态过滤，最多读取 limit+1 条判断下一页；无新增审计副本表。状态可在分页间变化，列表不承诺跨页快照或时间排序，权限由核心 admin:inspect 入口检查。
+
 所有网关 SQL 由一个专用 worker 执行，完整命令串行，不允许两个业务命令的事务交错。命令队列有界，排队超限在入队前报 busy。HTTP 请求超时或断开不撤销已提交事务。
 
 启动设置并读回 WAL、synchronous=FULL、foreign_keys=ON、busy_timeout=5000ms；关闭扩展加载，读取实际 SQLite 版本/source id。所有可能返回 seq 的语句启用 BigInt 读取控制。参考 API 与实验门槛见 [技术依据](references.md#r1)。

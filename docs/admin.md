@@ -1,6 +1,6 @@
 # M2 管理控制台契约
 
-本文规定 M2 的管理行为。当前 admin 插件提供基础 info API 与默认 UI 静态挂载，前端构建包位于 `web/`；观测面板、配置和在线处置按[开发计划](development-plan.md#m2)扩展，具体线上表达见 [HTTP 契约](contracts.md#12-管理-api)。
+本文规定 M2 的管理行为。当前 admin 插件提供基础 info API、只读观测面板、实例面板、配置查询与默认 UI 静态挂载，前端构建包位于 `web/`；配置编辑和在线处置按[开发计划](development-plan.md#m2)扩展，具体线上表达见 [HTTP 契约](contracts.md#12-管理-api)。
 
 ## 1. 交付范围与组成
 
@@ -32,7 +32,7 @@ admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}�
 
 ## 3. 插件管理描述
 
-插件通过绑定 API 的 registerAdminPanel 登记标题、图标、状态/指标/详情读取函数和可选动作。此入口为 M2 新增，当前 PluginApi 尚未提供。实例身份由 api.instanceId 注入，不能由描述中的任意字符串冒充其他实例。
+插件通过绑定 API 的 registerAdminPanel 登记管理描述。当前接受 title、icon 和 read()，每个实例登记一份描述；动作入口随在线控制功能增加。实例身份由 api.instanceId 注入，不能由描述中的任意字符串冒充其他实例。
 
 状态和详情使用可序列化的有界数据，序号继续为十进制字符串。一次读取失败显示该实例读取错误，不影响其他面板或改变业务事务结果。仅展示已采集到的指标；例如未取得心跳延迟就显示未提供，不用 0 伪装正常。
 
@@ -63,6 +63,14 @@ Consumer 状态投影如下，不另建消费状态机：
 | false | null | stopped_or_error：停止或启动/连接错误，结合插件生命周期与错误说明 |
 
 正常模型不回复是合法结果，不能标为失败。最终 end_turn 仅表示该轮完成；回复是否发送成功仍按 calls 和平台证据判断。没有取得模型或工具阶段信息时明确显示未知，不从“进程仍在”推断模型正在工作。
+
+### 4.1 实例数据字段
+
+OneBot data：connected 表示当前连接已核验且在线；account_verified 是当前连接账号校验结果；account_id、identity_namespace、binding 为配置及实际核验身份；started_at 为本次插件开始时间；last_error 为公共原因码或 null。accepted_events、duplicate_events 是本次插件运行内的十进制计数；queued_events 是当前待入库队列长度。connection_metrics 为当前连接的 received_frames、sent_requests 十进制计数及 heartbeat_rtt_ms，无连接时为 null。未测量 RTT 时返回 null，帧/请求计数含协议握手，不表示消息条数。
+
+Agent data：status、available、phase、last_error 描述处理投影；input_id、store_id、last_seq、in_flight、sessions、agent_info 对应消费状态。turn_started_at 为实际 prompt 开始时间，elapsed_ms 从其计算；无计时依据时为 null。phase 为 starting/idle/session/prompt/checkpoint/error/stopping；model_stage 当前为 null，不猜测模型细节。正常 end_turn 且检查点成功后回到 idle。
+
+Agent configuration 包含 filter（未配置为 null）、source_prefix、max_event_age_seconds、turn_timeout_ms、reader、agent_environment 和 pi。reader 是 Consumer 读取授权；agent_environment 只返回变量名和是否存在。pi 只检查显式传入的绝对 PI_CODING_AGENT_DIR，不读取默认用户 HOME；status 为 unmanaged/configured_unverified/unavailable。saved 为 {provider,model,context_window,system_prompt,mcp} 或 null，applied/observed 当前为 null。缺少声明时返回 null，不推断 provider 默认值。MCP 只返回无嵌入凭据的地址及环境引用，不回传 headers、密钥或 shell 命令。单个配置文件最大 64 KiB，损坏/超限返回 unavailable。
 
 ## 5. 配置查看、编辑和应用
 

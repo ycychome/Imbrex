@@ -270,15 +270,33 @@ call_id 是不透明标识，路径段百分号解码一次后保留原值，点
 
 ## 12. 管理 API
 
-管理 API 位于 /api/admin/*，静态资产配置见 [Admin 契约](admin.md)。GET /api/admin/info 已提供；其余资源随对应功能补齐，不为未实现操作返回占位成功。
+管理 API 位于 /api/admin/*，静态资产配置见 [Admin 契约](admin.md)。以下只读资源已提供；操作资源随对应功能补齐，不为未实现操作返回占位成功。
 
 GET /api/admin/info 不接受 query 或业务 body。每次请求须有 Bearer 凭据及 admin:inspect；Origin 存在时须等于实际监听 origin，不使用 Cookie 或 loopback 免密。200 响应：
 
 ```json
-{"store_id":"9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d","latest_seq":"4","version":"0.1.0-dev"}
+{"store_id":"9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d","latest_seq":"4","version":"0.1.0-dev","plugins":[]}
 ```
 
 store_id 为数据库身份；latest_seq 沿用规范十进制字符串；version 为产品版本，与 config_version 和文档基线分别管理。缺失或无效凭据返回 401 unauthorized，权限/Origin 不符返回 403 forbidden，多余 query 返回 400 invalid_request，未加载 Admin 时返回 404 not_found。错误信封和 x-request-id 沿用第 10 节。
+
+所有管理查询均要求 admin:inspect，响应设置 Cache-Control: no-store。admin:operate 不包含读取权限。除下表声明的参数外，重复或多余 query 一律拒绝。事件与 calls 来自原持久数据，不通过通知拼接历史。
+
+| GET 资源 | 参数 | 200 响应 |
+| --- | --- | --- |
+| /api/admin/info | 无 | store_id、latest_seq、version、plugins；plugins 与 /v1/plugins 的状态字段相同 |
+| /api/admin/panels | 无 | {store_id, panels:[{instance_id,generation,title,icon}]} |
+| /api/admin/panels/:instance | 无 | {store_id,instance_id,generation,data}；读取失败时以 error:{code,message} 替代 data |
+| /api/admin/events | store_id、after_seq 必填；limit、source_prefix、type 可选 | 与 /v1/events 相同的记录和分页字段，管理权限可读本网关全局事件 |
+| /api/admin/capabilities | 无 | {store_id,capabilities:[...]}；既有能力描述加 available，包含仍登记但不可用的能力 |
+| /api/admin/calls | store_id 必填；limit 默认 50、最大 100；caller_id、status、after_caller_id、after_call_id 可选 | {store_id,calls:[...],next}；每条 call 添加 caller_id，next 为 {caller_id,call_id} 或 null |
+| /api/admin/configuration | 无 | {config_version,external_writes_enabled,mcp_url,principals,plugins} |
+
+面板列表最多 128 项，单实例 data 最多 64 KiB、读取截止 5 秒。读取失败只返回该实例的 admin_panel_read_failed，不返回原始异常。相同实例已有读取未结束时返回 429 busy。generation 是本次登记的不透明标识，Admin 重启不变，业务实例重新登记后改变；不替代实例 ID 或 store_id。具体 data 见管理契约。未登记或已卸载实例返回 404。
+
+调用审计按 (caller_id,call_id) 的 SQLite BINARY 字典序分页，两项 after 参数必须同时出现，从 next 原样填入；不是时间排序。status 仅允许 in_progress/succeeded/failed/unknown。各页为新的查询视图，状态可改变，新调用可插入旧位置之前；刷新从头查询可观察新变化，不承诺跨页快照。普通 /v1/calls/{call_id} 仍只能由所属主体查询。
+
+configuration 的 principals 包含 id、permissions、read_sources、write_sources、invoke_capabilities、credential；credential 为 {name,configured} 或 null，只说明 token_env 引用及是否已加载。plugins 包含 instance_id、module、principal_id、enabled、required、configuration；外部模块名统一为 external，不回显任意参数。OneBot configuration 提供采集范围和凭据引用；Agent 提供触发范围，独立 pi 配置在对应面板内查询。mcp_url 为 HTTP origin 的 /v1/mcp 地址，不承诺该协议插件当前可用。
 
 其他管理交互遵守以下已定稿边界：
 

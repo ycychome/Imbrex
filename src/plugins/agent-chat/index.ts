@@ -1,3 +1,4 @@
+import { inspectPiConfiguration } from './inspect-config.js';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -53,6 +54,9 @@ class Consumer {
   private busy = false;
   private requested = false;
   private cleanupFailed = false;
+  private phase = 'starting';
+  private lastError: string | null = null;
+  private turnStartedAt: string | null = null;
   private timer?: ReturnType<typeof setInterval>;
   private unsubscribe: () => void = () => {};
   private startup: Promise<void> = Promise.resolve();
@@ -60,6 +64,15 @@ class Consumer {
 
   constructor(private api: PluginApi, private config: ConsumerConfig, private env: Record<string, string>, private path: string, private state: ConsumerState) {}
 
+  view() {
+    const available = this.initialized && !this.paused && !this.stopped && Boolean(this.agent?.available);
+    return { status: available ? (this.state.in_flight ? 'processing' : 'idle') : (this.state.in_flight ? 'suspended_in_flight' : 'stopped_or_error'),
+      available, phase: this.phase, last_error: this.lastError, input_id: this.state.input_id, store_id: this.state.store_id, last_seq: this.state.last_seq,
+      in_flight: this.state.in_flight ? { ...this.state.in_flight } : null, sessions: { ...this.state.sessions }, agent_info: this.state.agent_info ? { ...this.state.agent_info } : null,
+      turn_started_at: this.turnStartedAt, elapsed_ms: this.turnStartedAt ? Math.max(0, Date.now() - Date.parse(this.turnStartedAt)) : null,
+      model_stage: null,
+    };
+  }
   start(): void { this.startup = this.initialize().catch((error: unknown) => this.fail(error)); }
   private async initialize(): Promise<void> {
     this.agent = await AcpAgent.open(this.config.agent, this.env, this.api.signal, () => this.wake(), () => {
@@ -76,7 +89,7 @@ class Consumer {
     if (!this.agent.available) throw new ConsumerError('consumer_agent_disconnected');
     await this.api.whenReady();
     if (this.stopped || this.api.signal.aborted) return;
-    this.initialized = true;
+    this.initialized = true; this.phase = 'idle';
     this.api.setAvailable(true);
     this.unsubscribe = this.api.events.onAvailable(() => this.wake());
     this.timer = setInterval(() => this.wake(), consumerLimits.pollMs);
@@ -128,13 +141,17 @@ class Consumer {
           continue;
         }
         const conversation = record.event.source;
+        this.phase = 'session';
         const sessionId = await this.session(conversation);
         if (this.stopped || this.paused) return;
         await this.commit({ ...this.state, in_flight: { source: record.event.source, id: record.event.id, seq: record.seq.toString(), conversation, session_id: sessionId } });
         if (this.stopped || this.paused) return;
+        this.phase = 'prompt'; this.turnStartedAt = new Date().toISOString();
         const result = await this.agent.prompt(sessionId, this.prompt(record), this.config.turnTimeoutMs);
         if (result.stopReason !== 'end_turn') throw new ConsumerError('consumer_in_flight_unconfirmed');
+        this.phase = 'checkpoint';
         await this.commit({ ...this.state, last_seq: record.seq.toString(), in_flight: null });
+        this.phase = 'idle'; this.turnStartedAt = null;
       }
       if (this.stopped || this.paused) return;
       await this.checkpoint(page.nextAfterSeq);
@@ -147,12 +164,13 @@ class Consumer {
     if (error instanceof ConsumerError && error.code === 'consumer_agent_cleanup_failed') this.cleanupFailed = true;
     if (!this.stopped && !this.api.signal.aborted) {
       const code = this.state.in_flight ? 'consumer_in_flight_unconfirmed' : error instanceof ConsumerError ? error.code : 'consumer_read_failed';
+      this.lastError = code; this.phase = 'error';
       this.api.setAvailable(false, { code }); report(this.api, this.config.inputId, code, this.state.in_flight ?? undefined);
     }
     try { await this.agent?.close(); }
     catch { this.cleanupFailed = true; report(this.api, this.config.inputId, 'consumer_agent_cleanup_failed'); }
   }
-  stop(): void { this.stopped = true; this.stopReading(); this.agent?.stop(); }
+  stop(): void { this.stopped = true; this.phase = 'stopping'; this.stopReading(); this.agent?.stop(); }
   async close(): Promise<void> {
     this.stop();
     await this.startup; await this.worker;
@@ -167,6 +185,21 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   api.setAvailable(false, { code: 'consumer_starting' });
   const path = join(api.dataDir, 'consumer-state.json');
   let consumer: Consumer | undefined;
+  let snapshot: ConsumerState | undefined;
+  let errorCode: string | null = 'consumer_starting';
+  api.registerAdminPanel({ title: 'Agent Chat', icon: 'agent', read: async () => ({
+    ...(consumer ? consumer.view() : {
+      status: snapshot?.in_flight ? 'suspended_in_flight' : 'stopped_or_error', available: false, phase: 'stopped', last_error: errorCode,
+      input_id: config.inputId, store_id: api.storeId, last_seq: snapshot?.last_seq ?? null,
+      in_flight: snapshot?.in_flight ? { ...snapshot.in_flight } : null, sessions: { ...snapshot?.sessions }, agent_info: snapshot?.agent_info ? { ...snapshot.agent_info } : null,
+      turn_started_at: null, elapsed_ms: null, model_stage: null,
+    }),
+    configuration: {
+      filter: config.filter ? { ...config.filter } : null, source_prefix: config.sourcePrefix, max_event_age_seconds: config.maxAgeSeconds,
+      turn_timeout_ms: config.turnTimeoutMs, reader: api.events.readScope().sources, agent_environment: config.agent.envVars.map((name) => ({ name, configured: process.env[name] !== undefined })),
+      pi: await inspectPiConfiguration(config.agent.envVars.includes('PI_CODING_AGENT_DIR') ? process.env.PI_CODING_AGENT_DIR : undefined),
+    },
+  }) });
   try {
     const prepared = await prepareAgent(config.agent);
     config.agent = prepared.config;
@@ -177,7 +210,9 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
       state = { ...binding, version: 1, store_id: info.storeId, last_seq: info.latestSeq.toString(), agent_info: null, sessions: {}, in_flight: null };
       await saveState(path, state);
     }
+    snapshot = state;
     if (state.in_flight) {
+      errorCode = 'consumer_in_flight_unconfirmed';
       api.setAvailable(false, { code: 'consumer_in_flight_unconfirmed' });
       report(api, config.inputId, 'consumer_in_flight_unconfirmed', state.in_flight);
       return;
@@ -186,6 +221,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
     consumer = new Consumer(api, config, prepared.env, path, state);
   } catch (error) {
     const code = error instanceof ConsumerError ? error.code : 'consumer_initialization_failed';
+    errorCode = code;
     api.setAvailable(false, { code }); report(api, config.inputId, code);
     return;
   }
