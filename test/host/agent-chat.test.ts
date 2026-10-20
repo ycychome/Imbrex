@@ -591,6 +591,24 @@ test('Admin observes OneBot and distinguishes idle, active input and unresolved 
   assert.equal(Object.hasOwn(unreadable, 'sessions'), false);
 });
 
+test('management refuses a starting Consumer without queuing a later configuration write', async (t) => {
+  const f = await fixture(t, 'wait-initialize', false, 5000, true);
+  await f.setControl({ release: false });
+  await f.host().startPlugin('agent');
+  await until(async () => (await f.logs('request')).some((request) => request.method === 'initialize'));
+  const panel = object((await f.panel()).data), before = await f.state();
+  assert.equal(panel.phase, 'starting'); assert.equal(panel.available, false);
+  const request = f.action('save-filter', { revision: object(panel.management).revision, filter: { group_ids: [], private_user_ids: [] } });
+  let immediate: Awaited<typeof request> | undefined;
+  try { immediate = await Promise.race([request, delay(1000).then(() => undefined)]); }
+  finally { await f.setControl({ release: true, mode: 'normal' }); }
+  const response = await request;
+  assert.equal(immediate?.status, 503, 'the operation must refuse before initialize is released');
+  assert.equal(response.status, 503); assert.equal(object(response.body.error).code, 'provider_unavailable');
+  await until(() => f.status().available);
+  assert.deepEqual({ ...await f.state(), agent_info: before.agent_info }, before);
+});
+
 test('management applies a saved filter after the current checkpoint, including prefetched records, without replaying skipped history', async (t) => {
   const f = await fixture(t, 'normal', true, 5000, true);
   await f.append(201); await until(async () => (await f.state()).last_seq === '1');

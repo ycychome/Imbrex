@@ -322,7 +322,7 @@ filter 两个数组各最多 1000 个规范原生 ID，空数组不放行该类�
 
 调用审计按 (caller_id,call_id) 的 SQLite BINARY 字典序分页，两项 after 参数必须同时出现，从 next 原样填入；不是时间排序。status 仅允许 in_progress/succeeded/failed/unknown。各页为新的查询视图，状态可改变，新调用可插入旧位置之前；刷新从头查询可观察新变化，不承诺跨页快照。普通 /v1/calls/{call_id} 仍只能由所属主体查询。
 
-configuration 的 principals 包含 id、permissions、read_sources、write_sources、invoke_capabilities、credential；credential 为 {name,configured} 或 null，只说明 token_env 引用及是否已加载。plugins 包含 instance_id、module、principal_id、enabled、required、configuration；外部模块名统一为 external，不回显任意参数。OneBot configuration 提供采集范围和凭据引用；Agent 提供触发范围，独立 pi 配置在对应面板内查询。mcp_url 为 HTTP origin 的 /v1/mcp 地址，不承诺该协议插件当前可用。
+configuration 的 principals 包含 id、permissions、read_sources、write_sources、invoke_capabilities、credential；credential 为 {name,configured} 或 null，只说明 token_env 引用及是否已加载。plugins 包含 instance_id、module、principal_id、enabled、required、configuration；外部模块名统一为 external，不回显任意参数。OneBot configuration 提供采集范围和凭据引用；Agent 提供启动配置的触发范围基准，在线保存/已应用规则以对应面板 management.filter 为准，独立 pi 配置也在面板内查询。mcp_url 为 HTTP origin 的 /v1/mcp 地址，不承诺该协议插件当前可用。
 
 其他管理交互遵守以下已定稿边界：
 

@@ -60,6 +60,7 @@ async function handle(line: string) {
   const mode = control().mode;
   log('request', { method: message.method, session_id: params.sessionId });
   if (message.method === 'initialize') {
+    if (mode === 'wait-initialize') while (control().release !== true) await delay(10);
     result(message.id, { protocolVersion: 1, agentInfo: { name: 'fixture-acp', version: '1' }, agentCapabilities: { loadSession: mode !== 'no-load' } });
   } else if (message.method === 'session/new') {
     if (mode === 'new-fail') { failure(message.id); return; }
