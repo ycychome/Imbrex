@@ -2,6 +2,8 @@
 
 统一开发基线 0.3 · 2026-10-19。**M1-01 OneBot、M1-02 MCP 与 M1-04 ACP Consumer 已实现，协议模拟与故障路径通过验证；真实模型与指定 QQ 群的单次自动回复已通过，扩展范围见[实测记录](experiments/m1-live.md)。** M0 现有 HTTP 与插件 API 继续有效；具体任务见[开发计划](development-plan.md#m1)。
 
+2026-10-20 定稿的 M2 将 adapters/mcp 迁入 plugins/adapter-mcp，acp-consumer 更名 agent-chat。下面 M1 路径和行为是当前实现；第 5 节为待实现的托管配置与受控重启，不改变既有 MCP 工具或 ACP 协议语义。
+
 ## 1. 模块与协议职责
 
 | 模块 | 角色 | 职责 |
@@ -103,3 +105,19 @@ pi-acp 当前未把 ACP 的 mcpServers 参数接通到 pi，因此首接通过 p
 M1-03/M1-04 需记录实际 pi、pi-acp、协议 SDK 和模型配置的版本/范围，证明运行中的 Agent 确实发现并能使用 Imbrex 工具。上游 README 的兼容声明和当前文档观察不等于已在本项目验证；不能只填写 mcpServers 就宣告联通。
 
 正常自动运行、in_flight 的持久保存、异常暂停及人工恢复，统一以[应用消费](applications.md)为准。远程 ACP、并发调度和持久任务平台在有实际需求时另行设计。
+
+<a id="m2-managed-agent"></a>
+
+## 5. M2 托管 pi 配置与受控重启（待实现）
+
+agent-chat 在 Imbrex 专属数据目录中管理独立的 Agent 工作目录、PI_CODING_AGENT_DIR 与 HOME，后者也隔离 pi-acp 的用户级会话映射。只修改托管实例，不改用户全局 pi 配置。使用已验证的进程 cwd 和环境变量入口，不假定 pi-acp 存在 --cwd 参数，也不假定它已采用 ACP mcpServers。
+
+Admin 集中展示模型、上下文窗口声明、系统提示词、MCP 地址、凭据引用、环境传递情况和 Consumer filter。MCP 地址及静态凭据引用与实际监听/主体配置同步生成，真实秘密不进入前端返回值。独立会话并不自动提供独立读取授权，面板须如实展示当前主体的可读范围。
+
+模型选择、上下文窗口和系统提示词在 M2-03 可编辑。保存后显示“已保存，待重启生效”，不能当作已经加载。当前轮继续使用旧配置；空闲且无异常未决项时，暂停下一条输入，仅停止并重启 pi-acp/pi，完成 ACP 握手和必要的 session/load 后继续。Imbrex 宿主、REST/MCP、OneBot WebSocket 和其他插件保持运行。
+
+受控重启保留 store_id、last_seq、平台会话到 ACP sessionId 的映射和 Agent 历史，不为了更换模型自动删除旧会话。恢复失败报告原因，并由操作者在满足[重置前提](applications.md#m2-recovery)时显式重置对应会话；内存 loaded 状态应与新的 Agent 进程一致。
+
+所选模型、窗口和提示词必须对恢复后的实际新轮次生效；不能仅修改默认配置文件而让恢复会话继续使用旧模型。实施时以所选 pi/pi-acp 的实际能力验证配置应用，不能只凭进程重启宣称成功。可观察到的值与配置声明分开展示，填写 500K 不构成远端模型容量验收。
+
+异常未决项阻止配置应用与受控重启流程，先走在线确认/放弃。生命周期或加载失败时保留进度和证据，报告失败，禁止重放未决 prompt。现有 tini/supervisor 的进程清理责任继续有效，不因接入管理后台而移除。

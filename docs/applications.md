@@ -1,6 +1,8 @@
-# 应用消费、ACP Consumer 与恢复
+# 应用消费、Agent Chat 与恢复
 
 统一开发基线 0.3 · 2026-10-19。M0 演示消费者与 M1-04 ACP Consumer 已实现，模拟链路与故障验证见[运行记录](experiments/m1-acp.md)，真实模型与指定群的单次自动回复已通过，范围见[实测记录](experiments/m1-live.md)。Agent 协议分工见 [Agent 接入](agent-integration.md)，读取规则见[事件与存储](storage-and-recovery.md)，动作结果见[能力契约](capabilities.md)。
+
+2026-10-20 定稿的 M2 将 acp-consumer 更名为 agent-chat；第 10—12 节定义待实现的观测、在线恢复和配置应用。当前 M1 的离线恢复与状态格式仍有效，不将目标能力视为已上线。
 
 ## 1. 三种消费方式
 
@@ -18,7 +20,7 @@
 
 新实例先取得 info。面向实时回复的 Consumer 默认把当时 latest_seq 作为起点，并原子保存这个明确边界；后续消息从该边界继续读。历史上下文单独查询，不能当作新的触发输入。演示变换和观察器可显式从 0 开始。
 
-恢复使用保存的 store_id/last_seq，不因再次启动而跳到 now。store_mismatch、position_ahead、读取错误或状态损坏使输入暂停并报告，不自动重置。读取选择、来源身份或授权范围改变时，旧位置只代表旧范围；操作者需决定新的 input_id、显式重读或明确起点。
+恢复使用保存的 store_id/last_seq，不因再次启动而跳到 now。store_mismatch、position_ahead、读取错误或状态损坏使输入暂停并报告，不自动重置。读取选择、来源身份或授权范围改变时，旧位置只代表旧范围；当前 M1 不允许静默套用旧绑定。M2 仅为受控 filter 修改提供第 12 节的边界应用流程，其余身份/授权变更仍须明确处理。
 
 ## 3. ACP Consumer 的最少状态
 
@@ -30,7 +32,7 @@
 | --- | --- |
 | 输入进度 | input_id、store_id、实际选择范围、last_seq；表示已完成或已按明确规则跳过的前缀 |
 | 会话关联 | 可信平台会话 → ACP sessionId，以及对应 Agent 程序/工作目录绑定；不复制 Agent 历史 |
-| in_flight | 尚未确认完成的 source/id/seq、平台会话和 ACP sessionId；无未决输入时为 null |
+| in_flight | 当前尚未确认完成的 source/id/seq、平台会话和 ACP sessionId；正常处理中也存在，不能单凭非空判断异常 |
 
 同一份状态的替换必须原子、持久完成：写临时文件并同步，替换正式文件并同步目录；实现时核验目标文件系统的行为。写入失败不得继续提交 prompt。文件不可用或损坏时拒绝静默从头/从现在恢复。进程中断验证不等于断电耐久证明。
 
@@ -66,7 +68,7 @@
 
 人工恢复先停用 Consumer 并确认其 Agent 工作已停止，备份当前状态，核对 store_id、输入范围、会话与未决 source/id/seq。结合 Agent 的实际会话记录、调用记录及必要的平台证据判断发生了什么。M1 演示须保留实际调用的 store_id、caller_id、call_id 关联；缺少关联时保持未确认，不能把查不到某个猜测的 ID 当作未发送。
 
-现有查询是 `GET /v1/calls/{call_id}?store_id=...`，只允许调用所属主体查询；没有 `GET /v1/calls` 全量列表。使用对应 Agent 主体凭据或其受权 MCP 查询入口，不扩大 operator 为跨主体调用管理员。
+现有查询是 `GET /v1/calls/{call_id}?store_id=...`，只允许调用所属主体查询；没有 `GET /v1/calls` 全量列表。M1 使用对应 Agent 主体凭据或其受权 MCP 查询入口。M2 的跨主体调用审计使用显式 admin:inspect 的独立管理入口，不自动扩大现有 operator/Agent 权限。
 
 操作者明确选择确认已处理或放弃该输入后，记录处置原因，并在 Consumer 停止期间原子更新该输入的 last_seq、清除 in_flight；不得借此跳过其他未处理输入。需要补发时按[能力契约](capabilities.md)显式建立新意图并关联旧记录，不让 Consumer 自动重播旧 prompt。不支持恢复旧 ACP 会话时，需明确选择新会话再恢复运行。
 
@@ -82,10 +84,10 @@ Consumer 只对连接器映射的允许入站消息触发。自己发送的回�
 
 ## 7. 演示消费者
 
-M0 已提供 fixture-transform 与 observer 的位置持久化和读取循环；observer 的本地事件副本属于 M2，ACP Consumer 属于 M1。
+M0 已提供 fixture-transform 与 observer 的位置持久化和读取循环；M2-01 删除 observer，取消原 G05 第二消费者交付及事件副本计划。ACP Consumer 是 M1 实现，M2 更名 agent-chat。
 
 - fixture-transform 只处理受控 fixture 事件，生成确定内容和稳定派生身份；发布成功后保存位置。崩溃重试同一输出由网关 first-write-wins 处理，不承诺任意业务的恰好一次变换。
-- observer 在 M2 保存自己关心的信封与位置，可用本地事件表和位置表共同提交。它验证独立暂停、继续和查询，不包含附件、全文检索或灾难恢复平台。
+- observer 专属代码、配置与用例在 M2-01 清理；仍验证公共存储与插件行为的测试保留，不为 Admin 另建观察数据库。
 - 模拟工具无真实外部副作用；调用记录故障验证使用受控提供者。OneBot 模拟服务只覆盖当前协议交互，不构造完整聊天平台。
 
 读取循环不重入；忙时合并唤醒，空闲时按测试默认 1 秒补查，读取错误有界退避。终止信号停止新读取，等待本地提交，并按 [Agent 接入](agent-integration.md)清理 ACP 资源；未确认的输入保留标记。
@@ -108,10 +110,43 @@ agent 包含 command、args、绝对 cwd 和可选 env_vars。启动时解析实
 
 consumer-state.json 使用 version=1，包含 input_id、store_id、last_seq、selection、reader、agent、agent_info、sessions、in_flight。selection 保存 source_prefix、event_types、最大年龄与已配置的 filter；未配置时不写 filter，兼容原有状态。reader 保存 api.events.readScope() 得到的主体与来源范围；agent 保存实际 command、args、cwd、env_vars 名称；agent_info 保存已观察的名称/版本或 null。sessions 是完整可信会话 source 到 ACP sessionId 的映射，in_flight 为 source/id/seq/conversation/session_id 或 null。位置全部为十进制字符串。
 
-filter 的新增、移除或名单成员变化沿用 consumer_binding_changed 暂停；名单排序或重复项不影响绑定。离线恢复保留原 filter，不改变输入范围。
+当前 M1 的 filter 新增、移除或名单成员变化沿用 consumer_binding_changed 暂停；名单排序或重复项不影响绑定。离线恢复保留原 filter，不改变输入范围。M2 经管理入口完成第 12 节的受控应用后可接受新绑定，手工改文件造成不一致仍暂停。
 
 读取范围、主体、Agent 程序/工作目录等绑定改变时暂停；in_flight 非空时不启动 Agent 重投。新进程只有成功协商并执行 session/load 后才可使用旧会话。正文不写本地消费状态；诊断输出 input_id 和事件引用摘要，消息、凭据与远端异常正文不进入日志。
 
 Linux stdio 使用 tini 0.19.0 的 subreaper 模式包裹监督进程，再通过显式标准流与 IPC 启动 Agent。Agent 异常退出或其后代脱离原进程组时，孤儿进程由专属 tini 接管，监督进程清理并检查所有后代，tini 负责回收。宿主控制通道关闭后也继续清理；缺少 tini 时拒绝启动该 Consumer。终止与升级终止后检查进程已经退出，清理未完成则报告 stop_failed。部署仍以受信 Agent 和既有本地权限为前提，不提供恶意代码隔离。
 
 Consumer 等待 api.whenReady() 确认 HTTP/MCP 已监听后才读取并投递，避免较晚初始化的插件拖延监听使首轮失败。ACP 过程通知不参与消费确认，直接丢弃；无效报文和未知响应 ID 在 SDK 前拒绝，阻断 SDK 将原始通知或 ID 写入异常日志的路径。
+
+## 10. M2 运行态观测（待实现）
+
+Admin 展示 Consumer 的事实投影：available=true 且 in_flight=null 为 idle；available=true 且非空为 processing；available=false 且非空为 suspended_in_flight；available=false 且为空为 stopped_or_error。后两者结合实际生命周期、停止过程与错误原因解释，不能把正常处理或正在停止都说成模型卡死。
+
+展示当前事件引用、ACP session、处理开始时间、耗时和最近错误。序号距离 latest_seq − last_seq 不是待处理消息条数。正常不回复可以完成消费，不能按没有 reply 调用判为失败；缺少模型细节时报告未提供，不伪造进度。
+
+<a id="m2-recovery"></a>
+
+## 11. M2 在线处置与单会话重置（待实现）
+
+在线处置保持宿主运行，由宿主协调目标 Consumer，不在 Admin 内直接执行持 data_dir/.lock 的离线 CLI。处置对象包含实例、store_id、未决 seq 和原事件引用，服务端核对与当前状态相同；不能由旧页面按钮推进另一条输入。
+
+1. 停止目标 Consumer 后续投递，结束并确认相关 Agent 工作已停止。其他插件、HTTP、OneBot 与管理入口持续运行。
+2. 根据原事件、可关联的 call_id 和平台证据核验现场。正常 processing 不是可直接跳过的异常；有未决责任才进入确认/放弃流程。
+3. 记录操作者与原因，先保存含原状态的备份，再原子替换持久消费状态。确认处理与放弃均只推进当前未决 seq 并清除该标记，不修改 calls。
+4. 同步内存状态与会话恢复状态，再恢复后续消费。失败时保留可核验结果，不提前返回已恢复。
+
+放弃是结束该输入的自动处理责任，不撤销已发生的发送。unknown 保留原事实，不因确认消费完成就被改为 succeeded，也不换 ID 重发。离线与在线入口可复用状态变换及备份逻辑，但互斥方式分别由离线锁和宿主协调保证。
+
+单会话重置以完整可信 source 定位，仅当该会话无活跃轮次且无未处置 in_flight 时可执行。解除持久与内存中的 session/loaded 关联，并处理实际 Agent 恢复状态；不删除原会话记录。其他会话关联和 last_seq 保持。缺少恢复能力时向操作者解释需重置的原因，不自动清空全部映射。
+
+<a id="m2-config"></a>
+
+## 12. M2 filter 轮次边界应用（待实现）
+
+管理入口仅编辑 filter.group_ids 与 filter.private_user_ids，OR 匹配、空名单不放行等规则不变。它不修改 OneBot 采集名单或 Principal 授权；扩大到未采集/未授权范围时显示该限制，不虚报已可接收。
+
+新值校验后可保存待应用。已有正常轮次继续使用旧配置、旧超时和旧过滤规则；正常 end_turn 且检查点持久保存后，暂停下一条投递，在磁盘与内存中更新配置绑定，再继续后续输入。已经预读但尚未处理的页内记录也要按新规则筛选，不能只在下一次拉取页面时切换。
+
+应用保留 last_seq 与会话证据，不重新回放已经完成或跳过的历史；新规则只作用于检查点后的未处理输入。有异常未决项时拒绝应用，须先确认/放弃；配置保存不能消除输入责任。
+
+持久配置与绑定一致后才报告已应用。写入/同步失败或部分更新时保持可诊断的待应用/失败状态并停止不确定的新投递，不伪报成功或自动重置。完成受控应用后普通重启可恢复新绑定；手工改文件导致的绑定不一致继续沿用拒绝静默恢复的规则。

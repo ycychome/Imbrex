@@ -1,6 +1,6 @@
 # 插件开发契约与演示模板
 
-统一开发基线 0.3。使用 Cordis 插件形式，Imbrex 提供已实现的绑定 API；类型见 src/host/plugin-api.ts，尚未独立发布 SDK 包。
+统一开发基线 0.3；2026-10-20 增补 M2 目标契约。现有业务绑定 API 的类型见 src/host/plugin-api.ts，尚未独立发布 SDK 包。下文明确标为 M2 的 HTTP 服务、管理注册与目标插件名称尚待实现。
 
 ## 1. 插件是什么
 
@@ -19,7 +19,7 @@ Cordis 的 apply、inject、Context 与 effect 负责依赖和作用域。本方
 | `api.storeId` | 当前绑定存储的只读 string |
 | `api.instanceId` / `api.dataDir` | 宿主分配的实例与私有目录 |
 | `api.signal` | 停止时触发的 AbortSignal；不等于远端撤销 |
-| `api.whenReady()` | 后台任务等待所有启动插件完成及 HTTP/MCP 监听就绪；关闭时拒绝继续工作 |
+| `api.whenReady()` | 当前等待启动完成；M2 必须同时确认监听成功及声明依赖的所需协议路由已注册，依赖不可用时停止新投递 |
 | `api.events.info()` | 返回 storeId 与 latestSeq: bigint |
 | `api.events.append({event, parents?})` | 使用绑定主体与 storeId，返回接纳回执；seq 为 bigint |
 | `api.events.read({afterSeq, limit?, sourcePrefix?, type?})` | 返回 records、throughSeq、nextAfterSeq、caughtUp |
@@ -100,22 +100,25 @@ fixture-transform 是受控特例：只处理 fixture 的已知短 ID，按确�
 
 required 指插件模块与初始化必须成功，不保证外部平台一直在线。初始化若等待网络必须有界；运行时断开通过 available=false 表达。不能把 ACTIVE 等同为账号在线或数据完整。
 
-host.startPlugin/stopPlugin 是受信内部控制入口，首版用于生命周期测试和本地集成；普通部署通过配置与宿主重启管理。停止未完成则报告失败，禁止同实例重复启动后台循环。
+host.startPlugin/stopPlugin 当前是受信内部控制入口，供生命周期测试和本地集成使用。M2 管理操作通过专属权限及宿主协调调用所需生命周期入口；不得把宿主对象直接暴露给远端或普通 Agent。停止未完成则报告失败，禁止同实例重复启动后台循环。
 
 初次装配按配置顺序进行，提供被依赖服务的插件应排在消费者前；缺少服务时初始化失败。模块支持命名导出的 apply 或默认 apply 函数/对象，可带 Config（Cordis Standard Schema）与字符串数组 inject。内置四个演示插件的 config 为空对象。加载/停止期间的重复管理操作拒绝；生命周期等待默认上限 15 秒。运行中依赖卸载使用 Cordis 原生作用域，宿主同步撤销旧绑定与能力，依赖恢复后重新建立绑定。
 
-## 7. 首版插件清单
+## 7. 当前插件与 M2 目标清单
 
 | 插件 | 输入与输出 | 验证价值 |
 | --- | --- | --- |
 | fixture | 有限可重复的 fixture.message.created 事件 | 无需账号验证事件发布与重复身份 |
 | transform | 读取 fixture，发布稳定派生事件 | 验证应用可同时消费和生产 |
 | mock | 注册 mock.echo；测试环境另配可控副作用提供者 | 验证发现、schema、授权与调用记录 |
-| observer | M0 按范围读取并保存位置；事件副本在 M2 完成 | 验证第二消费者最小读取和暂停恢复 |
+| observer（当前遗留） | M0 按范围读取并保存位置，M2-01 删除 | 原 G05 产品目标已取消，不再扩展事件副本 |
 | onebot-v11 | 通过标准 v11 接口接纳 QQ 事实与封装 reply | 验证不同服务实现可复用同一插件 |
-| acp-consumer | 读取入站事件，通过 ACP stdio 驱动现成 Agent | 验证会话关联、自动触发与未决暂停；不自建模型循环 |
+| acp-consumer → agent-chat | M2-01 更名，读取入站事件，通过 ACP stdio 驱动现成 Agent | 保留会话、进度与未决语义，M2 增加管理描述和受控配置应用 |
+| server-http（M2） | 提供 ctx.http 共享监听与路由注册 | 路由随插件注销，统一请求预算和连接清理 |
+| api-rest / adapter-mcp（M2） | 从 adapters 迁移现有 REST/MCP 入口 | 路径、授权和结果语义不变 |
+| admin（M2） | 管理 API 与 Vue 控制台，消费宿主 AdminRegistry | Admin 晚启动、卸载和重启不影响业务实例 |
 
-前四种为演示与测试提供稳定入口；onebot-v11 和 acp-consumer 在 M1 实现。MCP 是同阶段的协议 adapter，直接复用核心服务。插件全部走相同业务 API，不能给演示插件开放绕过权限或事务的“测试捷径”。测试专用故障点只在受控测试构建中使用。
+现有 onebot-v11、acp-consumer 与演示插件已经实现。M2-01 删除 observer 专属代码、配置及测试，保留仍覆盖公共行为的有效用例。所有业务入口继续按绑定身份使用核心；协议插件按实际远端主体执行授权，管理操作另受 admin 权限约束。不向演示插件开放绕过权限或事务的测试捷径。
 
 ## 8. 插件开发完成条件
 
@@ -126,3 +129,19 @@ host.startPlugin/stopPlugin 是受信内部控制入口，首版用于生命周�
 实现品牌不是插件角色。onebot-v11 的通信、事件映射和工具 schema 不依赖 NapCat 或 SnowLuma SDK；差异处理放入该插件内部的显式兼容适配，默认 generic，未知 profile 拒绝启用。不要为了兼容多种实现预先创建空的适配框架或多份连接器副本。
 
 账号、身份命名空间与稳定实例 ID 属于持久绑定；切换实现不能把旧 native_message_id 或未决调用直接交给新服务，具体规则见 [OneBot 接入](onebot-and-agent.md)。
+
+## 10. M2 共享 HTTP 服务与就绪
+
+server-http 向 Cordis 提供 ctx.http；协议插件声明 inject: ["http"]，在自身作用域登记路由或静态目录。register(method, pattern, handler) 和 static(prefix, rootDir) 必须返回 dispose，插件用 ctx.effect 或等价作用域机制绑定注销。接口只覆盖 REST、MCP、Admin 的实际需要，具体 TypeScript 类型在 M2-01 同步落地。
+
+插件卸载后移除对应路由与静态映射，不留可执行旧回调。重复路由不能静默覆盖其他实例；统一处理请求体大小、JSON 边界、并发预算与连接关闭，协议业务鉴权不由通用路由器猜测。协议 DTO 可复用，但 REST 不静态调用 MCP 的处理入口。
+
+ready 同时要求监听成功和所需路由完成注册。后台消费不得在 apply 中等待只有全体初始化结束才会完成的屏障；依赖未就绪或卸载时停止新投递，恢复就绪后才继续。HTTP 服务停用会影响其依赖入口，Admin 停用只撤销管理路由。已派发外部调用仍按核心规则保存结果，不能因路由关闭当作撤销。
+
+## 11. M2 管理描述登记与动作
+
+宿主维护轻量 AdminRegistry，绑定 API 新增 registerAdminPanel(descriptor)。身份来自 api.instanceId；描述不允许冒充其他实例。描述包含标题、图标、状态/指标/详情读取函数以及可选的带输入 schema 的动作，返回注销入口并随实例释放。
+
+Admin 只读取注册表并提供认证后的页面/API；业务插件不依赖 Admin 服务存在，因此不采用一次性的 ctx.admin?.register 而错过晚启动，也不因 Admin 卸载而卸载业务。需要停止/重启目标实例的动作由宿主协调，不继续调用已经注销的实例闭包。
+
+读取和动作结果使用有界 JSON，序号转为十进制字符串；未知指标明确标为未提供。动作先检查 admin:operate、输入 schema 和当前状态，界面确认提示不替代这些检查。管理动作不会自动注册为 Agent MCP 工具。权限与字段语义见 [Admin 契约](admin.md)。
