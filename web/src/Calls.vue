@@ -10,7 +10,7 @@ import {
   type CallStatus,
   describeError,
   errorRequestId,
-} from '../api';
+} from './api';
 
 function formatTime(value: string | null | undefined): string {
   if (!value) return '—';

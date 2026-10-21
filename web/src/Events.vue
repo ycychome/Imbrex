@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';
-import { describeError, errorRequestId, fetchEvents, fetchInfo, type EventRecord } from '../api';
+import { describeError, errorRequestId, fetchEvents, fetchInfo, type EventRecord } from './api';
 
 function formatTime(value: string | null | undefined): string {
   if (!value) return '—';

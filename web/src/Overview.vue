@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { AdminApiError, describeError, errorRequestId, fetchInfo, type AdminInfo } from '../api';
+import { AdminApiError, describeError, errorRequestId, fetchInfo, type AdminInfo } from './api';
 
 const controller = new AbortController();
 const info = ref<AdminInfo | null>(null);

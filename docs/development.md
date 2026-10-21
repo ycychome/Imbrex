@@ -57,7 +57,7 @@ ACP 的 tini 依赖用于接管脱离进程组或父进程先退出的后代，�
 
 ## 3. 管理前端开发与构建
 
-`web/` 是 npm workspace 构建包（`@imbrex/admin-web`），不是 Cordis 插件，也不参与宿主装配。它只负责 Vue 3 + Vite + TailwindCSS 的静态构建，产物为 `web/dist`。M2-02 起使用 vue-router 4.6.4 与 hash history 组织只读视图：`web/src/router/` 定义路由，`web/src/views/` 放置概览、事件、能力与调用、运行面板、配置五个顶层页面，不引入第三方 UI 组件库、状态库或零散辅助模块。
+`web/` 是 npm workspace 构建包（`@imbrex/admin-web`），不是 Cordis 插件，也不参与宿主装配。它只负责 Vue 3 + Vite + TailwindCSS 的静态构建，产物为 `web/dist`。M2-02 起使用 vue-router 4.6.4 与 hash history 组织只读视图：`web/src/router/` 定义路由，概览、事件、能力与调用、运行面板、配置五个页面组件直接位于 `web/src/` 顶层，不引入第三方 UI 组件库、状态库、视图子目录或零散辅助模块。当前五个页面是 M2 观测期的内建基础视图和过渡形态；Views 属于插件一环，后续通过插件自编译前端 ESM、浏览器动态 `import()` 按当前装配加载，禁用插件时对应页面与导航一并消失。
 
 - 开发：`npm run web:dev`，访问 `http://localhost:5173/admin/`。Vite 将 `/api` 代理到 `http://127.0.0.1:8080`，并在开发代理中重写 Origin 以通过 admin 的 Origin 校验；这仅是开发便利，生产由 server-http 同源提供。
 - 路由：使用 hash history（如 `/admin/#/events`）。hash 不发送到服务端，server-http 只提供实际存在的静态文件，不做 SPA 路径回落；直接打开 `/admin/` 进入概览。

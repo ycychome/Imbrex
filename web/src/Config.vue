@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, shallowRef } from 'vue';
-import { describeError, errorRequestId, fetchConfiguration, type Configuration } from '../api';
+import { describeError, errorRequestId, fetchConfiguration, type Configuration } from './api';
 
 function configEntries(value: Record<string, unknown>): Array<[string, unknown]> {
   return Object.entries(value);

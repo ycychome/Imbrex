@@ -10,7 +10,7 @@ import {
   type PanelSummary,
   type PanelTone,
   type PanelView,
-} from '../api';
+} from './api';
 
 interface PanelEntry {
   summary: PanelSummary;
