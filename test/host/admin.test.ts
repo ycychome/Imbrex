@@ -101,6 +101,10 @@ test('default package resolution serves the built admin UI and info', async (t) 
   assert.equal(typeof body.store_id, 'string');
   assert.equal(typeof body.latest_seq, 'string');
   assert.equal(typeof body.version, 'string');
+  assert.ok(Array.isArray(body.plugins));
+  const admin = body.plugins.map((plugin) => object(plugin)).find((plugin) => plugin.id === 'admin');
+  assert.equal(admin?.enabled, true);
+  assert.equal(admin?.client_entry, '/admin/plugins/admin/entry.js');
 });
 
 test('missing explicit assets_dir returns 404 without blocking the admin API', async (t) => {

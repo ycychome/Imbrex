@@ -232,7 +232,7 @@ call_id 是不透明标识，路径段百分号解码一次后保留原值，点
 
 ## 9. 插件状态
 
-`GET /v1/plugins` 返回 `{store_id,plugins}`。每项包含 id、module_name、state、required、available，以及可选的脱敏 last_error。state 为 waiting/loading/active/failed/stopping/stopped；插件实例配置、访问 token 和消息正文不返回。
+`GET /v1/plugins` 返回 `{store_id,plugins}`。每项包含 id、module_name、enabled、state、required、available，以及可选的 client_entry 和脱敏 last_error。state 为 waiting/loading/active/failed/stopping/stopped；client_entry 是插件自携前端 ESM 的同源静态路径（/admin/plugins/<module>/<entry>），仅表示可加载入口，不代表视图已注册或权限通过。插件实例配置、访问 token 和消息正文不返回。
 
 该接口继续只读；当前 M1 通过配置与宿主重启管理加载。M2 管理动作使用专属 /api/admin/* 入口及管理权限，不改变 /v1/plugins 的语义，也不把 runtime:inspect 升级为操作权限。
 
@@ -284,7 +284,7 @@ store_id 为数据库身份；latest_seq 沿用规范十进制字符串；versio
 
 | GET 资源 | 参数 | 200 响应 |
 | --- | --- | --- |
-| /api/admin/info | 无 | store_id、latest_seq、version、plugins；plugins 与 /v1/plugins 的状态字段相同 |
+| /api/admin/info | 无 | store_id、latest_seq、version、plugins；plugins 与 /v1/plugins 的状态字段相同（含 enabled、可选 client_entry） |
 | /api/admin/panels | 无 | {store_id, panels:[{instance_id,module,generation,title,icon}]} |
 | /api/admin/panels/:instance | 无 | {store_id,instance_id,module,generation,data:{status:{tone,label},metrics:[{label,value,hint?}],data:{...}}}；读取失败时以 error:{code,message} 替代 data |
 | /api/admin/events | store_id、after_seq 必填；limit、source_prefix、type 可选 | 与 /v1/events 相同的记录和分页字段，管理权限可读本网关全局事件 |
@@ -292,7 +292,7 @@ store_id 为数据库身份；latest_seq 沿用规范十进制字符串；versio
 | /api/admin/calls | store_id 必填；limit 默认 50、最大 100；caller_id、status、after_caller_id、after_call_id 可选 | {store_id,calls:[...],next}；每条 call 添加 caller_id，next 为 {caller_id,call_id} 或 null |
 | /api/admin/configuration | 无 | {config_version,external_writes_enabled,mcp_url,principals,plugins} |
 
-面板列表最多 128 项，单实例 data 最多 64 KiB、读取截止 5 秒；status.tone 仅允许 ok/warning/error/idle/unknown，metrics 最多 32 项，label/value 为非空字符串，hint 可选，data 为 JSON 对象。读取失败只返回该实例的 admin_panel_read_failed，不返回原始异常。相同实例已有读取未结束时返回 429 busy。generation 是本次登记的不透明标识，Admin 重启不变，业务实例重新登记后改变；不替代实例 ID 或 store_id。前端按 status/metrics/data 通用渲染，不按 module 或实例类型分支；module 仅作元数据，不符合声明式格式的数据回退为原始 JSON。未登记或已卸载实例返回 404。
+面板列表最多 128 项，单实例 data 最多 64 KiB、读取截止 5 秒；status.tone 仅允许 ok/warning/error/idle/unknown，metrics 最多 32 项，label/value 为非空字符串，hint 可选，data 为 JSON 对象。读取失败只返回该实例的 admin_panel_read_failed，不返回原始异常。相同实例已有读取未结束时返回 429 busy。generation 是本次登记的不透明标识，Admin 重启不变，业务实例重新登记后改变；不替代实例 ID 或 store_id。Shell 不按 module 或实例类型分支；各插件视图只消费自身面板的 status/metrics/data，module 用于插件定位自己的面板。不符合声明式格式的数据回退为原始 JSON。未登记或已卸载实例返回 404。
 
 调用审计按 (caller_id,call_id) 的 SQLite BINARY 字典序分页，两项 after 参数必须同时出现，从 next 原样填入；不是时间排序。status 仅允许 in_progress/succeeded/failed/unknown。各页为新的查询视图，状态可改变，新调用可插入旧位置之前；刷新从头查询可观察新变化，不承诺跨页快照。普通 /v1/calls/{call_id} 仍只能由所属主体查询。
 

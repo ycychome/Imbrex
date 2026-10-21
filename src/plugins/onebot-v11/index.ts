@@ -11,6 +11,7 @@ import { mapMessage, nativeId, parseOneBotConfig, replyAction, replySchema } fro
 import { OneBotSocket, RequestError } from './socket.js';
 
 export const name = 'onebot-v11';
+export const client = 'entry.js';
 export const inject = ['imbrex'];
 
 interface Binding { account_id: string; identity_namespace: string; app_name?: string; app_version?: string; protocol_version?: string }

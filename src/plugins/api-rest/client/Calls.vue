@@ -1,17 +1,45 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';
-import {
-  fetchCalls,
-  fetchCapabilities,
-  fetchInfo,
-  type AdminCall,
-  type AdminCapability,
-  type CallCursor,
-  type CallStatus,
-  describeError,
-  errorRequestId,
-} from './api';
+import type { AdminClient } from '../../../../web/src/client-api.js';
 
+type CallStatus = 'in_progress' | 'succeeded' | 'failed' | 'unknown';
+interface AdminCall {
+  caller_id: string; call_id: string; capability_id: string; schema_version: string;
+  params: unknown; status: CallStatus; result?: unknown; reason?: unknown; created_at: string; updated_at: string;
+}
+interface CallCursor { caller_id: string; call_id: string }
+interface CallPage { calls: AdminCall[]; next: CallCursor | null }
+interface AdminCapability {
+  id: string; plugin_instance_id: string; description: string; schema_version: string;
+  is_side_effectful: boolean; input_schema: unknown; available: boolean;
+}
+interface CapabilityPage { capabilities: AdminCapability[] }
+
+const props = defineProps<{ client: AdminClient }>();
+
+function statusOf(value: unknown): number | undefined {
+  return typeof value === 'object' && value !== null && 'status' in value && typeof value.status === 'number' ? value.status : undefined;
+}
+function errorText(value: unknown): string {
+  switch (statusOf(value)) {
+    case 0: return '无法连接网关，请确认服务正在运行。';
+    case 401: return 'Token 无效或已失效，请重新连接。';
+    case 403: return '当前凭据没有 admin:inspect 权限，或 Origin 与网关监听地址不一致。';
+    case 404: return 'Admin 入口或目标资源未启用。';
+    case 409: return 'store_id 与当前网关不匹配。';
+    case 429: return '实例正在读取，请稍后重试。';
+    case 503: return '网关尚未完成初始化，请稍后重试。';
+    default: return '请求失败。';
+  }
+}
+function requestId(value: unknown): string | undefined {
+  return typeof value === 'object' && value !== null && 'requestId' in value && typeof value.requestId === 'string' ? value.requestId : undefined;
+}
+function query(values: Record<string, string | number | undefined>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) if (value !== undefined) params.set(key, String(value));
+  return params.toString();
+}
 function formatTime(value: string | null | undefined): string {
   if (!value) return '—';
   const date = new Date(value);
@@ -53,13 +81,14 @@ async function load(reset: boolean): Promise<void> {
   if (!storeId.value || loading.value) return;
   loading.value = true;
   try {
-    const page = await fetchCalls({
-      storeId: storeId.value,
+    const page = await props.client.request<CallPage>('/api/admin/calls?' + query({
+      store_id: storeId.value,
       limit: 50,
-      callerId: appliedCaller.value || undefined,
-      status: appliedStatus.value === 'all' ? undefined : appliedStatus.value as CallStatus,
-      after: reset ? undefined : next.value ?? undefined,
-    }, controller.signal);
+      caller_id: appliedCaller.value || undefined,
+      status: appliedStatus.value === 'all' ? undefined : appliedStatus.value,
+      after_caller_id: reset ? undefined : next.value?.caller_id,
+      after_call_id: reset ? undefined : next.value?.call_id,
+    }), { signal: controller.signal });
     calls.value = reset ? page.calls : [...calls.value, ...page.calls];
     next.value = page.next;
     loaded.value = true;
@@ -88,8 +117,8 @@ async function refresh(): Promise<void> {
 onMounted(async () => {
   try {
     const [info, capabilityPage] = await Promise.all([
-      fetchInfo(controller.signal),
-      fetchCapabilities(controller.signal),
+      props.client.request<{ store_id: string }>('/api/admin/info', { signal: controller.signal }),
+      props.client.request<CapabilityPage>('/api/admin/capabilities', { signal: controller.signal }),
     ]);
     storeId.value = info.store_id;
     capabilities.value = capabilityPage.capabilities;
@@ -126,8 +155,8 @@ onUnmounted(() => controller.abort());
       role="alert"
       class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
     >
-      {{ describeError(error) }}
-      <span v-if="errorRequestId(error)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ errorRequestId(error) }}</span>
+      {{ errorText(error) }}
+      <span v-if="requestId(error)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ requestId(error) }}</span>
     </p>
 
     <section class="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">

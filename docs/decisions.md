@@ -49,7 +49,7 @@
 | D21 | 托管模型、窗口和提示词可编辑，保存后只受控重启 Agent | 宿主与 OneBot/HTTP 连续运行；会话证据保留，恢复失败显式重置；配置声明与实际观察分开 |
 | D22 | 在线恢复由宿主协调目标 Consumer，保留备份和精确未决输入核验 | 不执行争用宿主锁的离线 CLI；确认消费不等于发送成功，unknown 不篡改、不自动重发 |
 | D23 | M2-01 管理前端采用零第三方 UI 组件库：原生 HTML + Tailwind，单 `App.vue`；`web/` 是 npm workspace 构建包，不是 Cordis 插件 | 避免为三个字段引入中后台组件树和原子组件层；admin 插件默认按包名解析 `@imbrex/admin-web/dist`，`assets_dir` 仅覆盖；缺失资产 404 不阻塞；前端构建先于全量测试，体积预算在 M2-04 实测 |
-| D24 | M2-02 起管理前端使用 vue-router 4 hash history，按 `router/` 与 `web/src/` 顶层的五个只读页面组件组织；Token 存 sessionStorage，概览与面板支持可暂停的 5 秒轮询；面板按 status/metrics/data 声明式通用渲染 | 五个业务板块和后续 M2-03 操作入口需要页面边界，但 hash 不污染服务端路由，不做 SPA 回落；继续不引入第三方 UI 组件库、状态库或原子组件群；新增插件无需改前端；401/403 停止轮询 |
+| D24 | M2-02 起管理前端采用浏览器端 Cordis Shell：`ctx.views` 注册表、插件 loader 与渲染插槽；views 由插件 `client/` 自携 ESM 注册，Shell 不硬编码业务页面或路由；hash 仅表示当前视图 | 插件禁用/卸载时页面与导航消失；不污染服务端路由，不做 SPA 回落；继续不引入第三方 UI 组件库或状态库；Token 存 sessionStorage，轮询由各插件视图提供 |
 | D25 | 控制台前端视图解耦与所有权：Views as Plugins，Shell 仅作为宿主外壳 | 坚决反对在 web/ 中集中硬编码业务视图。Cordis 核心哲学为 Everything is a plugin，视图所有权属于各业务插件（自携前端扩展或动态声明）。当前代码树内建的只读页面属于 M2 观测期过渡形态；演进目标锁定为「插件自编译前端 ESM + 浏览器端动态 import() 按需装配」，严禁将网关做成封闭硬编码的传统单体 SaaS 网站。 |
 
 D13 不要求为每个实现写一套插件，也不要求预先建设通用协议框架。标准路径优先，遇到实际差异再增加小的兼容适配。

@@ -135,13 +135,22 @@ export class Host {
     return runtime.module?.name && namespacePattern.test(runtime.module.name) ? runtime.module.name : 'external';
   }
   plugins() {
-    return [...this.runtimes.values()].map((runtime) => ({
-      id: runtime.config.id,
-      module_name: this.moduleName(runtime),
-      state: runtime.state === 'active' && runtime.fiber ? (['waiting', 'loading', 'active', 'failed', 'stopped', 'stopping'][runtime.fiber.state] ?? 'failed') : runtime.state,
-      required: runtime.config.required, available: runtime.state === 'active' && runtime.fiber?.state === 2 && runtime.available,
-      ...(runtime.lastError ? { last_error: runtime.lastError } : {}),
-    }));
+    return [...this.runtimes.values()].map((runtime) => {
+      const moduleName = this.moduleName(runtime);
+      const client = runtime.module?.client;
+      const clientEntry = typeof client === 'string' && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(client)
+        ? '/admin/plugins/' + moduleName + '/' + client
+        : undefined;
+      return {
+        id: runtime.config.id,
+        module_name: moduleName,
+        enabled: runtime.config.enabled,
+        state: runtime.state === 'active' && runtime.fiber ? (['waiting', 'loading', 'active', 'failed', 'stopped', 'stopping'][runtime.fiber.state] ?? 'failed') : runtime.state,
+        required: runtime.config.required, available: runtime.state === 'active' && runtime.fiber?.state === 2 && runtime.available,
+        ...(clientEntry ? { client_entry: clientEntry } : {}),
+        ...(runtime.lastError ? { last_error: runtime.lastError } : {}),
+      };
+    });
   }
   private async bounded<T>(promise: PromiseLike<T>): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;

@@ -21,6 +21,7 @@ function bundledAssetsDir(): string | undefined {
 }
 
 export const name = 'admin';
+export const client = 'entry.js';
 export const inject = ['http', 'protocol'];
 export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   fields(input, ['assets_dir'], []);

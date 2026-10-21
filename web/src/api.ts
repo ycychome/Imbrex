@@ -1,7 +1,5 @@
 import { computed, ref } from 'vue';
-
-export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
-export type JsonObject = { [key: string]: Json };
+import type { AdminInfo } from './client-api';
 
 const STORAGE_KEY = 'imbrex.admin.token';
 
@@ -41,137 +39,6 @@ export function expireSession(message = 'Token 无效或已失效，请重新输
   sessionMessage.value = message;
 }
 
-export interface PluginStatus {
-  id: string;
-  module_name: string;
-  state: string;
-  required: boolean;
-  available: boolean;
-  last_error?: { code: string; message?: string };
-}
-
-export interface AdminInfo {
-  store_id: string;
-  latest_seq: string;
-  version: string;
-  plugins: PluginStatus[];
-}
-
-export interface PanelSummary {
-  instance_id: string;
-  module: string;
-  generation: string;
-  title: string;
-  icon: string;
-}
-
-export type PanelTone = 'ok' | 'warning' | 'error' | 'idle' | 'unknown';
-export interface PanelStatus { tone: PanelTone; label: string }
-export interface PanelMetric { label: string; value: string; hint?: string }
-export interface PanelView { status: PanelStatus; metrics: PanelMetric[]; data: JsonObject }
-
-export interface PanelDetail {
-  store_id: string;
-  instance_id: string;
-  module: string;
-  generation: string;
-  data?: PanelView;
-  error?: { code: string; message: string };
-}
-
-export interface EventRecord {
-  seq: string;
-  accepted_at: string;
-  event: {
-    source: string;
-    id: string;
-    type: string;
-    data: Json;
-    [key: string]: unknown;
-  };
-  parents: { source: string; id: string }[];
-}
-
-export interface EventPage {
-  store_id: string;
-  records: EventRecord[];
-  through_seq: string;
-  next_after_seq: string;
-  caught_up: boolean;
-}
-
-export type CallStatus = 'in_progress' | 'succeeded' | 'failed' | 'unknown';
-
-export interface AdminCall {
-  caller_id: string;
-  call_id: string;
-  capability_id: string;
-  schema_version: string;
-  params: Json;
-  status: CallStatus;
-  result?: Json;
-  reason?: { code: string; message: string };
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CallCursor {
-  caller_id: string;
-  call_id: string;
-}
-
-export interface CallPage {
-  store_id: string;
-  calls: AdminCall[];
-  next: CallCursor | null;
-}
-
-export interface AdminCapability {
-  id: string;
-  plugin_instance_id: string;
-  description: string;
-  schema_version: string;
-  is_side_effectful: boolean;
-  input_schema: Json;
-  available: boolean;
-}
-
-export interface CapabilityPage {
-  store_id: string;
-  capabilities: AdminCapability[];
-}
-
-export interface CredentialReference {
-  name: string;
-  configured: boolean;
-}
-
-export interface ConfigPrincipal {
-  id: string;
-  permissions: string[];
-  read_sources: Array<{ exact?: string; prefix?: string }>;
-  write_sources: Array<{ exact?: string; prefix?: string }>;
-  invoke_capabilities: string[];
-  credential: CredentialReference | null;
-}
-
-export interface ConfigPlugin {
-  instance_id: string;
-  module: string;
-  principal_id: string;
-  enabled: boolean;
-  required: boolean;
-  configuration: JsonObject;
-}
-
-export interface Configuration {
-  config_version: number;
-  external_writes_enabled: boolean;
-  mcp_url: string | null;
-  principals: ConfigPrincipal[];
-  plugins: ConfigPlugin[];
-}
-
 export class AdminApiError extends Error {
   constructor(
     readonly status: number,
@@ -201,25 +68,17 @@ export function errorRequestId(error: unknown): string | undefined {
   return error instanceof AdminApiError ? error.requestId : undefined;
 }
 
-interface ErrorEnvelope {
-  error: { code: string; message: string };
+interface Envelope {
+  error?: { code?: unknown };
   request_id?: string;
-}
-
-interface RequestOptions {
-  method?: string;
-  body?: unknown;
-  signal?: AbortSignal;
-  token?: string;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
-  if (!isObject(value) || !isObject(value.error)) return false;
-  return typeof value.error.code === 'string';
+function isEnvelope(value: unknown): value is Envelope {
+  return isObject(value) && isObject(value.error);
 }
 
 function isAdminInfo(value: unknown): value is AdminInfo {
@@ -230,117 +89,40 @@ function isAdminInfo(value: unknown): value is AdminInfo {
     && Array.isArray(value.plugins);
 }
 
-async function send(path: string, options: RequestOptions = {}): Promise<unknown> {
-  const headers: Record<string, string> = { accept: 'application/json' };
-  const bearer = options.token ?? token.value;
-  if (bearer) headers.authorization = `Bearer ${bearer}`;
-  if (options.body !== undefined) headers['content-type'] = 'application/json';
-
+async function send(path: string, init: RequestInit, tokenOverride?: string): Promise<unknown> {
+  const headers = new Headers(init.headers);
+  headers.set('accept', 'application/json');
+  const bearer = tokenOverride ?? token.value;
+  if (bearer) headers.set('authorization', `Bearer ${bearer}`);
   let response: Response;
   try {
-    response = await fetch(path, {
-      method: options.method ?? 'GET',
-      headers,
-      credentials: 'omit',
-      cache: 'no-store',
-      signal: options.signal,
-      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-    });
+    response = await fetch(path, { ...init, headers, credentials: 'omit', cache: 'no-store' });
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === 'AbortError') throw cause;
     throw new AdminApiError(0, 'network_error');
   }
-
   const body: unknown = await response.json().catch(() => undefined);
   if (!response.ok) {
-    const envelope = isErrorEnvelope(body) ? body : undefined;
-    // A rejected stored token cannot authorize another request; return to the
-    // login gate instead of leaving every view in a permanent 401 state.
-    if (response.status === 401 && options.token === undefined) expireSession();
-    throw new AdminApiError(response.status, envelope?.error.code ?? 'request_failed', envelope?.request_id);
+    const envelope = isEnvelope(body) ? body : undefined;
+    if (response.status === 401 && tokenOverride === undefined) expireSession();
+    const code = envelope && typeof envelope.error?.code === 'string' ? envelope.error.code : 'request_failed';
+    throw new AdminApiError(response.status, code, envelope?.request_id);
   }
   return body;
 }
 
-function query(values: Record<string, string | number | undefined>): string {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(values)) {
-    if (value !== undefined) params.set(key, String(value));
-  }
-  return params.toString();
-}
-
-export async function login(token: string, signal?: AbortSignal): Promise<AdminInfo> {
-  const body = await send('/api/admin/info', { token, signal });
+export async function login(value: string): Promise<AdminInfo> {
+  const body = await send('/api/admin/info', {}, value);
   if (!isAdminInfo(body)) throw new AdminApiError(200, 'invalid_response');
   return body;
 }
 
-export async function fetchInfo(signal?: AbortSignal): Promise<AdminInfo> {
-  const body = await send('/api/admin/info', { signal });
+export async function fetchInfo(init: RequestInit = {}): Promise<AdminInfo> {
+  const body = await send('/api/admin/info', init);
   if (!isAdminInfo(body)) throw new AdminApiError(200, 'invalid_response');
   return body;
 }
 
-export async function fetchPanels(signal?: AbortSignal): Promise<{ store_id: string; panels: PanelSummary[] }> {
-  const body = await send('/api/admin/panels', { signal });
-  if (!isObject(body) || !Array.isArray(body.panels)) throw new AdminApiError(200, 'invalid_response');
-  return body as unknown as { store_id: string; panels: PanelSummary[] };
-}
-
-export async function fetchPanel(instanceId: string, signal?: AbortSignal): Promise<PanelDetail> {
-  const body = await send('/api/admin/panels/' + encodeURIComponent(instanceId), { signal });
-  if (!isObject(body) || typeof body.instance_id !== 'string') throw new AdminApiError(200, 'invalid_response');
-  return body as unknown as PanelDetail;
-}
-
-export async function fetchEvents(
-  options: { storeId: string; afterSeq: string; limit?: number; sourcePrefix?: string; type?: string },
-  signal?: AbortSignal,
-): Promise<EventPage> {
-  const body = await send('/api/admin/events?' + query({
-    store_id: options.storeId,
-    after_seq: options.afterSeq,
-    limit: options.limit,
-    source_prefix: options.sourcePrefix,
-    type: options.type,
-  }), { signal });
-  if (!isObject(body) || !Array.isArray(body.records)) throw new AdminApiError(200, 'invalid_response');
-  return body as unknown as EventPage;
-}
-
-export async function fetchCalls(
-  options: {
-    storeId: string;
-    limit?: number;
-    callerId?: string;
-    status?: CallStatus;
-    after?: CallCursor;
-  },
-  signal?: AbortSignal,
-): Promise<CallPage> {
-  const body = await send('/api/admin/calls?' + query({
-    store_id: options.storeId,
-    limit: options.limit,
-    caller_id: options.callerId,
-    status: options.status,
-    after_caller_id: options.after?.caller_id,
-    after_call_id: options.after?.call_id,
-  }), { signal });
-  if (!isObject(body) || !Array.isArray(body.calls)) throw new AdminApiError(200, 'invalid_response');
-  return body as unknown as CallPage;
-}
-
-export async function fetchCapabilities(signal?: AbortSignal): Promise<CapabilityPage> {
-  const body = await send('/api/admin/capabilities', { signal });
-  if (!isObject(body) || !Array.isArray(body.capabilities)) throw new AdminApiError(200, 'invalid_response');
-  return body as unknown as CapabilityPage;
-}
-
-export async function fetchConfiguration(signal?: AbortSignal): Promise<Configuration> {
-  const body = await send('/api/admin/configuration', { signal });
-  if (!isObject(body) || !Array.isArray(body.principals) || !Array.isArray(body.plugins)) {
-    throw new AdminApiError(200, 'invalid_response');
-  }
-  return body as unknown as Configuration;
+export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return await send(path, init) as T;
 }

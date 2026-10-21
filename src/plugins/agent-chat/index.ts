@@ -13,6 +13,7 @@ import { ConsumerError, consumerLimits, parseConsumerConfig, prepareAgent, type 
 import { bindingFor, inspectState, loadState, saveState, type ConsumerState } from './state.js';
 
 export const name = 'agent-chat';
+export const client = 'entry.js';
 export const inject = ['imbrex', 'mcp'];
 
 function report(api: PluginApi, inputId: string, code: string, ref?: EventRef): void {

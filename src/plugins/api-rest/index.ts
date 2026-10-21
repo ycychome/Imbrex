@@ -10,6 +10,7 @@ import { appendBody, invokeBody, lookupQuery, readQuery, storeQuery, wireAppend,
 type AuthorizedRequest = HttpRequest & { principal: Principal };
 
 export const name = 'api-rest';
+export const client = 'entry.js';
 export const inject = ['http', 'protocol'];
 export function apply(ctx: Context, input: JsonObject): void {
   fields(input, [], []);

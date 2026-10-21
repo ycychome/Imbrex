@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@source "../../src/plugins/*/client/**/*.vue";
+@source "../../src/plugins/*/client/**/*.ts";
 
 :root {
   color-scheme: light dark;

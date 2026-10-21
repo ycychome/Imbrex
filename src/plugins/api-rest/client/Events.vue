@@ -1,7 +1,40 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';
-import { describeError, errorRequestId, fetchEvents, fetchInfo, type EventRecord } from './api';
+import type { AdminClient } from '../../../../web/src/client-api.js';
 
+interface EventRecord {
+  seq: string;
+  accepted_at: string;
+  event: { source: string; id: string; type: string; data: unknown; [key: string]: unknown };
+  parents: { source: string; id: string }[];
+}
+interface EventPage { records: EventRecord[]; next_after_seq: string; caught_up: boolean }
+
+const props = defineProps<{ client: AdminClient }>();
+
+function statusOf(value: unknown): number | undefined {
+  return typeof value === 'object' && value !== null && 'status' in value && typeof value.status === 'number' ? value.status : undefined;
+}
+function errorText(value: unknown): string {
+  switch (statusOf(value)) {
+    case 0: return '无法连接网关，请确认服务正在运行。';
+    case 401: return 'Token 无效或已失效，请重新连接。';
+    case 403: return '当前凭据没有 admin:inspect 权限，或 Origin 与网关监听地址不一致。';
+    case 404: return 'Admin 入口或目标资源未启用。';
+    case 409: return 'store_id 与当前网关不匹配。';
+    case 429: return '实例正在读取，请稍后重试。';
+    case 503: return '网关尚未完成初始化，请稍后重试。';
+    default: return '请求失败。';
+  }
+}
+function requestId(value: unknown): string | undefined {
+  return typeof value === 'object' && value !== null && 'requestId' in value && typeof value.requestId === 'string' ? value.requestId : undefined;
+}
+function query(values: Record<string, string | number | undefined>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) if (value !== undefined) params.set(key, String(value));
+  return params.toString();
+}
 function formatTime(value: string | null | undefined): string {
   if (!value) return '—';
   const date = new Date(value);
@@ -30,13 +63,13 @@ async function loadPage(reset: boolean): Promise<void> {
   if (loading.value || !storeId.value) return;
   loading.value = true;
   try {
-    const page = await fetchEvents({
-      storeId: storeId.value,
-      afterSeq: reset ? '0' : nextAfterSeq.value,
+    const page = await props.client.request<EventPage>('/api/admin/events?' + query({
+      store_id: storeId.value,
+      after_seq: reset ? '0' : nextAfterSeq.value,
       limit: 50,
-      sourcePrefix: appliedSource.value || undefined,
+      source_prefix: appliedSource.value || undefined,
       type: appliedType.value || undefined,
-    }, controller.signal);
+    }), { signal: controller.signal });
     records.value = reset ? page.records : [...records.value, ...page.records];
     nextAfterSeq.value = page.next_after_seq;
     caughtUp.value = page.caught_up;
@@ -65,7 +98,7 @@ async function refresh(): Promise<void> {
 
 onMounted(async () => {
   try {
-    const info = await fetchInfo(controller.signal);
+    const info = await props.client.request<{ store_id: string }>('/api/admin/info', { signal: controller.signal });
     storeId.value = info.store_id;
     await loadPage(true);
   } catch (cause) {
@@ -100,8 +133,8 @@ onUnmounted(() => controller.abort());
       role="alert"
       class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
     >
-      {{ describeError(error) }}
-      <span v-if="errorRequestId(error)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ errorRequestId(error) }}</span>
+      {{ errorText(error) }}
+      <span v-if="requestId(error)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ requestId(error) }}</span>
     </p>
 
     <form

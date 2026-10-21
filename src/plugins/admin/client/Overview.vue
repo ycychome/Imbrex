@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { AdminApiError, describeError, errorRequestId, fetchInfo, type AdminInfo } from './api';
+import type { AdminClient, AdminInfo } from '../../../../web/src/client-api.js';
 
+const props = defineProps<{ client: AdminClient }>();
 const controller = new AbortController();
 const info = ref<AdminInfo | null>(null);
 const error = ref<unknown>(null);
@@ -16,17 +17,36 @@ function stop(): void {
   if (timer !== undefined) { clearInterval(timer); timer = undefined; }
 }
 
+function statusOf(value: unknown): number | undefined {
+  return typeof value === 'object' && value !== null && 'status' in value && typeof value.status === 'number' ? value.status : undefined;
+}
+function errorText(value: unknown): string {
+  switch (statusOf(value)) {
+    case 0: return '无法连接网关，请确认服务正在运行。';
+    case 401: return 'Token 无效或已失效，请重新连接。';
+    case 403: return '当前凭据没有 admin:inspect 权限，或 Origin 与网关监听地址不一致。';
+    case 404: return 'Admin 入口或目标资源未启用。';
+    case 409: return 'store_id 与当前网关不匹配。';
+    case 429: return '实例正在读取，请稍后重试。';
+    case 503: return '网关尚未完成初始化，请稍后重试。';
+    default: return '请求失败。';
+  }
+}
+function requestId(value: unknown): string | undefined {
+  return typeof value === 'object' && value !== null && 'requestId' in value && typeof value.requestId === 'string' ? value.requestId : undefined;
+}
+
 async function load(): Promise<void> {
   if (busy.value || disposed) return;
   busy.value = true;
   try {
-    info.value = await fetchInfo(controller.signal);
+    info.value = await props.client.request<AdminInfo>('/api/admin/info', { signal: controller.signal });
     error.value = null;
     lastUpdated.value = new Date();
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === 'AbortError') return;
     error.value = cause;
-    if (cause instanceof AdminApiError && (cause.status === 401 || cause.status === 403)) enabled.value = false;
+    if (statusOf(cause) === 401 || statusOf(cause) === 403) enabled.value = false;
   } finally {
     busy.value = false;
   }
@@ -103,8 +123,8 @@ async function copyStoreId(): Promise<void> {
       role="alert"
       class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
     >
-      {{ describeError(error) }}
-      <span v-if="errorRequestId(error)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ errorRequestId(error) }}</span>
+      {{ errorText(error) }}
+      <span v-if="requestId(error)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ requestId(error) }}</span>
     </p>
 
     <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -9,6 +9,7 @@ import type { HostConfig } from './config.js';
 export interface PluginModule {
   name?: string;
   inject?: string[];
+  client?: string;
   Config?: Plugin.Object<JsonObject>['Config'];
   apply(ctx: Context, config: JsonObject): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
 }
@@ -50,8 +51,10 @@ export async function loadModules(config: HostConfig, filename: string): Promise
       const value = typeof candidate === 'function'
         ? { apply: candidate, name: candidate.name, inject: Reflect.get(candidate, 'inject'), Config: Reflect.get(candidate, 'Config') }
         : object(candidate);
+      const client = Reflect.get(candidate as object, 'client') ?? module.client;
+      if (client !== undefined && (typeof client !== 'string' || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(client))) fail('invalid_request', 'Invalid plugin client entry');
       if (typeof value.apply !== 'function' || (value.inject !== undefined && (!Array.isArray(value.inject) || value.inject.some((item) => typeof item !== 'string')))) fail('invalid_request', 'Invalid plugin module');
-      modules.set(plugin.id, value as unknown as PluginModule);
+      modules.set(plugin.id, { ...value, ...(client === undefined ? {} : { client }) } as unknown as PluginModule);
     } catch {
       if (plugin.module.startsWith('builtin:') || plugin.required) fail('invalid_request', 'Cannot load configured plugin');
       modules.set(plugin.id, undefined);

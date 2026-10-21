@@ -1,24 +1,33 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
+import { computed, onMounted, ref } from 'vue';
 import { authenticated, clearToken, describeError, login, sessionMessage, setToken } from './api';
+import { client, ctx } from './context';
+import { loadPluginClients } from './loader';
 
-const route = useRoute();
-const router = useRouter();
 const input = ref('');
 const error = ref('');
 const loading = ref(false);
+const loadingViews = ref(false);
+const loadError = ref('');
+const failures = ref<string[]>([]);
 
-const nav = [
-  { path: '/', label: '概览' },
-  { path: '/events', label: '事件浏览' },
-  { path: '/calls', label: '能力与调用' },
-  { path: '/panels', label: '运行面板' },
-  { path: '/config', label: '配置查看' },
-];
-
-const title = computed(() => typeof route.meta.title === 'string' ? route.meta.title : '管理控制台');
+const views = computed(() => ctx.views.list());
+const active = computed(() => ctx.views.active());
+const title = computed(() => active.value?.title ?? '管理控制台');
 const loginError = computed(() => error.value || sessionMessage.value);
+
+async function loadViews(): Promise<void> {
+  loadingViews.value = true;
+  loadError.value = '';
+  try {
+    const result = await loadPluginClients();
+    failures.value = result.failures;
+  } catch (cause) {
+    loadError.value = describeError(cause);
+  } finally {
+    loadingViews.value = false;
+  }
+}
 
 async function submit(): Promise<void> {
   const value = input.value.trim();
@@ -29,6 +38,7 @@ async function submit(): Promise<void> {
     await login(value);
     setToken(value);
     input.value = '';
+    await loadViews();
   } catch (cause) {
     error.value = describeError(cause);
   } finally {
@@ -36,12 +46,14 @@ async function submit(): Promise<void> {
   }
 }
 
-async function disconnect(): Promise<void> {
+function disconnect(): void {
   clearToken();
-  input.value = '';
-  error.value = '';
-  await router.replace('/');
+  window.location.reload();
 }
+
+onMounted(() => {
+  if (authenticated.value) void loadViews();
+});
 </script>
 
 <template>
@@ -97,16 +109,18 @@ async function disconnect(): Promise<void> {
         <span class="text-sm font-semibold tracking-tight">Imbrex</span>
       </div>
       <nav class="mt-8 space-y-1">
-        <RouterLink
-          v-for="item in nav"
-          :key="item.path"
-          :to="item.path"
-          class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
-          exact-active-class="bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
+        <button
+          v-for="view in views"
+          :key="view.id"
+          type="button"
+          class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+          :class="active?.id === view.id ? 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' : ''"
+          @click="ctx.views.select(view.id)"
         >
           <span class="h-1.5 w-1.5 rounded-full bg-current opacity-40"></span>
-          {{ item.label }}
-        </RouterLink>
+          {{ view.title }}
+        </button>
+        <p v-if="!views.length && loadingViews" class="px-2 py-2 text-xs text-slate-400 dark:text-slate-500">加载插件视图…</p>
       </nav>
       <p class="mt-auto px-2 text-xs text-slate-400 dark:text-slate-500">admin:inspect</p>
     </aside>
@@ -127,19 +141,39 @@ async function disconnect(): Promise<void> {
       </header>
 
       <nav class="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900 sm:hidden">
-        <RouterLink
-          v-for="item in nav"
-          :key="item.path"
-          :to="item.path"
+        <button
+          v-for="view in views"
+          :key="view.id"
+          type="button"
           class="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300"
-          exact-active-class="bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
+          :class="active?.id === view.id ? 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' : ''"
+          @click="ctx.views.select(view.id)"
         >
-          {{ item.label }}
-        </RouterLink>
+          {{ view.title }}
+        </button>
       </nav>
 
+      <p
+        v-if="loadError"
+        role="alert"
+        class="mx-4 mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200 sm:mx-6"
+      >
+        {{ loadError }}
+      </p>
+      <p
+        v-if="failures.length"
+        role="alert"
+        class="mx-4 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 sm:mx-6"
+      >
+        部分插件视图加载失败：
+        <span v-for="failure in failures" :key="failure" class="mt-1 block font-mono text-xs">{{ failure }}</span>
+      </p>
+
       <div class="flex-1">
-        <RouterView />
+        <component :is="active.component" v-if="active" :client="client" />
+        <div v-else class="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+          {{ loadingViews ? '加载插件视图…' : '没有已启用的插件视图。' }}
+        </div>
       </div>
     </div>
   </div>

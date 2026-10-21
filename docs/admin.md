@@ -4,7 +4,7 @@
 
 ## 1. 交付范围与组成
 
-管理后台面向单所有者网关，按“先观测，后控制”交付。前端源码位于 `web/`，使用 Vue 3 + Vite + TailwindCSS 和原生 HTML 标签，不引入第三方 UI 组件库；`web/` 是 npm workspace 构建包，不是 Cordis 插件。构建产物由 server-http 在 /admin 与 /admin/* 提供；管理 API 使用 /api/admin/*。不需要独立前端运行进程，不新增第二消费者或事件副本作为后台前置。
+管理后台面向单所有者网关，按“先观测，后控制”交付。`web/` 是纯 Shell 构建包：只提供登录、浏览器端 Cordis Context、`ctx.views` 视图注册表、插件客户端 loader 和渲染插槽，不包含任何具体业务视图或硬编码路由。插件在自身目录 `client/` 编写前端视图，构建为独立 ESM 入口；admin 读取 `/api/admin/info` 的 enabled/client_entry，通过浏览器 `import()` 动态加载并交给 `ctx.plugin()`，插件再调用 `ctx.views.register()` 注册菜单与组件。插件禁用、未装配或卸载时，对应页面和导航不出现。构建产物由 server-http 在 /admin、/admin/* 提供；管理 API 使用 /api/admin/*。不需要独立前端运行进程，不新增第二消费者或事件副本作为后台前置。
 
 admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}。默认按包名解析 `@imbrex/admin-web/package.json` 对应的 `dist`，不需要部署者填写绝对路径；`assets_dir` 仅作为外部构建目录的覆盖，必须为绝对目录。只有解析到实际存在的目录时才注册 GET/HEAD /admin 与 /admin/*；目录不存在、不是目录、无法读取或缺少 `index.html` 时 `/admin` 返回 404，不阻止 admin API 或宿主启动。目录应仅包含部署者提供的静态构建资产，不嵌入凭据或管理数据。前端使用 hash 路由，导航不改变服务端路径；server-http 仅提供实际存在的文件，`/admin` 与 `/admin/` 返回 index.html，其他缺失路径返回 404。不列目录，拒绝路径穿越和根目录外符号链接。
 
@@ -15,7 +15,7 @@ admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}�
 | admin | 管理认证与动作派发、数据聚合、静态资产注册；页面由 `web/` 构建 |
 | onebot-v11 / agent-chat | 提供自身状态、指标、详情和受控操作，不在 Admin 中复制业务判断 |
 
-当前 `web/src/` 顶层的五个只读页面是 M2 观测期的内建基础视图，属于过渡形态；Views 的最终所有权属于插件。后续由插件自编译前端扩展 ESM，浏览器按当前装配动态 `import()` 加载并在导航中出现；插件被禁用或卸载时，其页面与导航一并消失，`web/` 外壳不感知具体业务。
+内建的 admin、api-rest、onebot-v11、agent-chat 客户端只是 M2 观测期的首批插件视图，属于过渡形态；Views 的所有权始终属于插件。后续由插件自编译前端扩展 ESM，浏览器按当前装配动态 `import()` 加载并在导航中出现；插件被禁用或卸载时，其页面与导航一并消失，`web/` Shell 不感知具体业务。
 
 注册表不依赖 Admin 插件是否启用。Admin 晚启动可以读取现有登记；重启或卸载 Admin 仅影响管理入口，不重启 OneBot、Agent 或其他业务插件。描述本身保留在内存中，不承诺无成本，也不创建后台事件数据库。
 
@@ -34,7 +34,7 @@ admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}�
 
 ## 3. 插件管理描述
 
-插件通过绑定 API 的 registerAdminPanel 登记管理描述。当前接受 title、icon 和 read()，每个实例登记一份描述；read() 返回声明式视图 `{status:{tone,label},metrics:[{label,value,hint?}],data:{...}}`，其中 tone 为 ok/warning/error/idle/unknown。列表与详情同时返回 module 作为元数据，但前端不按 module 分支；未知或不符合声明式格式的数据回退展示原始 JSON。新增插件只要登记面板即可自动呈现，无需修改前端。动作入口随在线控制功能增加。实例身份由 api.instanceId 注入，不能由描述中的任意字符串冒充其他实例。
+插件通过绑定 API 的 registerAdminPanel 登记后端管理描述，通过 client 前端入口登记视图。registerAdminPanel 当前接受 title、icon 和 read()，每个实例登记一份描述；read() 返回声明式视图 `{status:{tone,label},metrics:[{label,value,hint?}],data:{...}}`，其中 tone 为 ok/warning/error/idle/unknown。列表与详情同时返回 module 作为元数据；Shell 不据此分支，插件客户端用自身模块定位面板；未知或不符合声明式格式的数据回退展示原始 JSON。新增插件只要登记面板即可自动呈现，无需修改前端。动作入口随在线控制功能增加。实例身份由 api.instanceId 注入，不能由描述中的任意字符串冒充其他实例。
 
 状态灯、指标与详情使用可序列化的有界数据：最多 32 个指标，单项值最多 512 字节，详情最多 64 KiB；序号继续为十进制字符串。前端只做通用渲染，不识别具体插件类型。一次读取失败显示该实例读取错误，不影响其他面板或改变业务事务结果。仅展示已采集到的指标；例如未取得心跳延迟就显示未提供，不用 0 伪装正常。
 
@@ -101,7 +101,7 @@ UI 分开呈现已保存配置、已应用配置和运行时观察值。声明 5
 
 ## 7. 打包与交付边界
 
-`npm run build` 同时编译后端并构建 `web/dist`；admin 插件默认解析该目录，完成依赖安装与构建后，一个网关启动命令同时提供 API 和后台。生产打包必须保留 `@imbrex/admin-web` 的 `package.json` 与 `dist`（或显式设置 `assets_dir`），否则按 headless 404 降级。仍需安装已声明的运行依赖，不承诺从未构建的源码仅运行 npm start 即可工作。M2-01 只验证构建与静态挂载，不单独增加体积脚本。
+`npm run build` 同时编译后端、Shell 和插件客户端入口到 `web/dist`（含 `web/dist/plugins/<module>/entry.js`）；admin 插件默认解析该目录，完成依赖安装与构建后，一个网关启动命令同时提供 API 和后台。生产打包必须保留 `@imbrex/admin-web` 的 `package.json` 与 `dist`（或显式设置 `assets_dir`），否则按 headless 404 降级。仍需安装已声明的运行依赖，不承诺从未构建的源码仅运行 npm start 即可工作。M2-01 只验证构建与静态挂载，不单独增加体积脚本。
 
 前端体积预算为压缩后静态资产总大小约 1–2 MB，M2-04 记录实际构建结果、压缩方式与测量口径。目标版本 v0.2.0 在 M2-04 验收后冻结；本文不代表已经发布该版本。
 

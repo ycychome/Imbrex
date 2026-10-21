@@ -1,22 +1,39 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
-import {
-  AdminApiError,
-  describeError,
-  errorRequestId,
-  fetchPanel,
-  fetchPanels,
-  type PanelDetail,
-  type PanelSummary,
-  type PanelTone,
-  type PanelView,
-} from './api';
+import type { AdminClient } from '../../../../web/src/client-api.js';
 
+type PanelTone = 'ok' | 'warning' | 'error' | 'idle' | 'unknown';
+interface PanelMetric { label: string; value: string; hint?: string }
+interface PanelView { status: { tone: PanelTone; label: string }; metrics: PanelMetric[]; data: Record<string, unknown> }
+interface PanelSummary { instance_id: string; module: string; generation: string; title: string; icon: string }
+interface PanelDetail { instance_id: string; module: string; generation: string; data?: unknown; error?: { code: string; message: string } }
 interface PanelEntry {
   summary: PanelSummary;
   detail: PanelDetail | null;
   failure: unknown;
   view: PanelView | null;
+}
+
+const props = defineProps<{ client: AdminClient }>();
+const MODULE = 'onebot-v11';
+
+function statusOf(value: unknown): number | undefined {
+  return typeof value === 'object' && value !== null && 'status' in value && typeof value.status === 'number' ? value.status : undefined;
+}
+function errorText(value: unknown): string {
+  switch (statusOf(value)) {
+    case 0: return '无法连接网关，请确认服务正在运行。';
+    case 401: return 'Token 无效或已失效，请重新连接。';
+    case 403: return '当前凭据没有 admin:inspect 权限，或 Origin 与网关监听地址不一致。';
+    case 404: return 'Admin 入口或目标资源未启用。';
+    case 409: return 'store_id 与当前网关不匹配。';
+    case 429: return '实例正在读取，请稍后重试。';
+    case 503: return '网关尚未完成初始化，请稍后重试。';
+    default: return '请求失败。';
+  }
+}
+function requestId(value: unknown): string | undefined {
+  return typeof value === 'object' && value !== null && 'requestId' in value && typeof value.requestId === 'string' ? value.requestId : undefined;
 }
 
 const controller = new AbortController();
@@ -45,7 +62,7 @@ function asPanelView(value: unknown): PanelView | null {
   });
   const data = record(root.data);
   if (!data) return null;
-  return { status: { tone: status.tone as PanelTone, label: status.label }, metrics, data: data as PanelView['data'] };
+  return { status: { tone: status.tone as PanelTone, label: status.label }, metrics, data };
 }
 
 function pretty(value: unknown): string {
@@ -92,10 +109,10 @@ async function load(): Promise<void> {
   if (busy.value || disposed) return;
   busy.value = true;
   try {
-    const list = await fetchPanels(controller.signal);
-    const nextEntries = await Promise.all(list.panels.map(async (summary): Promise<PanelEntry> => {
+    const list = await props.client.request<{ panels: PanelSummary[] }>('/api/admin/panels', { signal: controller.signal });
+    const nextEntries = await Promise.all(list.panels.filter((summary) => summary.module === MODULE).map(async (summary): Promise<PanelEntry> => {
       try {
-        const detail = await fetchPanel(summary.instance_id, controller.signal);
+        const detail = await props.client.request<PanelDetail>('/api/admin/panels/' + encodeURIComponent(summary.instance_id), { signal: controller.signal });
         return { summary, detail, failure: null, view: asPanelView(detail.data) };
       } catch (failure) {
         return { summary, detail: null, failure, view: null };
@@ -108,7 +125,7 @@ async function load(): Promise<void> {
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === 'AbortError') return;
     error.value = cause;
-    if (cause instanceof AdminApiError && (cause.status === 401 || cause.status === 403)) enabled.value = false;
+    if (statusOf(cause) === 401 || statusOf(cause) === 403) enabled.value = false;
   } finally {
     busy.value = false;
   }
@@ -126,7 +143,7 @@ onUnmounted(() => { disposed = true; stop(); controller.abort(); });
   <main class="mx-auto w-full max-w-6xl space-y-6 px-4 py-6 sm:px-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h2 class="text-lg font-semibold">运行面板</h2>
+        <h2 class="text-lg font-semibold">OneBot</h2>
         <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
           最近更新 {{ lastUpdated?.toLocaleTimeString('zh-CN') ?? '—' }}
         </p>
@@ -155,12 +172,12 @@ onUnmounted(() => { disposed = true; stop(); controller.abort(); });
       role="alert"
       class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
     >
-      {{ describeError(error) }}
-      <span v-if="errorRequestId(error)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ errorRequestId(error) }}</span>
+      {{ errorText(error) }}
+      <span v-if="requestId(error)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ requestId(error) }}</span>
     </p>
 
     <p v-if="loaded && !entries.length && !busy" class="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-      暂无已登记面板。业务插件启动后会在此出现。
+      该插件尚未登记可读面板。
     </p>
 
     <article
@@ -187,8 +204,8 @@ onUnmounted(() => { disposed = true; stop(); controller.abort(); });
           role="alert"
           class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
         >
-          读取失败：{{ describeError(entry.failure) }}
-          <span v-if="errorRequestId(entry.failure)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ errorRequestId(entry.failure) }}</span>
+          读取失败：{{ errorText(entry.failure) }}
+          <span v-if="requestId(entry.failure)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ requestId(entry.failure) }}</span>
         </p>
 
         <p

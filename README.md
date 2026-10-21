@@ -4,7 +4,7 @@
 
 Imbrex 是一个面向个人数字生活与 AI Agent 的可扩展事件与能力网关。它以现代插件系统为骨骼、以轻量有序日志为血液，将分散在聊天平台、开发工具和本地系统的异构数据汇聚为一条不可变的事实流，并为外部 AI 和应用提供标准、受控的动作工具调用通道。
 
-**当前状态：M0 核心原型可运行，M1 指定范围的真实 QQ → Agent → 回复闭环已验证，M2-01 的协议插件化与基础管理页、M2-02 的只读观测与五个管理页面已实现（待独立审核）。** 已提供 SQLite 事件日志、能力调用、HTTP/MCP、Cordis 宿主、OneBot 插件、agent-chat、离线恢复工具与 `web/` 管理前端构建包。真实 pi/模型通过模拟平台回复与不回复，并在 SnowLuma 的指定群完成一次自动回复；实际范围与未覆盖项见[真实验证记录](docs/experiments/m1-live.md)。安装见[开发指南](docs/development.md)，恢复步骤见[M1 运行记录](docs/experiments/m1-operations.md)。
+**当前状态：M0 核心原型可运行，M1 指定范围的真实 QQ → Agent → 回复闭环已验证，M2-01 的协议插件化与基础管理页、M2-02 的只读观测与插件自携前端视图已实现（待独立审核）。** 已提供 SQLite 事件日志、能力调用、HTTP/MCP、Cordis 宿主、OneBot 插件、agent-chat、离线恢复工具与 `web/` 管理前端构建包。真实 pi/模型通过模拟平台回复与不回复，并在 SnowLuma 的指定群完成一次自动回复；实际范围与未覆盖项见[真实验证记录](docs/experiments/m1-live.md)。安装见[开发指南](docs/development.md)，恢复步骤见[M1 运行记录](docs/experiments/m1-operations.md)。
 
 ---
 
@@ -15,7 +15,7 @@ Imbrex 是一个面向个人数字生活与 AI Agent 的可扩展事件与能力
 - **统一能力面（Capability / Tool Registry）**
   为只读工具和外部动作提供统一的注册与调用通道。通过 JSON Schema 描述参数，保存写调用状态；结果未知时停止自动重发。M1 的 MCP 适配复用同一能力与授权服务。
 - **现代插件体系（Cordis Powered）**
-  基于 Cordis 提供依赖注入与生命周期管理。HTTP、REST、MCP 与 admin 已由插件提供；`web/` 是管理前端的构建包而不是 Cordis 插件，由 admin 插件解析并静态挂载。业务插件通过受信入口启停并显式清理资源，管理与配置应用遵循各自生命周期。
+  基于 Cordis 提供依赖注入与生命周期管理。HTTP、REST、MCP 与 admin 已由插件提供；`web/` 是纯管理 Shell，不是 Cordis 宿主插件；业务视图由各插件 `client/` 自携 ESM，Shell 按启用插件动态加载并通过 `ctx.views` 装配。业务插件通过受信入口启停并显式清理资源，管理与配置应用遵循各自生命周期。
 - **轻重双轨消费模型**
   - **进程内轻量插件**：通过事件钩子实时响应，几十行代码即可实现群消息过滤或简单转发。
   - **进程外独立应用**：应用可通过 HTTP 主动读取并调用工具；M1 的 Agent 通过 MCP 使用网关，agent-chat 插件负责事件触发，Agent 自己管理模型循环和历史。

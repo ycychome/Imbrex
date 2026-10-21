@@ -1,6 +1,32 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, shallowRef } from 'vue';
-import { describeError, errorRequestId, fetchConfiguration, type Configuration } from './api';
+import type { AdminClient } from '../../../../web/src/client-api.js';
+
+interface ConfigPrincipal {
+  id: string;
+  permissions: string[];
+  read_sources: Array<{ exact?: string; prefix?: string }>;
+  write_sources: Array<{ exact?: string; prefix?: string }>;
+  invoke_capabilities: string[];
+  credential: { name: string; configured: boolean } | null;
+}
+interface ConfigPlugin {
+  instance_id: string;
+  module: string;
+  principal_id: string;
+  enabled: boolean;
+  required: boolean;
+  configuration: Record<string, unknown>;
+}
+interface Configuration {
+  config_version: number;
+  external_writes_enabled: boolean;
+  mcp_url: string | null;
+  principals: ConfigPrincipal[];
+  plugins: ConfigPlugin[];
+}
+
+const props = defineProps<{ client: AdminClient }>();
 
 function configEntries(value: Record<string, unknown>): Array<[string, unknown]> {
   return Object.entries(value);
@@ -20,6 +46,24 @@ function valueText(value: unknown): string {
 function pretty(value: unknown): string {
   return JSON.stringify(value ?? null, null, 2);
 }
+function statusOf(value: unknown): number | undefined {
+  return typeof value === 'object' && value !== null && 'status' in value && typeof value.status === 'number' ? value.status : undefined;
+}
+function errorText(value: unknown): string {
+  switch (statusOf(value)) {
+    case 0: return '无法连接网关，请确认服务正在运行。';
+    case 401: return 'Token 无效或已失效，请重新连接。';
+    case 403: return '当前凭据没有 admin:inspect 权限，或 Origin 与网关监听地址不一致。';
+    case 404: return 'Admin 入口或目标资源未启用。';
+    case 409: return 'store_id 与当前网关不匹配。';
+    case 429: return '实例正在读取，请稍后重试。';
+    case 503: return '网关尚未完成初始化，请稍后重试。';
+    default: return '请求失败。';
+  }
+}
+function requestId(value: unknown): string | undefined {
+  return typeof value === 'object' && value !== null && 'requestId' in value && typeof value.requestId === 'string' ? value.requestId : undefined;
+}
 
 const controller = new AbortController();
 const config = shallowRef<Configuration | null>(null);
@@ -29,7 +73,7 @@ const loading = ref(false);
 async function load(): Promise<void> {
   loading.value = true;
   try {
-    config.value = await fetchConfiguration(controller.signal);
+    config.value = await props.client.request<Configuration>('/api/admin/configuration', { signal: controller.signal });
     error.value = null;
   } catch (cause) {
     if (!(cause instanceof DOMException && cause.name === 'AbortError')) error.value = cause;
@@ -74,8 +118,8 @@ onUnmounted(() => controller.abort());
       role="alert"
       class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
     >
-      {{ describeError(error) }}
-      <span v-if="errorRequestId(error)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ errorRequestId(error) }}</span>
+      {{ errorText(error) }}
+      <span v-if="requestId(error)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ requestId(error) }}</span>
     </p>
 
     <section v-if="config" class="grid gap-4 sm:grid-cols-3">
