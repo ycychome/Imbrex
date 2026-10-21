@@ -6,7 +6,7 @@
 
 管理后台面向单所有者网关，按“先观测，后控制”交付。前端源码位于 `web/`，使用 Vue 3 + Vite + TailwindCSS 和原生 HTML 标签，不引入第三方 UI 组件库；`web/` 是 npm workspace 构建包，不是 Cordis 插件。构建产物由 server-http 在 /admin 与 /admin/* 提供；管理 API 使用 /api/admin/*。不需要独立前端运行进程，不新增第二消费者或事件副本作为后台前置。
 
-admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}。默认按包名解析 `@imbrex/admin-web/package.json` 对应的 `dist`，不需要部署者填写绝对路径；`assets_dir` 仅作为外部构建目录的覆盖，必须为绝对目录。只有解析到实际存在的目录时才注册 GET/HEAD /admin 与 /admin/*；目录不存在、不是目录、无法读取或缺少 `index.html` 时 `/admin` 返回 404，不阻止 admin API 或宿主启动。目录应仅包含部署者提供的静态构建资产，不嵌入凭据或管理数据。扩展名缺失的路由回落 index.html，缺失显式文件返回 404；不列目录，拒绝路径穿越和根目录外符号链接。
+admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}。默认按包名解析 `@imbrex/admin-web/package.json` 对应的 `dist`，不需要部署者填写绝对路径；`assets_dir` 仅作为外部构建目录的覆盖，必须为绝对目录。只有解析到实际存在的目录时才注册 GET/HEAD /admin 与 /admin/*；目录不存在、不是目录、无法读取或缺少 `index.html` 时 `/admin` 返回 404，不阻止 admin API 或宿主启动。目录应仅包含部署者提供的静态构建资产，不嵌入凭据或管理数据。前端使用 hash 路由，导航不改变服务端路径；server-http 仅提供实际存在的文件，`/admin` 与 `/admin/` 返回 index.html，其他缺失路径返回 404。不列目录，拒绝路径穿越和根目录外符号链接。
 
 | 组成 | 职责 |
 | --- | --- |
@@ -24,7 +24,7 @@ admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}�
 | admin:inspect | 本单所有者网关的全局管理状态、插件面板、事件/能力视图、跨主体调用审计和脱敏有效配置 |
 | admin:operate | 执行服务端已登记的管理动作、保存和应用托管配置、在线处置未决输入、受控重启及会话重置 |
 
-管理员 Principal 显式配置所需权限，通过现有 token_env 引用静态 Bearer 凭据。可同时授予两个权限，admin:operate 不隐式代替 admin:inspect。普通 Agent 凭据不因此获得管理权限，管理动作不注册为其 MCP 可调用能力。
+管理员 Principal 显式配置所需权限，通过现有 token_env 引用静态 Bearer 凭据。可同时授予两个权限，admin:operate 不隐式代替 admin:inspect。普通 Agent 凭据不因此获得管理权限，管理动作不注册为其 MCP 可调用能力。管理页把 Token 保存在当前标签页的 sessionStorage，刷新保留、关闭标签页清除；不写入 localStorage 或构建产物。
 
 管理 API 每次请求认证和检查对应权限。loopback 仅限制监听地址，不提供免密身份；浏览器管理请求的来源校验与认证共同生效。凭据不进入 URL、前端构建产物或诊断正文。配置页面展示秘密是否已配置及引用位置，不返回 Token、密码或私钥明文。
 
@@ -32,9 +32,9 @@ admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}�
 
 ## 3. 插件管理描述
 
-插件通过绑定 API 的 registerAdminPanel 登记管理描述。当前接受 title、icon 和 read()，每个实例登记一份描述；动作入口随在线控制功能增加。实例身份由 api.instanceId 注入，不能由描述中的任意字符串冒充其他实例。
+插件通过绑定 API 的 registerAdminPanel 登记管理描述。当前接受 title、icon 和 read()，每个实例登记一份描述；read() 返回声明式视图 `{status:{tone,label},metrics:[{label,value,hint?}],data:{...}}`，其中 tone 为 ok/warning/error/idle/unknown。列表与详情同时返回 module 作为元数据，但前端不按 module 分支；未知或不符合声明式格式的数据回退展示原始 JSON。新增插件只要登记面板即可自动呈现，无需修改前端。动作入口随在线控制功能增加。实例身份由 api.instanceId 注入，不能由描述中的任意字符串冒充其他实例。
 
-状态和详情使用可序列化的有界数据，序号继续为十进制字符串。一次读取失败显示该实例读取错误，不影响其他面板或改变业务事务结果。仅展示已采集到的指标；例如未取得心跳延迟就显示未提供，不用 0 伪装正常。
+状态灯、指标与详情使用可序列化的有界数据：最多 32 个指标，单项值最多 512 字节，详情最多 64 KiB；序号继续为十进制字符串。前端只做通用渲染，不识别具体插件类型。一次读取失败显示该实例读取错误，不影响其他面板或改变业务事务结果。仅展示已采集到的指标；例如未取得心跳延迟就显示未提供，不用 0 伪装正常。
 
 动作包含实例内 ID、名称、输入 schema、可选的确认提示以及执行入口。服务端先鉴权、校验参数并核对当前状态，再派发给实际所有者；danger/confirmText 只是界面提示。登记应返回注销函数并绑定实例生命周期；卸载后不留旧回调，多个同类插件独立登记。
 

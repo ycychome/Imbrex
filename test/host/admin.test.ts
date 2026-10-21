@@ -129,7 +129,7 @@ test('a queued panel read cannot dispatch after its instance unregisters', async
   const registry = new AdminRegistry(), controller = new AbortController();
   const principal: Principal = { id: 'fixture', permissions: ['admin:inspect'], readSources: [], writeSources: [], invokeCapabilities: [] };
   let reads = 0;
-  const unregister = registry.register('fixture', controller.signal, { title: 'Fixture', icon: 'fixture', read: () => { reads += 1; return {}; } });
+  const unregister = registry.register('fixture', 'agent-chat', controller.signal, { title: 'Fixture', icon: 'fixture', read: () => { reads += 1; return { status: { tone: 'ok', label: 'ok' }, metrics: [], data: {} }; } });
   const reading = registry.read(principal, 'fixture');
   controller.abort(); unregister();
   assert.equal((await reading).error?.code, 'admin_panel_read_failed');
@@ -189,14 +189,16 @@ test('instance panel registration outlives Admin, failures are isolated, and unl
       const api = ctx.imbrex.forPlugin(ctx);
       api.registerAdminPanel({ title: 'Shared module', icon: 'fixture', read: () => {
         if (id === 'broken') throw new Error('fixture-private-secret');
-        return { owner: api.instanceId, starts: starts.get(id)! };
+        return { status: { tone: 'ok', label: 'ok' }, metrics: [{ label: 'owner', value: api.instanceId }], data: { owner: api.instanceId, starts: starts.get(id)! } };
       } });
     } });
   }
   const app = await f.open(); await app.startPlugin('admin');
   const list = await f.request('/api/admin/panels'); assert.ok(Array.isArray(list.body.panels));
   assert.deepEqual(list.body.panels.map((panel) => object(panel).instance_id), ['one', 'two', 'broken']);
-  const before = await f.request('/api/admin/panels/one'); assert.equal(object(before.body.data).owner, 'one');
+  assert.deepEqual(list.body.panels.map((panel) => object(panel).module), ['shared', 'shared', 'shared']);
+  const before = await f.request('/api/admin/panels/one'); assert.equal(object(object(before.body.data).data).owner, 'one'); assert.equal(object(object(before.body.data).status).label, 'ok');
+  assert.equal(before.body.module, 'shared');
   const bad = await f.request('/api/admin/panels/broken'); assert.equal(object(bad.body.error).code, 'admin_panel_read_failed');
   assert.ok(!JSON.stringify(bad).includes('fixture-private-secret'));
   await app.stopPlugin('admin'); await app.startPlugin('admin');

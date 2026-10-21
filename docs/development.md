@@ -57,13 +57,15 @@ ACP 的 tini 依赖用于接管脱离进程组或父进程先退出的后代，�
 
 ## 3. 管理前端开发与构建
 
-`web/` 是 npm workspace 构建包（`@imbrex/admin-web`），不是 Cordis 插件，也不参与宿主装配。它只负责 Vue 3 + Vite + TailwindCSS 的静态构建，产物为 `web/dist`。
+`web/` 是 npm workspace 构建包（`@imbrex/admin-web`），不是 Cordis 插件，也不参与宿主装配。它只负责 Vue 3 + Vite + TailwindCSS 的静态构建，产物为 `web/dist`。M2-02 起使用 vue-router 4.6.4 与 hash history 组织只读视图：`web/src/router/` 定义路由，`web/src/views/` 放置概览、事件、能力与调用、运行面板、配置五个顶层页面，不引入第三方 UI 组件库、状态库或零散辅助模块。
 
 - 开发：`npm run web:dev`，访问 `http://localhost:5173/admin/`。Vite 将 `/api` 代理到 `http://127.0.0.1:8080`，并在开发代理中重写 Origin 以通过 admin 的 Origin 校验；这仅是开发便利，生产由 server-http 同源提供。
+- 路由：使用 hash history（如 `/admin/#/events`）。hash 不发送到服务端，server-http 只提供实际存在的静态文件，不做 SPA 路径回落；直接打开 `/admin/` 进入概览。
 - 构建：`npm run web:build` 先执行 `vue-tsc`，再输出 `web/dist`。
 - 默认挂载：admin 插件通过 `@imbrex/admin-web/package.json` 解析到 `web/dist`，不需要在配置中写绝对路径。`assets_dir` 仅作为外部构建目录的覆盖，必须为绝对目录。
 - 缺失降级：未构建、目录不存在或缺少 `index.html` 时，`/admin` 返回 404；admin API、宿主和其他插件继续运行。
-- Token：管理页只在当前页面内存中保存 Bearer Token，不写入 `localStorage`；刷新或关闭页面后需要重新输入。
+- Token：管理页把 Bearer Token 保存在当前标签页的 `sessionStorage`，刷新页面保留、关闭标签页即清除；不写入 `localStorage`、URL 或构建产物。
+- 轮询：概览与运行面板提供 5 秒自动轮询开关，可手动暂停；认证失败（401）或权限/Origin 不符（403）时自动停止轮询，401 同时返回登录页。
 - 依赖：前端依赖放在 `web/package.json` 的 `devDependencies`，由根 `.npmrc` 精确锁定；不引入第三方 UI 组件库，界面使用原生 HTML + Tailwind。
 - 测试：`test/host/admin.test.ts` 在 `npm test` 中验证默认包名解析、静态资源、`/api/admin/info`，以及缺失 `assets_dir` 时 404 不阻塞。因为 `npm test` 先执行 `npm run build`，测试能直接读取已构建的 `web/dist`。
 - 体积：M2-01 不单独增加体积脚本；1–2 MB 的压缩后预算在 M2-04 记录实际构建结果、压缩方式和测量口径。

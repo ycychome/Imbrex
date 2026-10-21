@@ -120,7 +120,7 @@ host.startPlugin/stopPlugin 当前是受信内部控制入口，供生命周期�
 
 onebot-v11、agent-chat 与三个演示插件使用绑定业务 API。observer 已移除；旧实验记录保留原名称和当时的验证范围。所有业务入口继续按绑定身份使用核心；协议插件按实际远端主体执行授权，管理操作另受 admin 权限约束。不向演示插件开放绕过权限或事务的测试捷径。
 
-`web/` 是管理前端的构建包，不是 Cordis 插件，不通过 `PluginApi` 注册或读取服务。admin 插件是唯一的管理运行时插件：它提供管理 API 与静态资产注册；AdminRegistry 在 M2-02 接入，届时由 admin 消费。admin 默认解析 `@imbrex/admin-web/dist` 后调用 server-http 静态挂载；`assets_dir` 仅作外部构建目录覆盖。
+`web/` 是管理前端的构建包，不是 Cordis 插件，不通过 `PluginApi` 注册或读取服务。admin 插件是唯一的管理运行时插件：它提供管理 API 与静态资产注册；M2-02 起由 admin 消费宿主 AdminRegistry，前端使用 vue-router 组织五个只读视图。admin 默认解析 `@imbrex/admin-web/dist` 后调用 server-http 静态挂载；`assets_dir` 仅作外部构建目录覆盖。
 
 ## 8. 插件开发完成条件
 
@@ -144,7 +144,7 @@ adapter-mcp 登记 /v1/mcp 后才提供 mcp 服务，agent-chat 声明 mcp 依�
 
 ## 11. M2 管理描述登记与动作
 
-宿主常驻 AdminRegistry，绑定 API 提供 registerAdminPanel(descriptor)。身份来自 api.instanceId；描述不允许冒充其他实例。当前描述包含 title、icon、read()，返回注销入口并随实例释放；read 返回状态、指标和详情 JSON。每个实例最多一份描述，总登记上限 128，详情最多 64 KiB、读取截止 5 秒；动作入口随在线控制功能增加。
+宿主常驻 AdminRegistry，绑定 API 提供 registerAdminPanel(descriptor)。身份来自 api.instanceId；描述不允许冒充其他实例。当前描述包含 title、icon、read()，返回注销入口并随实例释放；read 返回 {status:{tone,label},metrics,data} 声明式视图，前端通用渲染。每个实例最多一份描述，总登记上限 128，详情最多 64 KiB、读取截止 5 秒；动作入口随在线控制功能增加。
 
 Admin 只读取注册表并提供认证后的页面/API；业务插件不依赖 Admin 服务存在，因此不采用一次性的 ctx.admin?.register 而错过晚启动，也不因 Admin 卸载而卸载业务。需要停止/重启目标实例的动作由宿主协调，不继续调用已经注销的实例闭包。
 

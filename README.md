@@ -4,7 +4,7 @@
 
 Imbrex 是一个面向个人数字生活与 AI Agent 的可扩展事件与能力网关。它以现代插件系统为骨骼、以轻量有序日志为血液，将分散在聊天平台、开发工具和本地系统的异构数据汇聚为一条不可变的事实流，并为外部 AI 和应用提供标准、受控的动作工具调用通道。
 
-**当前状态：M0 核心原型可运行，M1 指定范围的真实 QQ → Agent → 回复闭环已验证，M2-01 的协议插件化与基础管理页已实现。** 已提供 SQLite 事件日志、能力调用、HTTP/MCP、Cordis 宿主、OneBot 插件、agent-chat、离线恢复工具与 `web/` 管理前端构建包。真实 pi/模型通过模拟平台回复与不回复，并在 SnowLuma 的指定群完成一次自动回复；实际范围与未覆盖项见[真实验证记录](docs/experiments/m1-live.md)。安装见[开发指南](docs/development.md)，恢复步骤见[M1 运行记录](docs/experiments/m1-operations.md)。
+**当前状态：M0 核心原型可运行，M1 指定范围的真实 QQ → Agent → 回复闭环已验证，M2-01 的协议插件化与基础管理页、M2-02 的只读观测与五个管理页面已实现（待独立审核）。** 已提供 SQLite 事件日志、能力调用、HTTP/MCP、Cordis 宿主、OneBot 插件、agent-chat、离线恢复工具与 `web/` 管理前端构建包。真实 pi/模型通过模拟平台回复与不回复，并在 SnowLuma 的指定群完成一次自动回复；实际范围与未覆盖项见[真实验证记录](docs/experiments/m1-live.md)。安装见[开发指南](docs/development.md)，恢复步骤见[M1 运行记录](docs/experiments/m1-operations.md)。
 
 ---
 

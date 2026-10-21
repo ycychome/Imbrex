@@ -49,12 +49,30 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   let duplicates = 0n;
   const unavailable = (code: string) => { lastCode = code; ready = false; api.setAvailable(false, { code }); };
   unavailable(lastCode);
-  api.registerAdminPanel({ title: 'OneBot v11', icon: 'onebot', read: () => ({
-    connected: ready && Boolean(connection?.connected), account_verified: ready, account_id: config.accountId, identity_namespace: config.identityNamespace,
-    binding: binding ? { ...binding } : null, started_at: startedAt, last_error: ready ? null : lastCode,
-    accepted_events: accepted.toString(), duplicate_events: duplicates.toString(), queued_events: queue.length,
-    connection_metrics: connection?.metrics() ?? null,
-  }) });
+  api.registerAdminPanel({ title: 'OneBot v11', icon: 'onebot', read: () => {
+    const connected = ready && Boolean(connection?.connected);
+    const metrics = connection?.metrics() ?? null;
+    return {
+      status: connected
+        ? { tone: 'ok', label: '已连接' }
+        : { tone: ready ? 'warning' : 'error', label: ready ? '连接中' : '未连接' },
+      metrics: [
+        { label: '账号', value: config.accountId },
+        { label: '已接纳事件', value: accepted.toString() },
+        { label: '重复事件', value: duplicates.toString() },
+        { label: '排队事件', value: String(queue.length) },
+        { label: '接收帧', value: metrics?.received_frames ?? '未提供' },
+        { label: '已发请求', value: metrics?.sent_requests ?? '未提供' },
+        { label: '心跳 RTT', value: metrics?.heartbeat_rtt_ms === null || metrics?.heartbeat_rtt_ms === undefined ? '未提供' : `${metrics.heartbeat_rtt_ms} ms` },
+      ],
+      data: {
+        connected, account_verified: ready, account_id: config.accountId, identity_namespace: config.identityNamespace,
+        binding: binding ? { ...binding } : null, started_at: startedAt, last_error: ready ? null : lastCode,
+        accepted_events: accepted.toString(), duplicate_events: duplicates.toString(), queued_events: queue.length,
+        connection_metrics: metrics,
+      },
+    };
+  } });
   const drain = () => {
     if (draining || !ready || !queue.length || api.signal.aborted) return;
     draining = true;

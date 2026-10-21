@@ -179,6 +179,16 @@ class Consumer {
   }
 }
 
+function panelStatus(status: string): { tone: 'ok' | 'warning' | 'error' | 'idle' | 'unknown'; label: string } {
+  switch (status) {
+    case 'idle': return { tone: 'idle', label: '空闲等待' };
+    case 'processing': return { tone: 'warning', label: '正在处理' };
+    case 'suspended_in_flight': return { tone: 'error', label: '未决暂停' };
+    case 'stopped_or_error': return { tone: 'error', label: '停止或错误' };
+    default: return { tone: 'unknown', label: status };
+  }
+}
+
 export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   const config = parseConsumerConfig(input);
   const api = ctx.imbrex.forPlugin(ctx);
@@ -188,20 +198,39 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   let snapshot: ConsumerState | undefined;
   let stateStatus = 'unavailable';
   let errorCode: string | null = 'consumer_starting';
-  api.registerAdminPanel({ title: 'Agent Chat', icon: 'agent', read: async () => ({
-    ...(consumer ? consumer.view() : {
+  api.registerAdminPanel({ title: 'Agent Chat', icon: 'agent', read: async () => {
+    const current = consumer?.view() ?? {
       status: snapshot?.in_flight ? 'suspended_in_flight' : 'stopped_or_error', available: false, phase: 'stopped', last_error: errorCode,
-      input_id: snapshot?.input_id ?? config.inputId, store_id: api.storeId, state_status: stateStatus,
-      ...(snapshot ? { last_seq: snapshot.last_seq, in_flight: snapshot.in_flight ? { ...snapshot.in_flight } : null, sessions: { ...snapshot.sessions }, agent_info: snapshot.agent_info ? { ...snapshot.agent_info } : null } :
-        stateStatus === 'missing' ? { last_seq: null, in_flight: null, sessions: {}, agent_info: null } : {}),
+      input_id: snapshot?.input_id ?? config.inputId, store_id: api.storeId, last_seq: snapshot?.last_seq ?? null,
+      in_flight: snapshot?.in_flight ? { ...snapshot.in_flight } : null, sessions: snapshot ? { ...snapshot.sessions } : {},
+      agent_info: snapshot?.agent_info ? { ...snapshot.agent_info } : null, state_status: stateStatus,
       turn_started_at: null, elapsed_ms: null, model_stage: null,
-    }),
-    configuration: {
+    };
+    const configuration = {
       filter: config.filter ? { ...config.filter } : null, source_prefix: config.sourcePrefix, max_event_age_seconds: config.maxAgeSeconds,
       turn_timeout_ms: config.turnTimeoutMs, reader: api.events.readScope().sources, agent_environment: config.agent.envVars.map((name) => ({ name, configured: process.env[name] !== undefined })),
       pi: await inspectPiConfiguration(config.agent.envVars.includes('PI_CODING_AGENT_DIR') ? process.env.PI_CODING_AGENT_DIR : undefined),
-    },
-  }) });
+    };
+    const stateKnown = current.state_status !== 'unavailable';
+    return {
+      status: panelStatus(current.status),
+      metrics: [
+        { label: '阶段', value: current.phase },
+        { label: '检查点 Seq', value: stateKnown ? current.last_seq ?? '—' : '未知' },
+        { label: '本轮耗时', value: current.elapsed_ms === null ? '—' : `${current.elapsed_ms} ms` },
+        { label: '模型阶段', value: current.model_stage ?? '未知' },
+        { label: '当前输入', value: stateKnown ? current.in_flight?.id ?? '—' : '未知' },
+        { label: '会话数', value: stateKnown ? String(Object.keys(current.sessions).length) : '未知' },
+      ],
+      data: {
+        status: current.status, available: current.available, phase: current.phase, last_error: current.last_error,
+        input_id: current.input_id, store_id: current.store_id, state_status: current.state_status,
+        turn_started_at: current.turn_started_at, elapsed_ms: current.elapsed_ms, model_stage: current.model_stage,
+        ...(stateKnown ? { last_seq: current.last_seq, in_flight: current.in_flight, sessions: current.sessions, agent_info: current.agent_info } : {}),
+        configuration,
+      },
+    };
+  } });
   try {
     const info = await api.events.info();
     try { snapshot = await inspectState(path, info.storeId, info.latestSeq); stateStatus = snapshot ? 'loaded' : 'missing'; }

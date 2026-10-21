@@ -131,10 +131,13 @@ export class Host {
   }
   get port(): number { return this.root.get('http')?.port ?? 0; }
   info() { return this.store.info(); }
+  private moduleName(runtime: Runtime): string {
+    return runtime.module?.name && namespacePattern.test(runtime.module.name) ? runtime.module.name : 'external';
+  }
   plugins() {
     return [...this.runtimes.values()].map((runtime) => ({
       id: runtime.config.id,
-      module_name: runtime.module?.name && namespacePattern.test(runtime.module.name) ? runtime.module.name : 'external',
+      module_name: this.moduleName(runtime),
       state: runtime.state === 'active' && runtime.fiber ? (['waiting', 'loading', 'active', 'failed', 'stopped', 'stopping'][runtime.fiber.state] ?? 'failed') : runtime.state,
       required: runtime.config.required, available: runtime.state === 'active' && runtime.fiber?.state === 2 && runtime.available,
       ...(runtime.lastError ? { last_error: runtime.lastError } : {}),
@@ -160,7 +163,7 @@ export class Host {
     const api: PluginApi = {
       storeId, instanceId: runtime.config.id, dataDir: join(this.config.dataDir, 'plugins', runtime.config.id), signal: controller.signal,
       whenReady: async () => { ensure(); await this.ready.promise; ensure(); },
-      registerAdminPanel: (panel) => { ensure(); return track(this.admin.register(runtime.config.id, controller.signal, panel)); },
+      registerAdminPanel: (panel) => { ensure(); return track(this.admin.register(runtime.config.id, this.moduleName(runtime), controller.signal, panel)); },
       events: {
         readScope: () => { ensure(); requirePermission(principal, 'events:read'); return { principalId: principal.id, sources: structuredClone(principal.readSources) }; },
         info: async () => { ensure(); const info = await this.store.info(); return { storeId: info.storeId, latestSeq: info.latestSeq }; },
