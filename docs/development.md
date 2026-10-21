@@ -57,13 +57,13 @@ ACP 的 tini 依赖用于接管脱离进程组或父进程先退出的后代，�
 
 ## 3. 管理前端开发与构建
 
-`web/` 是 npm workspace 构建包（`@imbrex/admin-web`），不是 Cordis 宿主插件，也不参与宿主装配。它是纯 Shell：登录、浏览器端 Cordis Context、`ctx.views` 注册表、插件客户端 loader 和渲染插槽；不包含具体业务页面或硬编码路由。
+`web/` 是 npm workspace 构建包（`@imbrex/admin-web`），不是 Cordis 宿主插件，也不参与宿主装配。它是纯 Shell：登录、浏览器端 Cordis Context、`ctx.views` 注册表、vue-router 4 动态路由、插件客户端 loader 和渲染插槽；不包含具体业务页面或硬编码路由。
 
 - 插件客户端：`src/plugins/<module>/client/index.ts` 默认导出 `{inject:['views'], apply(ctx)}`；`apply` 调用 `ctx.views.register({id,title,order,component})`，组件接收 Shell 传入的 `client` 请求器。服务端插件入口导出 `export const client = 'entry.js'` 后，`/api/admin/info` 的插件状态会带 `client_entry`。
 - 构建：`npm run web:build` 先执行 `vue-tsc`，再构建 Shell 与四个插件入口；插件产物固定输出到 `web/dist/plugins/<module>/entry.js`，共享 Vue 运行时 chunk。
 - 装载：登录后 Shell 读取 `/api/admin/info`，仅对 `enabled` 且有 `client_entry` 的插件执行动态 `import()`，再交给 `ctx.plugin()`。插件禁用或加载失败时，对应视图不出现；失败会显示在 Shell 顶部。
 - 开发：`npm run web:dev`，访问 `http://localhost:5173/admin/`。Vite 中间件把 `/admin/plugins/<module>/entry.js` 重定向到对应源码入口，便于动态加载；`/api` 代理到 `http://127.0.0.1:8080` 并重写 Origin。
-- 视图选择：`ctx.views` 维护注册表和当前视图，Shell 用 hash（如 `/admin/#/events`）记录选择；hash 不发送到服务端，server-http 只提供真实静态文件，不做 SPA 路径回落。
+- 视图选择：`ctx.views.register()` 在 vue-router 4 的 hash history 上动态 `addRoute`（路径 `/<view-id>`），Shell 不预置任何业务路由；侧栏点击与浏览器前进/后退都走 router。hash 不发送到服务端，server-http 只提供真实静态文件，不做 SPA 路径回落。
 - 缺失降级：未构建、目录不存在或缺少 `index.html` 时，`/admin` 返回 404；admin API、宿主和其他插件继续运行。
 - Token：管理页把 Bearer Token 保存在当前标签页的 `sessionStorage`，刷新页面保留、关闭标签页即清除；不写入 `localStorage`、URL 或构建产物。
 - 轮询：概览与插件看板由各自插件视图提供 5 秒自动轮询开关，可手动暂停；认证失败（401）或权限/Origin 不符（403）时自动停止轮询，401 同时返回登录页。

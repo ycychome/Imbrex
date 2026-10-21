@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { RouterView } from 'vue-router';
 import { authenticated, clearToken, describeError, login, sessionMessage, setToken } from './api';
 import { client, ctx } from './context';
 import { loadPluginClients } from './loader';
@@ -170,7 +171,9 @@ onMounted(() => {
       </p>
 
       <div class="flex-1">
-        <component :is="active.component" v-if="active" :client="client" />
+        <RouterView v-if="active" v-slot="{ Component }">
+          <component :is="Component" :client="client" />
+        </RouterView>
         <div v-else class="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
           {{ loadingViews ? '加载插件视图…' : '没有已启用的插件视图。' }}
         </div>

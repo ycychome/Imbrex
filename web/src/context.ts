@@ -2,6 +2,7 @@ import { Context } from 'cordis';
 import { shallowRef } from 'vue';
 import type { AdminClient, AdminView, AdminViews } from './client-api';
 import { request } from './api';
+import { router } from './router';
 
 function hashId(): string {
   const match = /^#\/([a-z][a-z0-9_-]{0,63})$/.exec(location.hash);
@@ -13,16 +14,21 @@ class Views implements AdminViews {
   private activeId = shallowRef('');
   private requested = hashId();
   private userSelected = false;
-  syncing = false;
+  private syncing = false;
 
-  private apply(id: string): void {
-    if (!this.entries.value.some((entry) => entry.id === id)) return;
-    this.activeId.value = id;
-    const hash = '#/' + id;
-    if (location.hash !== hash) {
-      this.syncing = true;
-      location.hash = hash;
-    }
+  constructor() {
+    router.afterEach((to) => {
+      const id = typeof to.name === 'string' ? to.name : '';
+      if (!this.entries.value.some((entry) => entry.id === id)) return;
+      this.activeId.value = id;
+      if (!this.syncing) this.userSelected = true;
+    });
+  }
+
+  private navigate(id: string, replace = false): void {
+    this.syncing = true;
+    const navigation = replace ? router.replace('/' + id) : router.push('/' + id);
+    void navigation.finally(() => { this.syncing = false; });
   }
 
   register(view: AdminView): () => void {
@@ -30,19 +36,28 @@ class Views implements AdminViews {
     if (this.entries.value.some((entry) => entry.id === view.id)) throw new Error(`Admin view already registered: ${view.id}`);
     const entry = view;
     this.entries.value = [...this.entries.value, entry].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
+    router.addRoute({ path: '/' + entry.id, name: entry.id, component: entry.component, meta: { title: entry.title } });
     if (this.requested === entry.id) {
       this.userSelected = true;
-      this.apply(entry.id);
+      this.activeId.value = entry.id;
+      this.navigate(entry.id, true);
     } else if (!this.activeId.value) {
-      this.apply(this.entries.value[0]!.id);
+      const first = this.entries.value[0]!;
+      this.activeId.value = first.id;
+      this.navigate(first.id, true);
     } else if (!this.userSelected && this.entries.value[0]!.id !== this.activeId.value) {
-      this.apply(this.entries.value[0]!.id);
+      const first = this.entries.value[0]!;
+      this.activeId.value = first.id;
+      this.navigate(first.id, true);
     }
     return () => {
+      router.removeRoute(entry.id);
       this.entries.value = this.entries.value.filter((value) => value !== entry);
       if (this.activeId.value === entry.id) {
-        this.activeId.value = '';
-        if (this.entries.value[0]) this.apply(this.entries.value[0].id);
+        const first = this.entries.value[0];
+        this.activeId.value = first?.id ?? '';
+        if (first) this.navigate(first.id, true);
+        else void router.replace('/');
       }
     };
   }
@@ -59,16 +74,12 @@ class Views implements AdminViews {
     this.requested = id;
     if (!this.entries.value.some((entry) => entry.id === id)) return;
     this.userSelected = true;
-    this.apply(id);
+    this.activeId.value = id;
+    this.navigate(id);
   }
 }
 
 const views = new Views();
-window.addEventListener('hashchange', () => {
-  if (views.syncing) { views.syncing = false; return; }
-  const id = hashId();
-  if (id) views.select(id);
-});
 
 export const client: AdminClient = {
   request: <T>(path: string, init?: RequestInit) => request<T>(path, init),

@@ -4,7 +4,7 @@
 
 ## 1. 交付范围与组成
 
-管理后台面向单所有者网关，按“先观测，后控制”交付。`web/` 是纯 Shell 构建包：只提供登录、浏览器端 Cordis Context、`ctx.views` 视图注册表、插件客户端 loader 和渲染插槽，不包含任何具体业务视图或硬编码路由。插件在自身目录 `client/` 编写前端视图，构建为独立 ESM 入口；admin 读取 `/api/admin/info` 的 enabled/client_entry，通过浏览器 `import()` 动态加载并交给 `ctx.plugin()`，插件再调用 `ctx.views.register()` 注册菜单与组件。插件禁用、未装配或卸载时，对应页面和导航不出现。构建产物由 server-http 在 /admin、/admin/* 提供；管理 API 使用 /api/admin/*。不需要独立前端运行进程，不新增第二消费者或事件副本作为后台前置。
+管理后台面向单所有者网关，按“先观测，后控制”交付。`web/` 是纯 Shell 构建包：只提供登录、浏览器端 Cordis Context、`ctx.views` 视图注册表、vue-router 4 动态路由、插件客户端 loader 和渲染插槽，不包含任何具体业务视图或硬编码业务路由。插件在自身目录 `client/` 编写前端视图，构建为独立 ESM 入口；admin 读取 `/api/admin/info` 的 enabled/client_entry，通过浏览器 `import()` 动态加载并交给 `ctx.plugin()`，插件再调用 `ctx.views.register()` 注册菜单与组件，注册表在 vue-router 上动态 `addRoute`。插件禁用、未装配或卸载时，对应页面和导航不出现。构建产物由 server-http 在 /admin、/admin/* 提供；管理 API 使用 /api/admin/*。不需要独立前端运行进程，不新增第二消费者或事件副本作为后台前置。
 
 admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}。默认按包名解析 `@imbrex/admin-web/package.json` 对应的 `dist`，不需要部署者填写绝对路径；`assets_dir` 仅作为外部构建目录的覆盖，必须为绝对目录。只有解析到实际存在的目录时才注册 GET/HEAD /admin 与 /admin/*；目录不存在、不是目录、无法读取或缺少 `index.html` 时 `/admin` 返回 404，不阻止 admin API 或宿主启动。目录应仅包含部署者提供的静态构建资产，不嵌入凭据或管理数据。前端使用 hash 路由，导航不改变服务端路径；server-http 仅提供实际存在的文件，`/admin` 与 `/admin/` 返回 index.html，其他缺失路径返回 404。不列目录，拒绝路径穿越和根目录外符号链接。
 
