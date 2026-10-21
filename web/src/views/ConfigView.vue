@@ -1,28 +1,21 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, shallowRef } from 'vue';
-import { describeError, errorRequestId, fetchConfiguration, type Configuration, type ConfigPlugin, type Json } from '../api';
+import { describeError, errorRequestId, fetchConfiguration, type Configuration } from '../api';
 
-function jsonRecord(value: Json | undefined): Record<string, Json> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : null;
+function configEntries(value: Record<string, unknown>): Array<[string, unknown]> {
+  return Object.entries(value);
 }
-function jsonPath(value: Json | undefined, ...keys: string[]): Json | undefined {
-  let current = value;
-  for (const key of keys) {
-    const record = jsonRecord(current);
-    if (!record) return undefined;
-    current = record[key];
-  }
-  return current;
+function keyLabel(key: string): string {
+  return key.replaceAll('_', ' ');
 }
-function jsonText(value: Json | undefined, fallback = '未提供'): string {
-  if (value === undefined) return fallback;
-  if (value === null) return '—';
+function isComplex(value: unknown): boolean {
+  return typeof value === 'object' && value !== null;
+}
+function valueText(value: unknown): string {
+  if (value === null || value === undefined) return '—';
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return JSON.stringify(value);
-}
-function jsonArray(value: Json | undefined): Json[] {
-  return Array.isArray(value) ? value : [];
+  return JSON.stringify(value, null, 2);
 }
 function pretty(value: unknown): string {
   return JSON.stringify(value ?? null, null, 2);
@@ -46,27 +39,13 @@ async function load(): Promise<void> {
 }
 
 function moduleLabel(module: string): string {
-  if (module === 'builtin:onebot-v11') return 'OneBot v11';
-  if (module === 'builtin:agent-chat') return 'Agent Chat';
-  return module === 'external' ? '外部模块' : module;
+  if (module === 'external') return '外部模块';
+  return module.startsWith('builtin:') ? module.slice('builtin:'.length) : module;
 }
 
 function sourcesText(sources: Array<{ exact?: string; prefix?: string }>): string {
   if (!sources.length) return '—';
   return sources.map((source) => source.exact !== undefined ? source.exact : `prefix:${source.prefix ?? ''}`).join(', ');
-}
-
-function listText(value: Json | undefined): string {
-  const items = jsonArray(value).map((item) => jsonText(item));
-  return items.length ? items.join(', ') : '—';
-}
-
-function credentialText(plugin: ConfigPlugin): string {
-  const credential = jsonPath(plugin.configuration, 'credential');
-  if (!credential || typeof credential !== 'object' || Array.isArray(credential)) return '—';
-  const name = jsonText(jsonPath(credential, 'name'));
-  const configured = jsonPath(credential, 'configured') === true;
-  return `${name}（${configured ? '已配置' : '未配置'}）`;
 }
 
 onMounted(() => { void load(); });
@@ -178,72 +157,19 @@ onUnmounted(() => controller.abort());
         </div>
 
         <div class="p-4">
-          <template v-if="plugin.module === 'builtin:onebot-v11'">
-            <dl class="grid gap-4 text-xs sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <dt class="text-slate-500 dark:text-slate-400">账号</dt>
-                <dd class="mt-1 font-mono">{{ jsonText(jsonPath(plugin.configuration, 'account_id')) }}</dd>
-              </div>
-              <div>
-                <dt class="text-slate-500 dark:text-slate-400">身份命名空间</dt>
-                <dd class="mt-1 font-mono">{{ jsonText(jsonPath(plugin.configuration, 'identity_namespace')) }}</dd>
-              </div>
-              <div>
-                <dt class="text-slate-500 dark:text-slate-400">传输</dt>
-                <dd class="mt-1 font-mono">{{ jsonText(jsonPath(plugin.configuration, 'transport')) }}</dd>
-              </div>
-              <div>
-                <dt class="text-slate-500 dark:text-slate-400">兼容配置</dt>
-                <dd class="mt-1 font-mono">{{ jsonText(jsonPath(plugin.configuration, 'compatibility_profile')) }}</dd>
-              </div>
-              <div>
-                <dt class="text-slate-500 dark:text-slate-400">群白名单</dt>
-                <dd class="mt-1 font-mono">{{ listText(jsonPath(plugin.configuration, 'allow_group_ids')) }}</dd>
-              </div>
-              <div>
-                <dt class="text-slate-500 dark:text-slate-400">私聊白名单</dt>
-                <dd class="mt-1 font-mono">{{ listText(jsonPath(plugin.configuration, 'allow_private_ids')) }}</dd>
-              </div>
-              <div>
-                <dt class="text-slate-500 dark:text-slate-400">访问凭据</dt>
-                <dd class="mt-1 font-mono">{{ credentialText(plugin) }}</dd>
-              </div>
-            </dl>
-          </template>
-
-          <template v-else-if="plugin.module === 'builtin:agent-chat'">
-            <dl class="grid gap-4 text-xs sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <dt class="text-slate-500 dark:text-slate-400">输入实例</dt>
-                <dd class="mt-1 font-mono">{{ jsonText(jsonPath(plugin.configuration, 'input_id')) }}</dd>
-              </div>
-              <div>
-                <dt class="text-slate-500 dark:text-slate-400">来源前缀</dt>
-                <dd class="mt-1 break-all font-mono">{{ jsonText(jsonPath(plugin.configuration, 'source_prefix')) }}</dd>
-              </div>
-              <div>
-                <dt class="text-slate-500 dark:text-slate-400">最大事件年龄</dt>
-                <dd class="mt-1 font-mono">{{ jsonText(jsonPath(plugin.configuration, 'max_event_age_seconds')) }} s</dd>
-              </div>
-              <div>
-                <dt class="text-slate-500 dark:text-slate-400">轮次超时</dt>
-                <dd class="mt-1 font-mono">{{ jsonText(jsonPath(plugin.configuration, 'turn_timeout_ms')) }} ms</dd>
-              </div>
-              <div class="sm:col-span-2">
-                <dt class="text-slate-500 dark:text-slate-400">触发过滤</dt>
-                <dd class="mt-1 break-all font-mono">{{ jsonText(jsonPath(plugin.configuration, 'filter'), '未配置') }}</dd>
-              </div>
-              <div class="sm:col-span-2">
-                <dt class="text-slate-500 dark:text-slate-400">Agent 配置</dt>
-                <dd class="mt-1 text-slate-600 dark:text-slate-300">{{ jsonText(jsonPath(plugin.configuration, 'agent_configuration')) }}</dd>
-              </div>
-            </dl>
-          </template>
-
-          <details v-else>
-            <summary class="cursor-pointer text-xs font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100">配置详情</summary>
-            <pre class="mt-2 max-h-72 overflow-auto rounded-lg bg-slate-50 p-3 font-mono text-xs text-slate-700 dark:bg-slate-950 dark:text-slate-300">{{ pretty(plugin.configuration) }}</pre>
-          </details>
+          <dl v-if="configEntries(plugin.configuration).length" class="grid gap-3 text-xs sm:grid-cols-2">
+            <div v-for="pair in configEntries(plugin.configuration)" :key="pair[0]" class="min-w-0">
+              <dt class="font-mono text-slate-500 dark:text-slate-400">{{ keyLabel(pair[0]) }}</dt>
+              <dd class="mt-1 break-all">
+                <span v-if="!isComplex(pair[1])" class="font-mono">{{ valueText(pair[1]) }}</span>
+                <details v-else>
+                  <summary class="cursor-pointer font-mono text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100">查看</summary>
+                  <pre class="mt-2 max-h-72 overflow-auto rounded-lg bg-slate-50 p-3 font-mono text-xs text-slate-700 dark:bg-slate-950 dark:text-slate-300">{{ pretty(pair[1]) }}</pre>
+                </details>
+              </dd>
+            </div>
+          </dl>
+          <p v-else class="text-sm text-slate-500 dark:text-slate-400">该插件没有可展示配置。</p>
         </div>
       </article>
     </section>
