@@ -106,6 +106,8 @@ M1-03/M1-04 需记录实际 pi、pi-acp、协议 SDK 和模型配置的版本/�
 
 正常自动运行、in_flight 的持久保存、异常暂停及人工恢复，统一以[应用消费](applications.md)为准。远程 ACP、并发调度和持久任务平台在有实际需求时另行设计。
 
+agent-chat 可选配置自动 `memory_context`，其调用位置、超时/字节上限、失败回退和不可信内容块约束见[应用消费第 9 节](applications.md#9-m1-04-配置与状态格式)。记忆服务是独立 Python/FastAPI 服务，不新增 MCP 工具入口；Agent 仍可通过已有授权工具显式联合查询其他来源。自动注入始终限于当前输入事件引用。
+
 <a id="m2-managed-agent"></a>
 
 ## 5. M2 托管 pi 配置与受控重启（待实现）
