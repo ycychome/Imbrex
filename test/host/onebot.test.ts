@@ -8,7 +8,7 @@ import { Host } from '../../src/host/host.js';
 import { parseConfig } from '../../src/host/config.js';
 import { loadModules } from '../../src/host/modules.js';
 import { object } from '../../src/core/validation.js';
-import { mapMessage, parseOneBotConfig } from '../../src/plugins/onebot-v11/protocol.js';
+import { imageFile, imageUrl, mapMessage, parseOneBotConfig } from '../../src/plugins/onebot-v11/protocol.js';
 import { startSimulator } from '../../examples/onebot/simulator.js';
 import { numericFixture, stringFixture } from '../../examples/onebot/fixtures.js';
 
@@ -30,6 +30,8 @@ async function fixture(t: TestContext, stringIds = false, available = true) {
   assert.ok(Array.isArray(raw.plugins)); object(raw.plugins.map((value) => object(value)).find((plugin) => plugin.id === 'qq-main')!.config).ws_url = 'ws://127.0.0.1:' + sim.port + '/';
   object(raw.plugins.map((value) => object(value)).find((plugin) => plugin.id === 'qq-main')!.config).access_token_env = envKey;
   assert.ok(Array.isArray(raw.principals));
+  const agentPrincipal = raw.principals.map((value) => object(value)).find((value) => value.id === 'qq-agent')!;
+  assert.ok(Array.isArray(agentPrincipal.invoke_capabilities)); agentPrincipal.invoke_capabilities.push('qq-main.resolve_image');
   raw.principals.push({ id: 'other', token_env: 'OTHER_TOKEN', permissions: ['events:read', 'capabilities:invoke', 'calls:read'], read_sources: [{ prefix: 'imbrex://other/' }], write_sources: [], invoke_capabilities: ['qq-main.reply'] });
   const filename = join(dir, 'config.json');
   const config = parseConfig(raw, filename, { IMBREX_QQ_AGENT_TOKEN: 'fixture-agent', IMBREX_OPERATOR_TOKEN: 'fixture-operator', OTHER_TOKEN: 'fixture-other' });
@@ -134,12 +136,62 @@ test('invalid native IDs and unsupported segments cannot enter storage; demo bui
   const parsed = parseOneBotConfig(config.plugins.find((plugin) => plugin.id === 'qq-main')!.config);
   for (const event of [
     { ...numericFixture, message_id: 9007199254740992 }, { ...numericFixture, self_id: 222222 },
-    { ...numericFixture, message: '[CQ:image,file=example]' }, { ...numericFixture, message: '[CQ:reply,id=01]' },
-    { ...numericFixture, message: [{ type: 'image', data: { file: 'example' } }] },
+    { ...numericFixture, message: '[CQ:video,file=example]' }, { ...numericFixture, message: '[CQ:reply,id=01]' },
+    { ...numericFixture, message: [{ type: 'video', data: { file: 'example' } }] },
   ]) assert.throws(() => mapMessage(event, parsed));
   assert.throws(() => parseOneBotConfig({ ...config.plugins.find((plugin) => plugin.id === 'qq-main')!.config, compatibility_profile: 'imaginary' }));
   config.plugins.find((plugin) => plugin.id === 'qq-main')!.module = 'builtin:mock';
   await assert.rejects(loadModules(config, '/tmp/fixture-config.json'), { code: 'invalid_request' });
+});
+
+test('message snapshots preserve sender identity and normalize supported CQ and array media segments', async (t) => {
+  const { config } = await fixture(t);
+  const parsed = parseOneBotConfig(config.plugins.find((plugin) => plugin.id === 'qq-main')!.config);
+  const event = { ...numericFixture, sender: { user_id: 654321, nickname: 'same', card: 'member' }, message: '[CQ:at,qq=all][CQ:at,qq=654321][CQ:image,file=a&#44;b,url=https://img.example/a?x=1&amp;y=2][CQ:face,id=14]x&#91;y&#93;' };
+  const mapped = mapMessage(event, parsed)!;
+  const data = object(mapped.event.data);
+  assert.equal(data.sender_id, '654321'); assert.equal(data.sender_nickname, 'same'); assert.equal(data.sender_card, 'member');
+  assert.deepEqual(data.message_segments, [
+    { type: 'at', data: { qq: 'all' } }, { type: 'at', data: { qq: '654321' } },
+    { type: 'image', data: { file: 'a,b', url: 'https://img.example/a?x=1&y=2' } },
+    { type: 'face', data: { id: '14' } }, { type: 'text', data: { text: 'x[y]' } },
+  ]);
+  const other = mapMessage({ ...event, user_id: 654322, sender: { user_id: 654322, nickname: 'same' }, message_id: 9 }, parsed)!;
+  assert.equal(object(other.event.data).sender_id, '654322');
+  const staleSnapshot = mapMessage({ ...event, user_id: 654322, message_id: 10 }, parsed)!;
+  assert.equal(object(staleSnapshot.event.data).sender_id, '654322');
+  assert.equal(object(staleSnapshot.event.data).sender_nickname, undefined);
+  const invalidSnapshot = mapMessage({ ...event, sender: { user_id: 'bad', nickname: 'wrong' } }, parsed)!;
+  assert.equal(object(invalidSnapshot.event.data).sender_id, '654321');
+  assert.equal(object(invalidSnapshot.event.data).sender_nickname, undefined);
+  assert.equal(object(mapMessage({ ...event, message: 'literal&#44;text' }, parsed)!.event.data).text, 'literal&#44;text');
+  assert.throws(() => mapMessage({ ...event, message: '[CQ:at,qq=not-a-number]' }, parsed));
+  assert.throws(() => mapMessage({ ...event, message: [{ type: 'video', data: {} }] }, parsed));
+  assert.throws(() => imageUrl('file:///etc/passwd'));
+  assert.throws(() => imageUrl('https://user:pass@images.example/photo'));
+  assert.throws(() => imageFile('/private/cache/photo.png'));
+});
+
+test('resolve_image is caller scoped, index checked, URL restricted, and removed on plugin stop', async (t) => {
+  const { app, sim, request, storeId } = await fixture(t);
+  const message = { ...numericFixture, sender: { user_id: 654321, nickname: 'same' }, message: [
+    { type: 'text', data: { text: 'photo' } }, { type: 'image', data: { file: 'fixture', url: 'https://images.example/photo.png' } },
+  ] };
+  sim.broadcast(message); await until(async () => (await app.info()).latestSeq === 1n);
+  const invoke = (segmentIndex: number, token = 'fixture-agent', id = '-42') => request('/v1/capabilities/qq-main.resolve_image/invoke', {
+    store_id: storeId, params: { input_event_ref: { source: 'imbrex://qq/123456/main/group/987654', id: 'message:' + id }, segment_index: segmentIndex },
+  }, token);
+  const resolved = await invoke(1);
+  assert.equal(resolved.status, 200);
+  assert.deepEqual(resolved.value.result, { url: 'https://images.example/photo.png', file: 'fixture' });
+  assert.equal((await invoke(1, 'fixture-other')).status, 403);
+  // The capability contract sanitizes any read-only handler rejection as provider_unavailable.
+  assert.equal((await invoke(0)).status, 503);
+  assert.equal((await invoke(1, 'fixture-agent', '999')).status, 503);
+  await app.stopPlugin('qq-main');
+  const listing = await request('/v1/capabilities');
+  assert.ok(Array.isArray(listing.value.capabilities));
+  assert.equal((listing.value.capabilities as unknown[]).some((item) => object(item).id === 'qq-main.resolve_image'), false);
 });
 
 test('burst ingress is bounded and the connection recovers without automatically sending', async (t) => {

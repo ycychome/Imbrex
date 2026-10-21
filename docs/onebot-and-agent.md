@@ -42,7 +42,7 @@ flowchart LR
 - 通过配置的完整 ws_url 连接服务提供的通用 API+Event 地址，不写死实现专属端口或路径。
 - 需要 access token 时通过 Authorization: Bearer 请求头发送；不把 Agent 的 Imbrex token 转发给远端服务。
 - 读取 get_version_info、get_login_info，必要时读取 get_status；记录声明的实现名、版本和协议版本。
-- 接收所允许账号的 message 事件，处理 group/private 文本及必要的 reply/text 消息段。
+- 接收所允许账号的 message 事件，处理 group/private 文本及 text/reply/at/image/face 消息段。
 - 使用 send_group_msg / send_private_msg 执行受限回复；协议已有的只读信息调用用于初始化与核验。
 - API 请求使用独立 echo 关联响应；echo 不是平台幂等键。
 
@@ -99,7 +99,7 @@ flowchart LR
 
 首版必须有 generic 配置；不预先承诺 napcat/snowluma 等命名 profile 已实现。只有确有差异且有测试时才加入相应 profile，未知 profile 拒绝启动。
 
-当前实现拒绝 ws_url 中的用户名、密码、query 与 fragment；认证只从 access_token_env 读取。账号、群号、用户号配置为无前导零的正十进制字符串，最大 Number.MAX_SAFE_INTEGER；消息 ID 接受 int32 范围（包括负数）。Action 的 group_id/user_id 编码为精确整数，reply.id 为字符串。白名单各至多 1024 项，消息至多 128 段；只接受 text/reply 数组段或对应 CQ 字符串，其他段拒收。群聊只接收 sub_type=normal，自身群消息保存为 outbound；不声明完整自发消息覆盖。
+当前实现拒绝 ws_url 中的用户名、密码、query 与 fragment；认证只从 access_token_env 读取。账号、群号、用户号配置为无前导零的正十进制字符串，最大 Number.MAX_SAFE_INTEGER；消息 ID 接受 int32 范围（包括负数）。Action 的 group_id/user_id 编码为精确整数，reply.id 为字符串。白名单各至多 1024 项，消息至多 128 段；接受 text/reply/at/image/face 数组段或对应 CQ 字符串，其他段拒收。CQ 参数解析逗号与方括号转义，文本仍保持原来的文本解码语义。群聊只接收 sub_type=normal，自身群消息保存为 outbound；不声明完整自发消息覆盖。
 
 握手和单次 Action 等待上限为 5 秒；断线后间隔 1 秒重连，15 秒发送一次 WS ping、下个周期仍无 pong 则关闭。每个连接最多 8 个未决请求、64 KiB 帧和 32 条待写事件；溢出关闭连接并报告诊断，未持久化输入可能丢失。没有历史补取或自动重发。绑定文件 onebot-binding.json 通过文件 fsync、rename、目录 fsync 保存；观察到实现名称变化时拒绝恢复，版本升级保留记录但不等于兼容声明。
 
@@ -118,6 +118,10 @@ identity_namespace 是该账号一段经过验证的原生事件身份范围，�
 ## 6. 事件映射与来源覆盖
 
 事件 type 为 qq.message.group / qq.message.private；data 至少包含 account_id、identity_namespace、conversation_type、conversation_id、sender_id、native_message_id、direction、text 及受控 message_segments。
+
+新消息可包含 `sender_nickname`、`sender_card` 的发生时快照；人物身份始终来自稳定 `sender_id`，同名不合并，昵称变更不重写旧事件。可选 sender 元数据身份无效或不匹配时忽略快照，原文继续采集；历史记录缺字段保持未知。`text` 只拼接 text 段，reply 引用语义保持；at 的 qq 为平台 ID 或 all，image 保存 file 与可选 URL，face 保存规范 ID。
+
+`<OneBot实例>.resolve_image` 是内部只读素材能力，参数为 `{input_event_ref:{source,id},segment_index}`。处理器使用实际 caller 的 `readEvent` 校验原始入站消息、账号、命名空间、会话与图片段；返回 `{file,url}`，只允许无 userinfo 的 HTTP(S) locator。旧 URL 缺失时通过原消息 ID 的 `get_msg` 回查，并核验身份及相同图片段；不读取远端或本地文件路径。只向内部 Memory reader 授予此能力；Agent 使用 Memory 业务能力，不应得到素材 URL。下载与重定向、DNS 和私网策略由 [Memory 服务](memory.md) 执行。
 
 只接纳配置账号与允许范围内的事件。self_id/登录账号冲突时报告身份错误；自身消息标 outbound，不伪装成新的入站触发。只有指定连接器主体能发布这个 source 范围，Agent 派生事件使用自己的来源。
 

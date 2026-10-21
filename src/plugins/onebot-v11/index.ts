@@ -7,7 +7,7 @@ import { limits, object, string } from '../../core/validation.js';
 import type { EventInput, EventRef, JsonObject } from '../../core/types.js';
 import type { CallOutcome } from '../../core/store.js';
 import type {} from '../../host/plugin-api.js';
-import { mapMessage, nativeId, parseOneBotConfig, replyAction, replySchema } from './protocol.js';
+import { imageFile, imageUrl, mapMessage, nativeId, normalizeSegments, parseOneBotConfig, replyAction, replySchema, resolveImageSchema, sourceFor } from './protocol.js';
 import { OneBotSocket, RequestError } from './socket.js';
 
 export const name = 'onebot-v11';
@@ -85,6 +85,44 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
           code: known ? error.code : 'onebot_result_unconfirmed', message: 'OneBot send result could not be confirmed.',
         } };
       }
+    },
+  }));
+
+  ctx.effect(() => api.capabilities.register<{ input_event_ref: EventRef; segment_index: number }, { url: string; file: string }>({
+    localName: 'resolve_image', description: 'Resolve a permitted inbound QQ image segment to its HTTP(S) URL.',
+    schemaVersion: '1', isSideEffectful: false, inputSchema: resolveImageSchema,
+    handler: async ({ input_event_ref: ref, segment_index }, invocation) => {
+      const record = await invocation.readEvent(ref);
+      if (!record) fail('invalid_params', 'Image reference is unavailable');
+      const data = object(record.event.data, 'invalid_params');
+      const kind = data.conversation_type;
+      const conversation = nativeId(data.conversation_id);
+      const messageId = nativeId(data.native_message_id, true);
+      if (record.parents.length || (kind !== 'group' && kind !== 'private') || record.event.type !== 'qq.message.' + kind ||
+          record.event.source !== sourceFor(config, kind, conversation) || record.event.id !== 'message:' + messageId ||
+          data.account_id !== config.accountId || data.identity_namespace !== config.identityNamespace || data.direction !== 'inbound' ||
+          nativeId(data.sender_id) === config.accountId || (kind === 'private' && data.sender_id !== conversation) ||
+          !(kind === 'group' ? config.groupIds : config.privateIds).includes(conversation)) fail('invalid_params', 'Untrusted image reference');
+      const stored = Array.isArray(data.message_segments) ? data.message_segments.map((entry) => object(entry, 'invalid_params')) : [];
+      let segment = stored[segment_index];
+      if (!segment || segment.type !== 'image') fail('invalid_params', 'Image segment is unavailable');
+      let imageData = object(segment.data, 'invalid_params');
+      if (typeof imageData.url !== 'string') {
+        const active = connection;
+        if (!ready || !active) fail('provider_unavailable', 'OneBot image lookup is unavailable');
+        const response = await active.request('get_msg', { message_id: Number(messageId) }, invocation.signal);
+        if (response.status !== 'ok' || response.retcode !== 0) fail('provider_unavailable', 'OneBot image lookup failed');
+        const message = object(response.data, 'provider_unavailable');
+        if (nativeId(message.message_id, true) !== messageId || nativeId(message.user_id ?? object(message.sender).user_id) !== nativeId(data.sender_id) ||
+            (kind === 'group' && nativeId(message.group_id) !== conversation) ||
+            (kind === 'private' && message.user_id !== undefined && nativeId(message.user_id) !== conversation)) fail('invalid_params', 'OneBot message identity mismatch');
+        const fetched = normalizeSegments(message.message);
+        segment = fetched[segment_index]!;
+        if (!segment || segment.type !== 'image') fail('invalid_params', 'Image segment is unavailable');
+        imageData = object(segment.data);
+        if (imageData.file !== object(stored[segment_index]!.data, 'invalid_params').file) fail('invalid_params', 'OneBot image segment mismatch');
+      }
+      return { url: imageUrl(imageData.url), file: imageFile(imageData.file) };
     },
   }));
 
