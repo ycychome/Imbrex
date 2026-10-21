@@ -2,6 +2,8 @@
 
 统一开发基线 0.3 · 2026-10-18。本文是 Capability 行为规范；HTTP 表达见 [HTTP 契约](contracts.md)，QQ 的具体工具见 [OneBot 接入](onebot-and-agent.md)。
 
+记忆服务复用此能力/既有 REST 与 MCP 边界：search、context、get、status、operation、remember、update、forget、rebuild 九类操作均走现有协议插件和主体授权，不新增 MCP Server。具体的独立 Python Graphiti 服务及异步操作接收语义见[应用消费](applications.md#9-m1-04-配置与状态格式)。副作用型写操作返回“已接受”时只代表操作已排队/接收；调用者应通过 status/operation 查询最终结果，不得将接受回执记作生效。
+
 ## 1. 注册和身份
 
 能力是插件提供的可调用操作，事实事件只描述已经发生的内容。内核不把重读事件自动变成执行命令。

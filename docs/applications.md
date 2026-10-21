@@ -41,7 +41,7 @@ Consumer 模块名为 agent-chat（原 acp-consumer）；实例 ID、消费状�
 ## 4. 一条输入的处理顺序
 
 1. 拉取有界一页，按顺序处理。检查允许来源、入站方向和事件年龄；明确跳过的输入可保存进度，不向 Agent 提交。
-2. 为有效输入取得或恢复所属 ACP 会话，持久保存会话关联。准备受控输入：原事件引用、内容及所需上下文入口。
+2. 为有效输入取得或恢复所属 ACP 会话，持久保存会话关联。可选的 `memory_context` 仅用当前事件的 source/id 调用指定只读能力；它在 `in_flight` 持久化前完成，失败或超时不会阻断原事件轮次。准备受控输入：原事件引用、内容及所需上下文入口。
 3. 在写入 `session/prompt` 前，持久保存该输入的 in_flight。只要该标记存在，就不能处理下一条输入或自动重发这一轮。
 4. 发送内容块数组形式的 prompt。写入 stdin、收到 `session/update` 或工具活动通知均不代表本轮完成。
 5. 收到该次请求正常的最终响应 `stopReason: "end_turn"` 后，在一次状态替换中将 last_seq 推进到该输入并清除 in_flight。保存失败保留未决责任并暂停。
@@ -100,7 +100,11 @@ M1 要验证当前存储中的事件续读、正常自动触发、未决输入�
 
 ## 9. M1-04 配置与状态格式
 
-builtin:agent-chat 的配置包括 input_id、source_prefix、max_event_age_seconds、agent，另可指定 turn_timeout_ms 和 filter。source_prefix 必须是规范的 imbrex://qq/<account>/<namespace>/；只触发该范围内可信的 qq.message.group/private 原始入站事件。最大年龄须显式给出，范围 1—86400 秒，示例为 300；超过当前时间 5 秒的来源时间也跳过。未提供来源时间时使用 accepted_at。
+builtin:agent-chat 的配置包括 input_id、source_prefix、max_event_age_seconds、agent，另可指定 turn_timeout_ms、filter 和 `memory_context`。source_prefix 必须是规范的 imbrex://qq/<account>/<namespace>/；只触发该范围内可信的 qq.message.group/private 原始入站事件。最大年龄须显式给出，范围 1—86400 秒，示例为 300；超过当前时间 5 秒的来源时间也跳过。未提供来源时间时使用 accepted_at。
+
+`memory_context` 是可选对象 `{ "capability": "<authorized-instance>.<name>", "timeout_ms": 2000, "max_bytes": 8192 }`；后两项可省略，默认值分别为 2000 ms 与 8192 字节，最大也分别为 2000 与 8192。Consumer 以只读 `api.capabilities.invoke` 传入 `{ input_event_ref: { source, id }, timeout_ms, max_bytes }`，不传历史事件、会话映射或跨会话键。配置的调用方 Principal 必须已有 `capabilities:invoke` 及该能力授权。成功的 `{ context: string, ... }` 作为独立、明确标记为不可信证据的 ACP 内容块；原始事件内容仍单独传递。超时、错误、无效结果和未索引状态附 `memory unavailable` 或 `memory stale` 标记，照常运行原事件轮次。停止信号在记忆读取后会阻止继续提交 prompt。这个配置不改变 selection/binding，也不改写或迁移现有 version=1 ConsumerState。
+
+长期记忆能力、Memory 插件配置、REST/MCP 使用方式、私有 Python 服务部署与恢复规则见[长期记忆](memory.md)。`examples/memory/` 包含可编辑的最小网关配置、服务配置和待验 QA 夹具。
 
 filter 同时包含 group_ids、private_user_ids 两个数组，ID 使用 OneBot 支持范围内的规范正十进制字符串，保存前去重排序。例如 `{ "group_ids": ["987654"], "private_user_ids": ["654321"] }` 允许指定群的入站消息（不额外限制发送者），或指定用户的私聊消息；私聊名单不放行该用户在其他群的消息。空数组不允许对应类型，两个空数组不触发任何输入；未配置 filter 保持原行为。过滤发生在创建/恢复会话和提交 prompt 之前，被排除的事件仍推进 last_seq，并记录 consumer_skip_filter。该配置仅控制 Consumer 触发，不改变连接器采集范围或 Agent 的 MCP 读取与调用权限。
 

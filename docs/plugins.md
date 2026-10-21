@@ -113,6 +113,7 @@ host.startPlugin/stopPlugin 当前是受信内部控制入口，供生命周期�
 | mock | 注册 mock.echo；测试环境另配可控副作用提供者 | 验证发现、schema、授权与调用记录 |
 | onebot-v11 | 通过标准 v11 接口接纳 QQ 事实与封装 reply | 验证不同服务实现可复用同一插件 |
 | agent-chat | 读取入站事件，通过 ACP stdio 驱动现成 Agent | 保留会话、进度与未决语义，M2 增加管理描述和受控配置应用 |
+| memory（Python 服务） | 复用 Graphiti 0.31.2 与 Neo4j 5.26 LTS 管理长期记忆 | 独立 FastAPI 服务；不属于 Cordis 插件。TS 插件只通过既有能力协议消费，不增加 MCP 入口 |
 | server-http | 提供 ctx.http 共享监听与路由注册 | 路由随插件注销，统一请求预算和连接清理 |
 | api-rest / adapter-mcp | 从 adapters 迁移现有 REST/MCP 入口 | 路径、授权和结果语义不变 |
 | admin（M2） | 管理 API 与静态资产注册；前端源码在独立 `web/` 构建包，M2-02 消费宿主 AdminRegistry | Admin 晚启动、卸载和重启不影响业务实例 |

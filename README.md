@@ -19,6 +19,7 @@ Imbrex 是一个面向个人数字生活与 AI Agent 的可扩展事件与能力
 - **轻重双轨消费模型**
   - **进程内轻量插件**：通过事件钩子实时响应，几十行代码即可实现群消息过滤或简单转发。
   - **进程外独立应用**：应用可通过 HTTP 主动读取并调用工具；M1 的 Agent 通过 MCP 使用网关，agent-chat 插件负责事件触发，Agent 自己管理模型循环和历史。
+  - **可选长期记忆**：agent-chat 可通过授权的只读能力为当前事件注入不可信记忆证据；能力用法、Graphiti 服务运维与待验中文 QA 夹具见[长期记忆文档](docs/memory.md)。夹具不代表已执行真实模型验证。
 - **轻量极简，拒绝过度设计**
   无分布式中间件依赖，使用单机 SQLite (WAL)，提供可运行的本地配置与演示。
 
@@ -90,6 +91,7 @@ flowchart LR
 - **[Cordis 插件开发指南](docs/plugins.md)**：插件开发规范、服务注入与连接器模板。
 - **[OneBot 与 Agent 接入](docs/onebot-and-agent.md)**：OneBot v11 协议连接与 Agent 闭环指南。
 - **[Agent 协议接入](docs/agent-integration.md)**：MCP 工具与上下文、ACP 事件触发，以及 pi/pi-acp 复用边界。
+- **[长期记忆](docs/memory.md)**：Memory 能力、REST/MCP 调用、Python 服务配置、图像处理与恢复。
 - **[配置与运维指南](docs/operations.md)**：主体鉴权、权限配置、单实例启动与优雅停机。
 - **[M1 接入与恢复记录](docs/experiments/m1-operations.md)**：停机恢复命令、模拟证据、真实服务配置与待验范围。
 

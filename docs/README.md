@@ -32,6 +32,7 @@ Imbrex 是基于 Cordis 的可扩展事件与能力网关。插件接入事实�
 | 13 | [待决事项](open-questions.md) | 实际接入信息、工程探针与后续触发 |
 | 14 | [技术依据](references.md) | 固定官方来源、协议和实现观察版本 |
 | 15 | [M2 管理控制台](admin.md) | 已定稿；基础管理页已实现，观测、配置和在线处置待实现 |
+| 16 | [长期记忆](memory.md) | Memory 能力、REST/MCP 用法、私有 Python 服务部署、媒体处理与恢复 |
 
 事件与能力文档定义行为，HTTP 文档定义 REST 表达，Agent 接入文档定义 M1 的 MCP/ACP 边界，插件文档定义进程内接入。发生矛盾应一起修复，不可从不同章节选择便利的解释。
 
@@ -52,6 +53,7 @@ Imbrex 是基于 Cordis 的可扩展事件与能力网关。插件接入事实�
 - 能力既可只读也可产生外部效果；外部写要求稳定 call_id，unknown 不自动重发。
 - `onebot-v11` 插件负责标准协议与 QQ 映射，具体实现差异限于显式兼容适配。
 - `agent-chat` 保存会话关联、消费进度与未决输入，异常未确认时暂停；模型循环和历史首接复用 pi/pi-acp。
+- `agent-chat` 可在 `in_flight` 之前按当前事件引用调用授权的只读记忆能力；结果作为不可信证据单独交给 Agent，失败时继续本轮。完整使用、配置和服务恢复规范见[长期记忆](memory.md)。
 - M2-01 已将外部协议收敛到 plugins，acp-consumer 更名 agent-chat，删除 observer；core 保持不依赖网络/宿主框架。
 - M2 使用宿主 AdminRegistry、显式管理权限和 Vue 3 + Vite + TailwindCSS 控制台；filter 在轮次边界应用，模型/窗口/提示词经受控 Agent 重启应用。
 - 不自动 GC，不建设 B1/B2/C、附件归档、工作流平台、插件市场或高可用集群。
