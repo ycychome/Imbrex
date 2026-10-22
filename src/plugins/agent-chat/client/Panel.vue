@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ViewClient } from '@imbrex/ui-contract';
 import { Chip, CopyButton, EmptyState, ErrorNotice, JsonBlock, KeyValueList, PageHeader, PanelFrame, RelativeTime, formatDuration, formatFull, usePanels, type KeyValueEntry, type PanelEntry } from '@imbrex/ui-contract/ui';
+import Control from './control/Control.vue';
 
 const props = defineProps<{ client: ViewClient }>();
 
@@ -228,19 +229,11 @@ function configurationEntries(entry: PanelEntry): KeyValueEntry[] {
           </div>
         </dl>
 
-        <div v-if="inFlight(entry)" class="mt-4 rounded-[var(--radius)] border border-[color-mix(in_oklab,var(--warn)_35%,var(--line))] bg-[color-mix(in_oklab,var(--warn)_8%,var(--surface))] px-3 py-2">
-          <p class="text-xs font-medium">进行中的输入</p>
-          <p class="mt-1 font-mono text-[11px] leading-relaxed text-[var(--muted)]">
-            {{ textOf(inFlight(entry)?.id) }} · seq {{ textOf(inFlight(entry)?.seq) }} · {{ textOf(inFlight(entry)?.source) }}
-          </p>
-          <p v-if="inFlight(entry)?.session_id" class="mt-0.5 font-mono text-[11px] text-[var(--faint)]">
-            会话 {{ textOf(inFlight(entry)?.session_id) }}
-          </p>
-        </div>
-
         <p class="mt-3 text-[11px] leading-relaxed text-[var(--faint)]">
           模型阶段 {{ textOf(dataOf(entry).model_stage, '未知') }}；未取得模型或工具阶段时不从进程推断。
         </p>
+
+        <Control :client="client" :entry="entry" @reload="load" />
 
         <details class="mt-4 border-t border-[var(--line)] pt-3">
           <summary class="cursor-pointer text-xs font-medium text-[var(--muted)]">配置</summary>

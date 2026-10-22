@@ -14,12 +14,20 @@ export interface PanelView {
   data: Record<string, unknown>;
 }
 
+export interface PanelAction {
+  id: string;
+  title: string;
+  input_schema: unknown;
+  confirm_text?: string;
+}
+
 export interface PanelSummary {
   instance_id: string;
   module: string;
   generation: string;
   title: string;
   icon: string;
+  actions?: PanelAction[];
 }
 
 export interface PanelDetail {
