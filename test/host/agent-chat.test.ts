@@ -96,7 +96,10 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
   };
   const panel = async () => {
     const response = await fetch('http://127.0.0.1:' + host().port + '/api/admin/panels/agent', { headers: { authorization: 'Bearer ' + values.IMBREX_OPERATOR_TOKEN } });
-    assert.equal(response.status, 200); return object(await response.json());
+    assert.equal(response.status, 200);
+    const body = object(await response.json());
+    // Management tests assert the plugin payload; the HTTP layer wraps it in the declarative view.
+    return { ...body, data: object(body.data).data } as Record<string, unknown>;
   };
   const action = async (id: string, params: unknown, overrides: Record<string, unknown> = {}, token = values.IMBREX_OPERATOR_TOKEN!) => {
     const current = await panel();
