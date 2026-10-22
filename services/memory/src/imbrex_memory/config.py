@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
 
 from .models import StrictModel, digest
+
+EXTRACTION_CONTRACT_VERSION = 1
 
 
 class ModelConfig(StrictModel):
@@ -42,22 +44,37 @@ class EmbeddingConfig(ModelConfig):
     dimensions: int = Field(ge=1, le=8192)
 
 
+class ChatModelConfig(ModelConfig):
+    reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None = None
+
+
+class ExtractionModelConfig(ChatModelConfig):
+    structured_output_mode: Literal["json_schema", "json_object"] = "json_schema"
+    max_output_tokens: int = Field(default=4096, ge=1, le=65536)
+
+
 class ServiceConfig(StrictModel):
     data_dir: str = "/data"
     token_env: str = "MEMORY_SERVICE_TOKEN"
     neo4j_uri: str = "bolt://neo4j:7687"
     neo4j_user: str = "neo4j"
     neo4j_password_env: str = "NEO4J_PASSWORD"
-    extraction: ModelConfig
+    extraction: ExtractionModelConfig
     embedding: EmbeddingConfig
-    vision: ModelConfig | None = None
+    vision: ChatModelConfig | None = None
     vision_profile: dict[str, Any] | None = None
     media: dict[str, Any] = Field(default_factory=dict)
     queue_limit: int = Field(default=32, ge=1, le=128)
     request_timeout_seconds: int = Field(default=120, ge=1, le=600)
 
     def fingerprint(self) -> str:
-        return digest({"extraction": self.extraction.model_dump(), "embedding": self.embedding.model_dump()})
+        return digest(
+            {
+                "extraction": self.extraction.model_dump(),
+                "extraction_contract_version": EXTRACTION_CONTRACT_VERSION,
+                "embedding": self.embedding.model_dump(),
+            }
+        )
 
     def token(self) -> str:
         value = os.environ.get(self.token_env, "")

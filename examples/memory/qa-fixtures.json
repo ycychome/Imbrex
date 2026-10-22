@@ -3,7 +3,7 @@
   "items": [
     {
       "id": "qa01",
-      "question": "小林长期明确表示不喝什么？",
+      "question": "小林明确表示不喝什么？",
       "evidence": "小林明确说自己不喝咖啡。",
       "expected": "咖啡。"
     },
@@ -39,7 +39,7 @@
     },
     {
       "id": "qa07",
-      "question": "谁承诺在周五前完成发布检查？",
+      "question": "谁承诺在周五下班前完成发布检查？",
       "evidence": "林青答应周五下班前完成发布检查。",
       "expected": "林青，周五下班前。"
     },
@@ -51,9 +51,9 @@
     },
     {
       "id": "qa09",
-      "question": "图片里反复出现的角色是什么动物？",
+      "question": "团队分享的反应图与什么场景有关？",
       "evidence": "团队分享了一张关于“等待构建”的反应图。",
-      "expected": "猫。"
+      "expected": "等待构建。"
     },
     {
       "id": "qa10",
@@ -73,7 +73,7 @@
       "id": "qa12",
       "question": "图中猫咪为什么盯着屏幕？",
       "evidence": "图像来自团队调试代码时分享的反应图。",
-      "expected": "猫像是在认真找代码里的分号，调侃调试时的疲惫。",
+      "expected": "猫在认真找代码里的分号。",
       "image": "images/meme-cat.png",
       "evidence_kind": "image"
     },
@@ -81,13 +81,13 @@
       "id": "qa13",
       "question": "这张图的笑点是什么？",
       "evidence": "图像来自构建进度等待的讨论。",
-      "expected": "进度显示快完成却停住，调侃等待最后一点耗时很久。",
+      "expected": "进度接近完成却仍需等待，与“最后一点马上好”的文字形成反差。",
       "image": "images/meme-loading.png",
       "evidence_kind": "image"
     },
     {
       "id": "qa14",
-      "question": "图里的角色对加班是什么态度？",
+      "question": "图里的角色对再开会是什么态度？",
       "evidence": "图像来自团队连续开会后的聊天。",
       "expected": "角色电量耗尽，却还要继续开会，表达精力不足的自嘲。",
       "image": "images/meme-battery.png",
@@ -97,7 +97,7 @@
       "id": "qa15",
       "question": "这张梗图想表达什么？",
       "evidence": "图像来自团队讨论合并冲突后的反应图。",
-      "expected": "冲突虽已解决但仍担心残留问题，以恐龙作意外残留的笑点。",
+      "expected": "冲突已经解决，恐龙却还在，以意外残留形成反差。",
       "image": "images/meme-merge.png",
       "evidence_kind": "image"
     },

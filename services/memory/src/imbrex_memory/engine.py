@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import re
 import sqlite3
+from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
@@ -11,6 +13,41 @@ from .config import ServiceConfig
 from .graph import Extractor, GraphIndex
 from .models import Candidate, MemoryError, OperationRequest, QueryRequest, canonical, digest, now
 from .store import Store
+
+
+def lexical_scores(query: str, memories: list[dict[str, Any]]) -> list[float]:
+    """BM25 over words and CJK character bigrams, bounded to authorized memories.
+
+    Graphiti's episode membership is a useful signal, but a generic graph hit
+    must not hide a memory containing the specific fact being requested.
+    """
+
+    def terms(text: str) -> Counter[str]:
+        result: Counter[str] = Counter()
+        for token in re.findall(r"[\u3400-\u9fff]+|[^\W_]+", text.casefold()):
+            if re.fullmatch(r"[\u3400-\u9fff]+", token):
+                result.update(token)
+                result.update(token[index : index + 2] for index in range(len(token) - 1))
+            else:
+                result[token] += 1
+        return result
+
+    documents = [terms(memory["content"]) for memory in memories]
+    lengths = [sum(document.values()) for document in documents]
+    average = sum(lengths) / max(1, len(lengths)) or 1
+    frequencies: Counter[str] = Counter(term for document in documents for term in document)
+    wanted = terms(query)
+    result = []
+    for document, length in zip(documents, lengths, strict=True):
+        score = 0.0
+        for term in wanted.keys() & document.keys():
+            inverse_frequency = math.log(1 + (len(documents) - frequencies[term] + 0.5) / (frequencies[term] + 0.5))
+            frequency = document[term]
+            # Single CJK characters are useful for short names, but noisy for questions.
+            weight = 0.25 if re.fullmatch(r"[\u3400-\u9fff]", term) else 1.0
+            score += weight * inverse_frequency * frequency * 2.2 / (frequency + 1.2 * (0.25 + 0.75 * length / average))
+        result.append(score)
+    return result
 
 
 class Engine:
@@ -391,12 +428,16 @@ class Engine:
         extracted = await self.extractor.extract(fresh)
         refs = {(record["source"], record["id"]) for record in fresh}
         people = {person for record in fresh for person in [record["person_id"], *record.get("mentioned_person_ids", [])]}
-        memories: list[tuple[dict[str, Any], str]] = []
+
+        # Validate every model result before the first non-transactional Graphiti write.
         for candidate in extracted.memories:
             if any((ref.source, ref.id) not in refs for ref in candidate.evidence_refs) or any(
                 subject not in people for subject in candidate.subjects
             ):
                 raise MemoryError("invalid_extraction")
+
+        memories: list[tuple[dict[str, Any], str]] = []
+        for candidate in extracted.memories:
             if any(
                 self.store.db.execute(
                     "SELECT 1 FROM tombstones WHERE scope=? AND evidence_id=? AND category=?", (scope["key"], ref.id, candidate.category)
@@ -528,7 +569,13 @@ class Engine:
         replacements: list[tuple[str, list[tuple[dict[str, Any], str]]]] = []
         self.recovery_generations = {scope["key"]: int(digest([request.request_id, scope["key"]])[:12], 16) + 2 for scope in scopes}
         try:
-            for row in self.store.db.execute("SELECT * FROM operations WHERE state='unknown' ORDER BY rowid").fetchall():
+            # Only an explicit maintenance rebuild retries rejected automatic
+            # extraction, in the fresh generation. Other failed writes stay failed.
+            recoverable = self.store.db.execute(
+                "SELECT * FROM operations WHERE state='unknown' OR "
+                "(state='failed' AND error='invalid_extraction' AND json_extract(body,'$.kind')='ingest') ORDER BY rowid"
+            ).fetchall()
+            for row in recoverable:
                 original = OperationRequest.model_validate_json(row["body"])
                 if original.store_id != request.store_id or original.instance_id != request.instance_id or original.kind == "rebuild":
                     continue
@@ -741,11 +788,10 @@ class Engine:
                 episodes = await self.graph.search(groups, query, 32)
             except Exception:
                 stale = True
-        tokens = set(re.findall(r"[\w\u4e00-\u9fff]", query.casefold()))
+        scores = {memory["id"]: score for memory, score in zip(candidates, lexical_scores(query, candidates), strict=True)}
         candidates.sort(
             key=lambda memory: (
-                memory.get("episode_uuid") in episodes,
-                len(tokens & set(memory["content"].casefold())),
+                scores[memory["id"]] + (1.0 if memory.get("episode_uuid") in episodes else 0.0),
                 memory["observed_at"],
             ),
             reverse=True,

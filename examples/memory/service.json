@@ -7,7 +7,10 @@
   "extraction": {
     "base_url": "https://api.example.invalid/v1",
     "model": "replace-after-vendor-approval-extraction-model",
-    "api_key_env": "MEMORY_EXTRACTION_KEY"
+    "api_key_env": "MEMORY_EXTRACTION_KEY",
+    "structured_output_mode": "json_schema",
+    "max_output_tokens": 4096,
+    "reasoning_effort": null
   },
   "embedding": {
     "base_url": "https://api.example.invalid/v1",
@@ -18,7 +21,8 @@
   "vision": {
     "base_url": "https://api.example.invalid/v1",
     "model": "replace-after-vendor-approval-vision-model",
-    "api_key_env": "MEMORY_VISION_KEY"
+    "api_key_env": "MEMORY_VISION_KEY",
+    "reasoning_effort": null
   },
   "vision_profile": {
     "formats": ["jpeg", "png", "webp"],

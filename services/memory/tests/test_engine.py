@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from imbrex_memory.config import EmbeddingConfig, ModelConfig, ServiceConfig
+from imbrex_memory.config import EmbeddingConfig, ExtractionModelConfig, ServiceConfig
 from imbrex_memory.engine import Engine
 from imbrex_memory.models import Candidate, Extraction, MemoryError, OperationRequest, QueryRequest, digest, now
 from imbrex_memory.store import Store
@@ -87,7 +87,7 @@ def config(tmp_path: Path, *, queue_limit: int = 4) -> ServiceConfig:
         data_dir=str(tmp_path),
         queue_limit=queue_limit,
         request_timeout_seconds=1,
-        extraction=ModelConfig(base_url="https://models.example.invalid/v1", model="extract-test", api_key_env="EXTRACT_KEY"),
+        extraction=ExtractionModelConfig(base_url="https://models.example.invalid/v1", model="extract-test", api_key_env="EXTRACT_KEY"),
         embedding=EmbeddingConfig(base_url="https://models.example.invalid/v1", model="embed-test", api_key_env="EMBED_KEY", dimensions=8),
     )
 
@@ -185,6 +185,82 @@ async def test_ingestion_is_evidence_bound_and_replay_does_not_duplicate_graph_o
         with pytest.raises(MemoryError, match="invalid_extraction"):
             await engine.apply(request("ingest", {"records": [event_record("message:2", "2")]}, request_id="d" * 64))
         assert store.db.execute("SELECT count(*) FROM records").fetchone()[0] == 1
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_ingest_validates_all_candidates_before_any_graph_write(tmp_path: Path) -> None:
+    engine, store, graph, _ = engine_for(
+        tmp_path,
+        extracted=[candidate(event_id="message:1"), candidate(event_id="message:missing")],
+    )
+    ingest = request(
+        "ingest",
+        {"records": [event_record("message:1", "1"), event_record("message:2", "2")]},
+        request_id="a" * 64,
+    )
+    try:
+        with pytest.raises(MemoryError, match="invalid_extraction"):
+            await engine.apply(ingest)
+        assert graph.added == []
+        assert store.db.execute("SELECT count(*) FROM records").fetchone()[0] == 0
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_specific_chinese_evidence_outranks_a_generic_graph_hit(tmp_path: Path) -> None:
+    engine, store, graph, _ = engine_for(
+        tmp_path,
+        extracted=[
+            candidate(content="紫苏明确说自己不喝浓茶。"),
+            candidate(content="紫苏喜欢在项目群分享图片。"),
+        ],
+    )
+    try:
+        await engine.apply(request("ingest", {"records": [event_record("message:1", "1")]}))
+        scope = store.scope(STORE_ID, INSTANCE_ID, SOURCE, engine.config.fingerprint())
+        memories = store.current([scope["key"]])
+        generic = next(memory for memory in memories if "分享图片" in memory["content"])
+
+        async def generic_graph_hit(_groups: list[str], _query: str, _limit: int) -> set[str]:
+            return {generic["episode_uuid"]}
+
+        graph.search = generic_graph_hit  # type: ignore[method-assign]
+        engine.ready = True
+        result = await engine.query(query("search", {"query": "紫苏明确表示不喝什么？", "limit": 1}))
+        assert result["stale"] is False
+        assert result["memories"][0]["content"] == "紫苏明确说自己不喝浓茶。"
+        # With no lexical overlap, graph relevance is still useful.
+        result = await engine.query(query("search", {"query": "unrelated semantic paraphrase", "limit": 1}))
+        assert result["memories"][0]["id"] == generic["id"]
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_maintenance_rebuild_recovers_rejected_ingest_in_a_fresh_generation(tmp_path: Path) -> None:
+    engine, store, graph, extractor = engine_for(tmp_path, extracted=[candidate(event_id="message:missing")])
+    original = request("ingest", {"records": [event_record("message:1", "1")]})
+    try:
+        engine.accept(original)
+        with pytest.raises(MemoryError, match="invalid_extraction"):
+            await engine.apply(original)
+        store.finish(original, "failed", error="invalid_extraction")
+        original_scope = store.scope(STORE_ID, INSTANCE_ID, SOURCE, engine.config.fingerprint())
+        old_group = store.group(original_scope)
+        assert graph.added == []
+        extractor.next = Extraction(memories=[candidate()])
+        await engine.apply(request("rebuild", {"reason": "explicitly recover rejected extraction"}, caller="maintenance"))
+        current_scope = store.scope(STORE_ID, INSTANCE_ID, SOURCE, engine.config.fingerprint())
+        assert store.group(current_scope) != old_group
+        status = await engine.query(query("operation", {"operation_id": original.request_id}))
+        assert status["state"] == "succeeded"
+        assert status["applied"] is True
+        assert len(store.current([current_scope["key"]])) == 1
+        assert len(graph.added) == 1
+        assert graph.added[0][0] != old_group
     finally:
         store.close()
 

@@ -9,7 +9,7 @@ import pytest
 from PIL import Image
 from test_engine import SOURCE, config, event_record
 
-from imbrex_memory.config import ModelConfig
+from imbrex_memory.config import ChatModelConfig
 from imbrex_memory.media import DownloadedImage
 from imbrex_memory.models import canonical
 from imbrex_memory.store import Store
@@ -20,7 +20,7 @@ from imbrex_memory.vision import Vision
 async def test_vision_uses_real_encoded_model_budget_and_records_partial_and_expired_variants(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("VISION_FIXTURE_KEY", "synthetic-vision-key")
     settings = config(tmp_path)
-    settings.vision = ModelConfig(base_url="https://vision.example.invalid/v1", model="explicit-model", api_key_env="VISION_FIXTURE_KEY")
+    settings.vision = ChatModelConfig(base_url="https://vision.example.invalid/v1", model="explicit-model", api_key_env="VISION_FIXTURE_KEY")
     settings.vision_profile = {
         "formats": ["png"],
         "max_input_bytes": 12000,
@@ -35,6 +35,11 @@ async def test_vision_uses_real_encoded_model_budget_and_records_partial_and_exp
     }
     settings.media = {"allowed_hosts": ["image.example.invalid"], "allow_private": False}
     store = Store(tmp_path / "ledger.sqlite3")
+    no_reasoning = Vision(settings, store)
+    try:
+        assert "reasoning_effort" not in json.loads(no_reasoning.body("Read image", []))
+    finally:
+        await no_reasoning.close()
     scope = store.scope("test", "memory", SOURCE, settings.fingerprint())
     image = Image.new("RGB", (800, 1000), "white")
     data = io.BytesIO()
@@ -44,6 +49,12 @@ async def test_vision_uses_real_encoded_model_budget_and_records_partial_and_exp
     record = event_record("message:1", "1")
     record["images"] = [{"segment_index": 0, "url": "https://image.example.invalid/private-locator", "file": "fixture"}]
     store.db.execute("INSERT INTO records VALUES(?,?,?)", (scope["key"], record["id"], canonical(record)))
+    settings.vision = ChatModelConfig(
+        base_url="https://vision.example.invalid/v1",
+        model="explicit-model",
+        api_key_env="VISION_FIXTURE_KEY",
+        reasoning_effort="none",
+    )
     vision = Vision(settings, store)
     calls = []
 
@@ -54,6 +65,7 @@ async def test_vision_uses_real_encoded_model_budget_and_records_partial_and_exp
         assert len(request.content) <= 12000
         body = json.loads(request.content)
         assert body["model"] == "explicit-model" and body["max_tokens"] == 512
+        assert body["reasoning_effort"] == "none"
         assert b"private-locator" not in request.content
         parts = body["messages"][0]["content"]
         assert sum(part["type"] == "image_url" for part in parts) <= 2

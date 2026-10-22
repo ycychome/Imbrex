@@ -76,14 +76,15 @@ class Vision:
         text_budget = sum(len(item["text"].encode()) for item in content if item["type"] == "text") + 64
         if text_budget > self.profile.prompt_tokens:
             raise MediaBudgetError("vision prompt exceeds configured token reservation")
-        return canonical(
-            {
-                "model": self.model.model,
-                "messages": [{"role": "user", "content": content}],
-                "max_tokens": self.profile.output_tokens,
-                "response_format": {"type": "json_object"},
-            }
-        ).encode()
+        body: dict[str, Any] = {
+            "model": self.model.model,
+            "messages": [{"role": "user", "content": content}],
+            "max_tokens": self.profile.output_tokens,
+            "response_format": {"type": "json_object"},
+        }
+        if self.model.reasoning_effort is not None:
+            body["reasoning_effort"] = self.model.reasoning_effort
+        return canonical(body).encode()
 
     async def process(self, scope: str, record: dict[str, Any]) -> list[dict[str, Any]]:
         results = []

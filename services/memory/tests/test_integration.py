@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 from neo4j import AsyncGraphDatabase
 
-from imbrex_memory.config import EmbeddingConfig, ModelConfig, ServiceConfig
+from imbrex_memory.config import EmbeddingConfig, ExtractionModelConfig, ServiceConfig
 from imbrex_memory.engine import Engine
 from imbrex_memory.graph import GraphitiIndex, ModelExtractor
 from imbrex_memory.models import OperationRequest, QueryRequest, digest, now
@@ -205,7 +205,7 @@ async def test_real_graphiti_add_search_forget_rebuild_and_idempotent_replay(
         neo4j_password_env="MEMORY_NEO4J_PASSWORD",
         queue_limit=8,
         request_timeout_seconds=20,
-        extraction=ModelConfig(base_url=base, model="fixture-chat", api_key_env="MEMORY_TEST_MODEL_KEY"),
+        extraction=ExtractionModelConfig(base_url=base, model="fixture-chat", api_key_env="MEMORY_TEST_MODEL_KEY"),
         embedding=EmbeddingConfig(base_url=base, model="fixture-embedding", api_key_env="MEMORY_TEST_MODEL_KEY", dimensions=8),
     )
     graph = GraphitiIndex(settings)

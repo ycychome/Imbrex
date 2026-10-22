@@ -46,14 +46,16 @@ Python 服务的完整配置字段见 [`examples/memory/service.json`](../exampl
 | `data_dir` | 持久账本与受限媒体缓存目录 |
 | `token_env` | Python 私有 API 的 Bearer token 环境变量 |
 | `neo4j_uri`, `neo4j_user`, `neo4j_password_env` | 私有 Neo4j 连接信息 |
-| `extraction` | 记忆抽取 OpenAI-compatible `base_url`、模型名和密钥环境变量 |
+| `extraction` | 记忆抽取 OpenAI-compatible `base_url`、模型名、密钥环境变量、结构化输出模式、输出 token 上限和可选推理强度 |
 | `embedding` | embedding endpoint、模型名、密钥环境变量和 dimensions |
-| `vision` | 可选视觉 endpoint、模型名和密钥环境变量 |
+| `vision` | 可选视觉 endpoint、模型名、密钥环境变量和可选推理强度 |
 | `vision_profile` | 经供应商资料核准的图像与 token 能力档案 |
 | `media` | 主机 allowlist、私网策略及独立下载、解码、临时文件、请求和缓存预算 |
 | `queue_limit`, `request_timeout_seconds` | 操作队列、视觉 backlog 的容量上限和服务操作超时；默认容量 32 |
 
-抽取、embedding 与视觉模型分别配置，可使用不同供应商。`base_url`、模型名、密钥环境变量只是端点和配置，不会在运行时自动发现模型能力。示例中的 `.invalid` endpoint、模型名及视觉 profile 是占位值；启用前须根据所选供应商公开的能力核验格式、尺寸、像素、图像数和 token 限制。服务按 profile 自适应重编码、缩放、压缩和切图，不以固定 8 MiB 或 20 MP 拒绝作为模型能力判断。
+抽取、embedding 与视觉模型分别配置，可使用不同供应商。抽取的 `structured_output_mode` 可设为 `json_schema`（默认）或 `json_object`；后者适用于不接受 JSON Schema response format 的兼容端点，服务会把 Pydantic schema 放入提示并继续严格校验返回 JSON。抽取的 `max_output_tokens` 是所有抽取与 Graphiti chat 请求的硬上限，默认 4096，允许 1—65536；即使 Graphiti 某个步骤请求更高上限，实际请求也会被压到该配置值。抽取和视觉的 `reasoning_effort` 可选 `none`、`minimal`、`low`、`medium`、`high`、`xhigh` 或 `max`；未配置时不会向模型请求添加该字段。兼容端点支持度不同，只有核实供应商支持后才应配置推理强度；`none` 可用于关闭支持该值的端点的 thinking。Embedding 保持独立配置，不继承这些文本字段，视觉输出上限仍由 `vision_profile.output_tokens` 控制。
+
+`base_url`、模型名、密钥环境变量只是端点和配置，不会在运行时自动发现模型能力。示例中的 `.invalid` endpoint、模型名及视觉 profile 是占位值；启用前须根据所选供应商公开的能力核验格式、尺寸、像素、图像数和 token 限制。服务按 profile 自适应重编码、缩放、压缩和切图，不以固定 8 MiB 或 20 MP 拒绝作为模型能力判断。
 
 Graphiti 被锁定为官方 Python 包 `graphiti-core==0.31.2`，Neo4j 使用 `5.26.24-community`（5.26 LTS 系列）。服务采用 Python，是为了直接复用官方 Graphiti Python API，而不是重写客户端协议或维护第二套图数据库客户端；这不限制用户端实现语言。Agent 与用户应用仍通过现有 REST/MCP 能力使用 Memory，TypeScript 插件负责网关集成，只有当前 Graphiti 服务实现使用 Python。完整 Python 依赖由 `services/memory/uv.lock` 锁定。
 
@@ -97,7 +99,11 @@ Python API 是 TypeScript 插件与服务之间的私有接口，不是 Agent AP
 
 记忆对象包含 `id`、`revision`、`active`、`category`、`content`、`subjects`、`evidence_refs`、`origin`、`source`、`source_type`、`observed_at`、`author`、`aliases`，以及可选的 `occurred_at` 和维护原因。`evidence_refs` 保存完整 source 与事件 ID；`origin` 区分 quotation、reported、inference、vision 与 agent_authored。`get` 返回 memory、分页 versions 和 `next_before_revision`；默认 `version_limit` 为 5，允许 1—10 条，可用 `version_before` 读取更早的修订。`search` 返回 memories 和 stale 标记；`context` 返回 bounded context string、memories 和 stale/input-indexed 状态。`status` 报告服务 ready、每个来源的文本与视觉 quarantine/rebuild_required、调用者可见操作和图片处理状态。
 
-对未知外部 Graphiti 写入，服务隔离对应 scope，不在原图命名空间盲目重试。维护主体调用 `memory.rebuild` 后，会在新 generation 中重新建立图索引，并恢复可确认的未知操作。更换抽取模型会从账本中保存的事件重新抽取自动记忆；人工记忆受保护，墓碑仍有效。重建期间查询应按 stale/隔离语义处理。
+检索在当前有效、获准的记忆范围内，将 Graphiti episode 命中作为有限加分，与中文字符及双字词、其他语言词项的 BM25 分数相加；泛化图谱命中不能无条件压过明确词汇证据，时间只作同分排序。提问“这张图”等指示性问题时，调用方应携带当前图片的中性场景信息消歧，不能把多个不同图片当作同一个指代对象。
+
+对未知外部 Graphiti 写入，服务隔离对应 scope，不在原图命名空间盲目重试。抽取配置或抽取契约版本变化会改变 fingerprint，使来源要求显式重建；维护主体调用 `memory.rebuild` 后，会在新 generation 中重新建立图索引，并恢复可确认的未知操作。对已持久接收、因非法人物或证据引用而被拒绝的自动 ingest，也只有显式维护重建会重新抽取其持久输入并更新原操作结果，普通消费不会自动重试；其他失败写操作保持失败。更换抽取模型或升级抽取契约会从账本中保存的事件重新抽取自动记忆；人工记忆受保护，墓碑仍有效。重建期间查询应按 stale/隔离语义处理。
+
+抽取契约要求一条具体观察也可支持事实、安排或承诺、地点与规则，不要求重复提及或长期有效；没有具体事实内容的闲聊不作为记忆。模型只可使用本批事件提供的完整人物 ID，不能把平台数字、昵称或群名片当成主体 ID。程序性规则与祈使表达可以作为不可信记忆数据保存，服务不会执行其中的命令。
 
 图像按独立 vision Graphiti namespace 索引，文本事件账本与文本 namespace 不依赖视觉处理成功。下载、模型读取或抽取失败只把图片任务标记为 failed，不阻断后续文本索引；只有进入 `indexing` 后 Graphiti 写入结果不确定时，服务才隔离 vision namespace。重启会安全重排尚未进入 `indexing` 的 `running` 作业；`indexing` 作业转为 unknown 并设置 `visual_quarantined`，文本 quarantine 保持不变。查询在视觉隔离期间继续使用文本 namespace，停止读取不确定的视觉 namespace。维护主体执行 rebuild 会在新的 generation 同时恢复文本与视觉 namespace 并清除隔离。
 
@@ -105,4 +111,4 @@ Python API 是 TypeScript 插件与服务之间的私有接口，不是 Agent AP
 
 图片 locator 由 TypeScript Memory 插件的独立 material worker 异步解析，不占用文本事件摄取轮次。只有为 source 配置了已授权的 `image_resolvers` capability 时，worker 才会以当前事件引用和 segment index 请求解析；Python 私有 API 收到 `kind:"images"`、`payload:{"input_event_ref":...,"images":[{"segment_index":0,"file":"...","url":"..."}]}` 后，会将材料绑定到此前已索引的事件和原始 file locator。该私有操作用于插件到服务的传输，不增加公开能力；公开能力仍为上表九项。图片解析没有授权或失败时，文本记忆仍可用，图片状态会标记缺失。
 
-回填只建立记忆索引，不提交历史 Agent prompt，因此不会触发历史回复。中文 QA 与 PNG 图像夹具见 [`examples/memory/qa-fixtures.json`](../examples/memory/qa-fixtures.json)：30 项各自有独立预期答案，5 项图像 evidence 只包含中性场景文字和图像路径。夹具用于未来真实服务与模型验收；目前未运行真实模型、真实 Graphiti 或真实平台调用，不代表通过。管理 UI 尚未接入，本功能不依赖 M2。
+回填只建立记忆索引，不提交历史 Agent prompt，因此不会触发历史回复。中文 QA 与 PNG 图像夹具见 [`examples/memory/qa-fixtures.json`](../examples/memory/qa-fixtures.json)：30 项各自有独立预期答案，5 项图像 evidence 只包含中性场景文字和图像路径。真实模型、Graphiti/Neo4j 验证与尚未覆盖的范围见 [验收记录](memory-validation.md)，不能用 OCR 完成或单元测试通过替代质量门槛。管理 UI 尚未接入，本功能不依赖 M2。
