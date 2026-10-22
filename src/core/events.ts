@@ -29,6 +29,11 @@ export class Events {
     requirePermission(principal, 'events:read');
     return this.store.read(storeId, readOptions(options), principal.readSources);
   }
+  inspect(principal: Principal, storeId: string, options: ReadOptions) {
+    if (this.stopped) fail('storage_unavailable');
+    requirePermission(principal, 'admin:inspect');
+    return this.store.read(storeId, readOptions(options), [{ prefix: '' }]);
+  }
   async lookup(principal: Principal, storeId: string, ref: EventRef) {
     if (this.stopped) fail('storage_unavailable');
     const checked = eventRef(ref);

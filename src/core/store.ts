@@ -7,6 +7,9 @@ export interface CallRecord {
   params: JsonValue; status: CallStatus; result?: JsonValue; reason?: Reason; createdAt: string; updatedAt: string;
 }
 export type NewCall = Pick<CallRecord, 'callerId' | 'callId' | 'capabilityId' | 'schemaVersion' | 'params'>;
+export interface CallCursor { callerId: string; callId: string }
+export interface CallQuery { limit: number; after?: CallCursor; callerId?: string; status?: CallStatus }
+export interface CallPage { calls: CallRecord[]; next: CallCursor | null }
 export type CallOutcome = { status: 'succeeded'; result: JsonValue } | { status: 'failed' | 'unknown'; reason: Reason };
 export interface StoreInfo {
   storeId: string; latestSeq: bigint; schemaVersion: number; sqliteVersion: string; sqliteSourceId: string;
@@ -18,6 +21,7 @@ export interface GatewayStore {
   read(storeId: string, options: ReadOptions, sources: SourceRule[]): Promise<EventPage>;
   lookup(storeId: string, ref: EventRef): Promise<EventRecord | undefined>;
   getCall(storeId: string, callerId: string, callId: string): Promise<CallRecord | undefined>;
+  listCalls(storeId: string, query: CallQuery): Promise<CallPage>;
   createCall(storeId: string, call: NewCall): Promise<{ created: boolean; call: CallRecord }>;
   finishCall(storeId: string, callerId: string, callId: string, outcome: CallOutcome): Promise<CallRecord>;
 }

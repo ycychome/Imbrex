@@ -74,7 +74,7 @@
 
 HTTP 监听由 server-http 插件提供；api-rest、adapter-mcp、admin 在各自作用域登记入口，必须排在 HTTP 服务之后。api-rest 与 adapter-mcp 的 config 为空对象。普通配置修改通过重启生效；不提供远程安装插件或任意代码无损热替换。
 
-启用管理后台时，另配一个显式 `admin:inspect` 主体并增加 `builtin:admin` 插件。admin 插件 `config` 为 `{}` 时默认按包名解析 `@imbrex/admin-web` 的 `dist`，不需要写绝对路径；`assets_dir` 仅用于覆盖外部构建目录，必须为绝对目录。未构建或资产缺失时 `/admin` 返回 404，admin API 与宿主继续运行，不因 UI 缺失阻止启动。
+启用管理后台时，另配一个显式 `admin:inspect` 主体并增加 `builtin:admin` 插件。admin 插件 `config` 为 `{}` 时默认按包名解析 `@imbrex/ui-contract` 的 `dist`，不需要写绝对路径；`assets_dir` 仅用于覆盖外部构建目录，必须为绝对目录。未构建或资产缺失时 `/admin` 返回 404，admin API 与宿主继续运行，不因 UI 缺失阻止启动。
 
 ### 1.1 旧配置迁移
 

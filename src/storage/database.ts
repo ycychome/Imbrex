@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from 'node:sqlite';
 import { fail } from '../core/errors.js';
-import type { CallOutcome, CallRecord, NewCall, StoreInfo } from '../core/store.js';
+import type { CallOutcome, CallPage, CallQuery, CallRecord, NewCall, StoreInfo } from '../core/store.js';
 import type { AppendResult, EventInput, EventPage, EventRecord, EventRef, ReadOptions, SourceRule } from '../core/types.js';
 
 type Row = Record<string, SQLOutputValue>;
@@ -132,6 +132,19 @@ export class Database {
     this.check(storeId);
     const row = this.db.prepare('SELECT * FROM calls WHERE caller_id=? AND call_id=?').get(callerId, callId);
     return row && this.call(row);
+  }
+  listCalls(storeId: string, query: CallQuery): CallPage {
+    this.check(storeId);
+    const clauses: string[] = [];
+    const args: SQLInputValue[] = [];
+    if (query.after) { clauses.push('(caller_id,call_id) > (?,?)'); args.push(query.after.callerId, query.after.callId); }
+    if (query.callerId) { clauses.push('caller_id = ?'); args.push(query.callerId); }
+    if (query.status) { clauses.push('status = ?'); args.push(query.status); }
+    args.push(query.limit + 1);
+    const rows = this.db.prepare('SELECT * FROM calls' + (clauses.length ? ' WHERE ' + clauses.join(' AND ') : '') + ' ORDER BY caller_id,call_id LIMIT ?').all(...args);
+    const calls = rows.slice(0, query.limit).map((row) => this.call(row));
+    const last = calls.at(-1);
+    return { calls, next: rows.length > query.limit && last ? { callerId: last.callerId, callId: last.callId } : null };
   }
   createCall(storeId: string, call: NewCall): { created: boolean; call: CallRecord } {
     this.check(storeId);

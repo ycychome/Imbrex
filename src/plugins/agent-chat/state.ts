@@ -3,9 +3,9 @@ import { open, rename, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { EventRef, SourceRule } from '../../core/types.js';
-import { eventRef, fields, json, object, position, string } from '../../core/validation.js';
+import { eventRef, fields, json, namespacePattern, object, position, string, uri } from '../../core/validation.js';
 import type { ReadScope } from '../../host/plugin-api.js';
-import { ConsumerError, consumerLimits, type ConsumerConfig, type ConsumerFilter } from './config.js';
+import { ConsumerError, consumerLimits, parseConsumerConfig, type ConsumerConfig, type ConsumerFilter } from './config.js';
 import { nativeId } from '../onebot-v11/protocol.js';
 
 export interface Binding {
@@ -30,19 +30,52 @@ export function bindingFor(config: ConsumerConfig, scope: ReadScope): Binding {
     agent: { command: config.agent.command, args: config.agent.args, cwd: config.agent.cwd, env_vars: config.agent.envVars },
   };
 }
-export async function loadState(path: string, binding: Binding, storeId: string, latest: bigint): Promise<ConsumerState | undefined> {
-  let raw: unknown;
+async function readState(path: string): Promise<unknown> {
   try {
-    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const info = await file.stat();
       if (!info.isFile() || info.size > consumerLimits.stateBytes) throw new ConsumerError('consumer_state_invalid');
-      raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await file.readFile()));
+      const buffer = Buffer.alloc(consumerLimits.stateBytes + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+        if (!bytesRead) return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length)));
+        length += bytesRead;
+      }
+      throw new ConsumerError('consumer_state_invalid');
     } finally { await file.close(); }
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return;
     throw new ConsumerError('consumer_state_invalid');
   }
+}
+export async function loadState(path: string, binding: Binding, storeId: string, latest: bigint): Promise<ConsumerState | undefined> {
+  const raw = await readState(path);
+  return raw === undefined ? undefined : validateState(raw, binding, storeId, latest);
+}
+
+// Read persisted facts against their own binding; this never authorizes resuming them.
+export async function inspectState(path: string, storeId: string, latest: bigint): Promise<ConsumerState | undefined> {
+  const raw = await readState(path);
+  if (raw === undefined) return;
+  const value = object(raw), selection = object(value.selection), reader = object(value.reader);
+  const config = parseConsumerConfig({ input_id: value.input_id, source_prefix: selection.source_prefix,
+    max_event_age_seconds: selection.max_event_age_seconds, agent: value.agent,
+    ...(selection.filter === undefined ? {} : { filter: selection.filter }) });
+  fields(reader, ['principal_id', 'sources'], ['principal_id', 'sources']);
+  const principalId = string(reader.principal_id, 64);
+  if (!namespacePattern.test(principalId) || !Array.isArray(reader.sources)) throw new ConsumerError('consumer_state_invalid');
+  const sources: SourceRule[] = reader.sources.map((input) => {
+    const rule = object(input);
+    if (Object.keys(rule).length !== 1) throw new ConsumerError('consumer_state_invalid');
+    if (Object.hasOwn(rule, 'exact')) return { exact: uri(rule.exact) };
+    if (Object.hasOwn(rule, 'prefix')) return { prefix: string(rule.prefix, 1024) };
+    throw new ConsumerError('consumer_state_invalid');
+  });
+  return validateState(raw, bindingFor(config, { principalId, sources }), storeId, latest);
+}
+function validateState(raw: unknown, binding: Binding, storeId: string, latest: bigint): ConsumerState {
   try {
     const value = object(json(raw, consumerLimits.stateBytes));
     const keys = ['version', 'input_id', 'store_id', 'selection', 'reader', 'agent', 'agent_info', 'last_seq', 'sessions', 'in_flight'];
