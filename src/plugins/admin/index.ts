@@ -14,7 +14,7 @@ import { readQuery, wireCall, wireCapability, wirePage } from '../api-rest/dto.j
 function bundledAssetsDir(): string | undefined {
   try {
     const require = createRequire(import.meta.url);
-    return join(dirname(require.resolve('@imbrex/admin-web/package.json')), 'dist');
+    return join(dirname(require.resolve('@imbrex/ui-contract/package.json')), 'dist');
   } catch {
     return undefined;
   }

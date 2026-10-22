@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, shallowRef } from 'vue';
-import type { AdminClient } from '../../../../web/src/client-api.js';
-import Chip from '../../../../web/src/ui/Chip.vue';
-import EmptyState from '../../../../web/src/ui/EmptyState.vue';
-import ErrorNotice from '../../../../web/src/ui/ErrorNotice.vue';
-import KeyValueList from '../../../../web/src/ui/KeyValueList.vue';
-import PageHeader from '../../../../web/src/ui/PageHeader.vue';
-import Section from '../../../../web/src/ui/Section.vue';
-import Stat from '../../../../web/src/ui/Stat.vue';
-import { isAbort } from '../../../../web/src/ui/errors.js';
-import type { KeyValueEntry } from '../../../../web/src/ui/types.js';
+import type { AdminClient } from '../../../../ui-contract/src/client-api.js';
+import Chip from '../../../../ui-contract/src/ui/Chip.vue';
+import EmptyState from '../../../../ui-contract/src/ui/EmptyState.vue';
+import ErrorNotice from '../../../../ui-contract/src/ui/ErrorNotice.vue';
+import KeyValueList from '../../../../ui-contract/src/ui/KeyValueList.vue';
+import PageHeader from '../../../../ui-contract/src/ui/PageHeader.vue';
+import Section from '../../../../ui-contract/src/ui/Section.vue';
+import Stat from '../../../../ui-contract/src/ui/Stat.vue';
+import { isAbort } from '../../../../ui-contract/src/ui/errors.js';
+import type { KeyValueEntry } from '../../../../ui-contract/src/ui/types.js';
 
 interface ConfigPrincipal {
   id: string;

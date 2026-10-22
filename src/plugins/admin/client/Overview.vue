@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
-import type { AdminClient, AdminPluginStatus } from '../../../../web/src/client-api.js';
-import { health, refreshHealth } from '../../../../web/src/health.js';
-import { now } from '../../../../web/src/ui/clock.js';
-import Chip from '../../../../web/src/ui/Chip.vue';
-import EmptyState from '../../../../web/src/ui/EmptyState.vue';
-import ErrorNotice from '../../../../web/src/ui/ErrorNotice.vue';
-import PageHeader from '../../../../web/src/ui/PageHeader.vue';
-import RelativeTime from '../../../../web/src/ui/RelativeTime.vue';
-import Section from '../../../../web/src/ui/Section.vue';
-import { isAbort, type Tone } from '../../../../web/src/ui/errors.js';
-import { formatRelative, shortId } from '../../../../web/src/ui/format.js';
+import type { AdminClient, AdminPluginStatus } from '../../../../ui-contract/src/client-api.js';
+import { health, refreshHealth } from '../../../../ui-contract/src/health.js';
+import { now } from '../../../../ui-contract/src/ui/clock.js';
+import Chip from '../../../../ui-contract/src/ui/Chip.vue';
+import EmptyState from '../../../../ui-contract/src/ui/EmptyState.vue';
+import ErrorNotice from '../../../../ui-contract/src/ui/ErrorNotice.vue';
+import PageHeader from '../../../../ui-contract/src/ui/PageHeader.vue';
+import RelativeTime from '../../../../ui-contract/src/ui/RelativeTime.vue';
+import Section from '../../../../ui-contract/src/ui/Section.vue';
+import { isAbort, type Tone } from '../../../../ui-contract/src/ui/errors.js';
+import { formatRelative, shortId } from '../../../../ui-contract/src/ui/format.js';
 
 interface EventRecord {
   seq: string;

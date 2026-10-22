@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
-import type { AdminClient } from '../../../../web/src/client-api.js';
-import { health } from '../../../../web/src/health.js';
-import CopyButton from '../../../../web/src/ui/CopyButton.vue';
-import EmptyState from '../../../../web/src/ui/EmptyState.vue';
-import ErrorNotice from '../../../../web/src/ui/ErrorNotice.vue';
-import Icon from '../../../../web/src/ui/Icon.vue';
-import JsonBlock from '../../../../web/src/ui/JsonBlock.vue';
-import KeyValueList from '../../../../web/src/ui/KeyValueList.vue';
-import type { KeyValueEntry } from '../../../../web/src/ui/types.js';
-import PageHeader from '../../../../web/src/ui/PageHeader.vue';
-import RelativeTime from '../../../../web/src/ui/RelativeTime.vue';
-import { isAbort } from '../../../../web/src/ui/errors.js';
-import { formatFull } from '../../../../web/src/ui/format.js';
-import { useNarrow } from '../../../../web/src/ui/media.js';
+import type { AdminClient } from '../../../../ui-contract/src/client-api.js';
+import { health } from '../../../../ui-contract/src/health.js';
+import CopyButton from '../../../../ui-contract/src/ui/CopyButton.vue';
+import EmptyState from '../../../../ui-contract/src/ui/EmptyState.vue';
+import ErrorNotice from '../../../../ui-contract/src/ui/ErrorNotice.vue';
+import Icon from '../../../../ui-contract/src/ui/Icon.vue';
+import JsonBlock from '../../../../ui-contract/src/ui/JsonBlock.vue';
+import KeyValueList from '../../../../ui-contract/src/ui/KeyValueList.vue';
+import type { KeyValueEntry } from '../../../../ui-contract/src/ui/types.js';
+import PageHeader from '../../../../ui-contract/src/ui/PageHeader.vue';
+import RelativeTime from '../../../../ui-contract/src/ui/RelativeTime.vue';
+import { isAbort } from '../../../../ui-contract/src/ui/errors.js';
+import { formatFull } from '../../../../ui-contract/src/ui/format.js';
+import { useNarrow } from '../../../../ui-contract/src/ui/media.js';
 
 interface EventRecord {
   seq: string;

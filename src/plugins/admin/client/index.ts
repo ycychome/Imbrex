@@ -1,5 +1,5 @@
 import type { Context } from 'cordis';
-import type {} from '../../../../web/src/client-api.js';
+import type {} from '../../../../ui-contract/src/client-api.js';
 import Config from './Config.vue';
 import Overview from './Overview.vue';
 

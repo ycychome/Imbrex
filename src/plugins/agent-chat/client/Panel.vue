@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import type { AdminClient } from '../../../../web/src/client-api.js';
-import Chip from '../../../../web/src/ui/Chip.vue';
-import CopyButton from '../../../../web/src/ui/CopyButton.vue';
-import EmptyState from '../../../../web/src/ui/EmptyState.vue';
-import ErrorNotice from '../../../../web/src/ui/ErrorNotice.vue';
-import JsonBlock from '../../../../web/src/ui/JsonBlock.vue';
-import KeyValueList from '../../../../web/src/ui/KeyValueList.vue';
-import PageHeader from '../../../../web/src/ui/PageHeader.vue';
-import PanelFrame from '../../../../web/src/ui/PanelFrame.vue';
-import RelativeTime from '../../../../web/src/ui/RelativeTime.vue';
-import { formatDuration, formatFull } from '../../../../web/src/ui/format.js';
-import { usePanels, type PanelEntry } from '../../../../web/src/ui/panels.js';
-import type { KeyValueEntry } from '../../../../web/src/ui/types.js';
+import type { AdminClient } from '../../../../ui-contract/src/client-api.js';
+import Chip from '../../../../ui-contract/src/ui/Chip.vue';
+import CopyButton from '../../../../ui-contract/src/ui/CopyButton.vue';
+import EmptyState from '../../../../ui-contract/src/ui/EmptyState.vue';
+import ErrorNotice from '../../../../ui-contract/src/ui/ErrorNotice.vue';
+import JsonBlock from '../../../../ui-contract/src/ui/JsonBlock.vue';
+import KeyValueList from '../../../../ui-contract/src/ui/KeyValueList.vue';
+import PageHeader from '../../../../ui-contract/src/ui/PageHeader.vue';
+import PanelFrame from '../../../../ui-contract/src/ui/PanelFrame.vue';
+import RelativeTime from '../../../../ui-contract/src/ui/RelativeTime.vue';
+import { formatDuration, formatFull } from '../../../../ui-contract/src/ui/format.js';
+import { usePanels, type PanelEntry } from '../../../../ui-contract/src/ui/panels.js';
+import type { KeyValueEntry } from '../../../../ui-contract/src/ui/types.js';
 
 const props = defineProps<{ client: AdminClient }>();
 
