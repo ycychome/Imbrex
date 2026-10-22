@@ -48,15 +48,16 @@
 | D20 | filter 仅在轮次完成并提交进度后更新绑定，历史不回放 | 异常未决先处置；不联动 OneBot 采集和 Principal 授权，不承诺任意参数热改 |
 | D21 | 托管模型、窗口和提示词可编辑，保存后只受控重启 Agent | 宿主与 OneBot/HTTP 连续运行；会话证据保留，恢复失败显式重置；配置声明与实际观察分开 |
 | D22 | 在线恢复由宿主协调目标 Consumer，保留备份和精确未决输入核验 | 不执行争用宿主锁的离线 CLI；确认消费不等于发送成功，unknown 不篡改、不自动重发 |
-| D23 | M2-01 管理前端采用零第三方 UI 组件库：原生 HTML + Tailwind，单 `App.vue`；`web/` 是 npm workspace 构建包，不是 Cordis 插件 | 避免为三个字段引入中后台组件树和原子组件层；admin 插件默认按包名解析 `@imbrex/admin-web/dist`，`assets_dir` 仅覆盖；缺失资产 404 不阻塞；前端构建先于全量测试，体积预算在 M2-04 实测 |
+| D23 | M2-01 管理前端采用零第三方 UI 组件库：原生 HTML + Tailwind，单 `App.vue`；`ui-contract/` 是 npm workspace 的视图契约与构建包，不是 Cordis 插件（`web/` 于 M2-02 收尾改名） | 避免为三个字段引入中后台组件树和原子组件层；admin 插件默认按包名解析 `@imbrex/ui-contract/dist`，`assets_dir` 仅覆盖；缺失资产 404 不阻塞；前端构建先于全量测试，体积预算在 M2-04 实测 |
 | D24 | M2-02 起管理前端采用浏览器端 Cordis Shell：`ctx.views` 注册表、vue-router 4 动态 `addRoute`、插件 loader 与渲染插槽；views 由插件 `client/` 自携 ESM 注册，Shell 不硬编码业务页面或业务路由；hash 仅表示当前视图 | 插件禁用/卸载时页面与导航消失；不污染服务端路由，不做 SPA 回落；继续不引入第三方 UI 组件库或状态库；Token 存 sessionStorage，轮询由各插件视图提供 |
-| D25 | 控制台前端视图解耦与所有权：Views as Plugins，Shell 仅作为宿主外壳 | 坚决反对在 web/ 中集中硬编码业务视图。Cordis 核心哲学为 Everything is a plugin，视图所有权属于各业务插件（自携前端扩展或动态声明）。当前代码树内建的只读页面属于 M2 观测期过渡形态；演进目标锁定为「插件自编译前端 ESM + 浏览器端动态 import() 按需装配」，严禁将网关做成封闭硬编码的传统单体 SaaS 网站。 |
+| D25 | 控制台前端视图解耦与所有权：Views as Plugins，Shell 仅作为宿主外壳 | 坚决反对在 Shell 中集中硬编码业务视图。Cordis 核心哲学为 Everything is a plugin，视图所有权属于各业务插件（自携前端扩展或动态声明）。当前树内页面由各插件 `client/` 自携；演进目标已实现：插件自携前端 ESM，由浏览器动态 `import()` 按需装配，严禁将网关做成封闭硬编码的传统单体 SaaS 网站。 |
+| D26 | 管理前端的视图契约独立于 Shell：`@imbrex/ui-contract` 只导出 `ViewMount`/`ViewContext`/`ViewDescriptor`/`Views` 类型与参考原语，Shell 位于 `admin` 插件的 `shell/` | 依赖方向只能是「插件 client → ui-contract」，禁止反向；视图以 `mount(el, ctx) => teardown` 交付，Shell 不假定插件使用 Vue；树内插件的客户端产物由 `ui-contract` 构建到 `dist/plugins/<module>/entry.js` 并由 admin 挂载，第三方插件可声明 `client = { url }` 自行托管；构建入口靠扫描 `src/plugins/*/client/index.ts` 发现，新增插件不改构建配置 |
 
 D13 不要求为每个实现写一套插件，也不要求预先建设通用协议框架。标准路径优先，遇到实际差异再增加小的兼容适配。
 
 D09、D14、D15 的具体边界见 [Agent 接入](agent-integration.md)与[应用恢复](applications.md)。正常 end_turn 表示一轮结束，动作结果仍以核心 calls 为准；稳定 call_id 不使重跑整个 prompt 安全。
 
-D16—D25 取代原 M2 第二消费者交付安排，完整管理契约见 [Admin](admin.md)。现有 M1 目录与命令在对应实现迁移前仍有效；不批量改写旧实验记录。M2 按观测、控制、打包验收推进，目标版本 v0.2.0 在验收后冻结。
+D16—D26 取代原 M2 第二消费者交付安排，完整管理契约见 [Admin](admin.md)。现有 M1 目录与命令在对应实现迁移前仍有效；不批量改写旧实验记录。M2 按观测、控制、打包验收推进，目标版本 v0.2.0 在验收后冻结。
 
 ## 3. 进入开发的条件
 

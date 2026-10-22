@@ -75,7 +75,7 @@ M0-01 的实际记录见[工程基线](development.md)，后续可在 `docs/expe
 | 阶段 | 需要验证的真实风险与通过条件 |
 | --- | --- |
 | M2-01 协议迁移 | 一次移除 adapters、迁移 agent-chat、清理 observer 专属代码/配置/测试；保留有效的 M1 回归及 REST/MCP 路径、鉴权、seq/call_id 和结果语义；示例和迁移说明对应实际代码 |
-| M2-01 管理静态页 | 前端 workspace 类型检查与构建通过；真实 Host 默认解析 `web/dist`，`/admin` 与资源返回 200，`/api/admin/info` 鉴权与序号语义不变；显式 `assets_dir` 缺失时 `/admin` 404 且 admin API/宿主不中断；1–2 MB 体积预算在 M2-04 实测记录 |
+| M2-01 管理静态页 | 前端 workspace 类型检查与构建通过；真实 Host 默认解析 `ui-contract/dist`，`/admin` 与资源返回 200，`/api/admin/info` 鉴权与序号语义不变；显式 `assets_dir` 缺失时 `/admin` 404 且 admin API/宿主不中断；1–2 MB 体积预算在 M2-04 实测记录 |
 | M2-01 路由与就绪 | 协议卸载即注销路由/静态映射，无重复注册；TCP 已监听但 MCP 路由未注册时不投递；依赖卸载时停止新投递；在途外部调用仍保存结果 |
 | M2-02 管理认证 | 无凭据及普通 Agent 凭据不可读写管理资源；admin:inspect 无操作权限；跨主体审计只在专属管理入口；配置/日志/页面不泄漏秘密 |
 | M2-02 注册与观测 | 同模块多实例面板独立；Admin 晚启用、重启、卸载不重启业务；正常 in_flight 显示 processing，异常未决与停止原因分别可见；序号距离不显示为消息数，正常不回复不报错 |

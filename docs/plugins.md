@@ -116,11 +116,25 @@ host.startPlugin/stopPlugin 当前是受信内部控制入口，供生命周期�
 | agent-chat | 读取入站事件，通过 ACP stdio 驱动现成 Agent | 保留会话、进度与未决语义，M2 增加管理描述和受控配置应用 |
 | server-http | 提供 ctx.http 共享监听与路由注册 | 路由随插件注销，统一请求预算和连接清理 |
 | api-rest / adapter-mcp | 从 adapters 迁移现有 REST/MCP 入口 | 路径、授权和结果语义不变 |
-| admin（M2） | 管理 API 与静态资产注册；前端源码在独立 `web/` 构建包，M2-02 消费宿主 AdminRegistry | Admin 晚启动、卸载和重启不影响业务实例 |
+| admin（M2） | 管理 API 与静态资产注册；前端视图契约与构建包在 `ui-contract/`，M2-02 消费宿主 AdminRegistry | Admin 晚启动、卸载和重启不影响业务实例 |
 
 onebot-v11、agent-chat 与三个演示插件使用绑定业务 API。observer 已移除；旧实验记录保留原名称和当时的验证范围。所有业务入口继续按绑定身份使用核心；协议插件按实际远端主体执行授权，管理操作另受 admin 权限约束。不向演示插件开放绕过权限或事务的测试捷径。
 
-`web/` 是管理前端的纯 Shell，不是 Cordis 宿主插件，不通过 `PluginApi` 注册或读取服务。admin 插件提供管理 API 与静态资产注册；M2-02 起由 admin 消费宿主 AdminRegistry。各插件在 `client/` 中自携前端 ESM，服务端入口导出 `client` 路径后，Shell 通过 `/api/admin/info` 的 `client_entry` 动态 `import()` 并调用 `ctx.plugin()`；视图由插件用 `ctx.views.register()` 登记，注册表动态写入 vue-router；禁用、启动失败或已停止的插件不进入装载，页面、路由和导航随之一并消失。插件 client 可以引用 `web/src/ui/` 的通用视觉原语（只做展示，不含业务语义），但不得引用其他插件的 client 代码。admin 默认解析 `@imbrex/admin-web/dist` 后调用 server-http 静态挂载；`assets_dir` 仅作外部构建目录覆盖。
+`ui-contract/` 是管理前端的视图契约与构建包（npm workspace），不是 Cordis 宿主插件，不通过 `PluginApi` 注册或读取服务；控制台 Shell 位于 admin 插件的 `shell/`。各插件在 `client/` 中自携前端 ESM，服务端入口导出 `client` 路径后，Shell 通过 `/api/admin/info` 的 `client_entry` 动态 `import()` 并调用 `ctx.plugin()`；视图以 `mount(el, ctx) => teardown` 交付，由插件用 `ctx.views.register()` 登记，注册表动态写入 vue-router；禁用、启动失败或已停止的插件不进入装载，页面、路由和导航随之一并消失。插件 client 通过 `@imbrex/ui-contract/ui` 引用通用视觉原语（只做展示，不含业务语义），不得引用其他插件的 client 代码；同插件内 `client/` 可以引用自己的 `shell/`，跨插件禁止。admin 默认解析 `@imbrex/ui-contract/dist` 后调用 server-http 静态挂载；`assets_dir` 仅作外部构建目录覆盖。
+
+第三方插件接入对照：
+
+| 步骤 | 树内插件 | 第三方插件 |
+|---|---|---|
+| 视图源码 | `src/plugins/<m>/client/index.ts` | 自己包里的任意位置 |
+| 取类型 | `import type {} from '@imbrex/ui-contract'` | `npm i @imbrex/ui-contract`（或自带 `.d.ts`） |
+| 注册 | `ctx.views.register({ id, title, mount: vueMount(X) })` | 同左；也可直接给 `mount`，用原生 DOM / 别的框架 / iframe |
+| 构建 | `ui-contract` 扫描并构建 | 自己的 vite，产物 `entry.js` |
+| 托管 | admin 挂载 `ui-contract/dist` 到 `/admin` | 自己 `await ctx.http.scope(ctx).static('/plugins/foo', dir)` |
+| 声明 | `export const client = 'entry.js'` | `export const client = { url: '/plugins/foo/entry.js' }` |
+| 启用 | `imbrex.config.json` 里 `module: 'builtin:...'` | `module: '@someone/imbrex-plugin-foo'` |
+
+第三方插件无需改动本仓库即可拥有管理面板；禁用或卸载后 `client_entry` 消失，Shell 不加载，页面与导航一并消失。
 
 ## 8. 插件开发完成条件
 
