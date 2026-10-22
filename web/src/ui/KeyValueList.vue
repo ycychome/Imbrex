@@ -2,7 +2,7 @@
 import JsonBlock from './JsonBlock.vue';
 import type { KeyValueEntry } from './types';
 
-const props = defineProps<{ entries: KeyValueEntry[] }>();
+const props = withDefaults(defineProps<{ entries: KeyValueEntry[]; stacked?: boolean }>(), { stacked: false });
 
 function isScalar(value: unknown): boolean {
   return value === null || value === undefined || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
@@ -16,7 +16,7 @@ function text(value: unknown): string {
 </script>
 
 <template>
-  <dl class="kv">
+  <dl class="kv" :class="{ 'kv-stacked': stacked }">
     <div v-for="entry in props.entries" :key="entry.label" class="kv-row">
       <dt class="kv-key" :class="{ mono: entry.labelMono }">{{ entry.label }}</dt>
       <dd class="kv-value">
@@ -38,7 +38,7 @@ function text(value: unknown): string {
   padding: 8px 0;
 }
 @media (min-width: 640px) {
-  .kv-row {
+  .kv:not(.kv-stacked) .kv-row {
     grid-template-columns: minmax(7rem, 11rem) 1fr;
   }
 }

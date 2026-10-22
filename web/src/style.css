@@ -26,6 +26,7 @@
   --ok: #4f7345;
   --warn: #7b5e22;
   --bad: #a33a31;
+  --selected: #f3ece2;
 
   --radius: 6px;
   --radius-lg: 8px;
@@ -57,6 +58,7 @@
   --ok: #7d9b6a;
   --warn: #c9a15b;
   --bad: #d0695f;
+  --selected: #24201c;
 }
 
 html,

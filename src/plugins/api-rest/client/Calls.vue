@@ -15,6 +15,7 @@ import Section from '../../../../web/src/ui/Section.vue';
 import { isAbort, type Tone } from '../../../../web/src/ui/errors.js';
 import { formatFull } from '../../../../web/src/ui/format.js';
 import type { KeyValueEntry } from '../../../../web/src/ui/types.js';
+import { useNarrow } from '../../../../web/src/ui/media.js';
 
 type CallStatus = 'in_progress' | 'succeeded' | 'failed' | 'unknown';
 type StatusFilter = 'all' | CallStatus;
@@ -61,6 +62,7 @@ const appliedStatus = ref<StatusFilter>('all');
 
 const selected = ref<AdminCall | null>(null);
 const sheetOpen = ref(false);
+const narrow = useNarrow();
 
 const storeId = computed(() => health.info?.store_id ?? '');
 
@@ -284,20 +286,26 @@ onUnmounted(() => {
           </footer>
         </section>
 
-        <button v-if="sheetOpen" type="button" class="scrim lg:hidden" aria-label="关闭详情" @click="closeSheet" />
+        <Teleport to="body" :disabled="!narrow">
+          <button v-if="sheetOpen" type="button" class="scrim" aria-label="关闭详情" @click="closeSheet" />
+        </Teleport>
 
-        <aside class="inspector" :class="{ 'is-open': sheetOpen }">
+        <Teleport to="body" :disabled="!narrow">
+        <aside class="inspector" :class="{ 'is-open': sheetOpen && narrow }">
           <template v-if="selected">
-            <header class="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
-              <div class="min-w-0">
-                <p class="label">调用</p>
-                <p class="truncate font-mono text-sm font-medium">{{ selected.call_id }}</p>
-              </div>
+            <header class="border-b border-[var(--line)] px-4 pb-3 pt-2">
+              <span class="sheet-handle" aria-hidden="true" />
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="label">调用详情</p>
+                  <p class="truncate font-mono text-sm font-medium">{{ selected.call_id }}</p>
+                </div>
               <div class="flex items-center gap-1">
                 <CopyButton :value="selected.call_id" label="复制" />
                 <button type="button" class="btn btn-sm btn-icon btn-quiet lg:hidden" aria-label="关闭详情" @click="closeSheet">
                   <Icon name="close" :size="14" />
                 </button>
+                </div>
               </div>
             </header>
             <div class="flex flex-col gap-4 p-4">
@@ -305,7 +313,7 @@ onUnmounted(() => {
                 <Chip :tone="statusTone(selected.status)" :label="statusLabels[selected.status]" />
                 <span class="font-mono text-[11px] text-[var(--faint)]">{{ selected.capability_id }}</span>
               </div>
-              <KeyValueList :entries="entries" />
+              <KeyValueList :entries="entries" stacked />
               <div>
                 <p class="label mb-1">参数</p>
                 <JsonBlock :value="selected.params" :max-height="220" />
@@ -322,6 +330,7 @@ onUnmounted(() => {
           </template>
           <div v-else class="px-4 py-10 text-center text-xs text-[var(--muted)]">选择一条调用查看参数与结果。</div>
         </aside>
+        </Teleport>
       </div>
     </Section>
   </main>
@@ -333,6 +342,15 @@ onUnmounted(() => {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
+}
+
+.sheet-handle {
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: 0 auto 10px;
+  border-radius: 999px;
+  background: var(--line-strong);
 }
 
 @media (min-width: 1024px) {
@@ -350,9 +368,11 @@ onUnmounted(() => {
     position: fixed;
     inset: auto 0 0 0;
     z-index: 40;
-    max-height: 76vh;
+    max-height: 85dvh;
     overflow-y: auto;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    border-radius: 12px 12px 0 0;
+    border-bottom: 0;
     transform: translateY(100%);
     transition: transform 240ms var(--ease);
   }
@@ -363,12 +383,18 @@ onUnmounted(() => {
   }
 }
 
+@media (min-width: 1024px) {
+  .sheet-handle {
+    display: none;
+  }
+}
+
 .scrim {
   position: fixed;
   inset: 0;
   z-index: 30;
   border: 0;
-  background: color-mix(in oklab, #000 45%, transparent);
+  background: rgb(18 17 16 / 48%);
   cursor: pointer;
 }
 </style>

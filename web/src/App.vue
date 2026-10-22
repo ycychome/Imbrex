@@ -18,6 +18,7 @@ const loadingViews = ref(false);
 const loadError = ref('');
 const failures = ref<string[]>([]);
 const confirmDisconnect = ref(false);
+const healthOpen = ref(false);
 
 const views = computed(() => ctx.views.list());
 const active = computed(() => ctx.views.active());
@@ -155,7 +156,7 @@ onMounted(() => {
           </svg>
           </span>
           <span v-if="health.info" class="hidden shrink-0 font-mono text-[11px] text-[var(--faint)] sm:inline" :title="health.info.store_id">
-            {{ shortId(health.info.store_id, 6) }}
+            {{ shortId(health.info.store_id, 6) }} · {{ health.info.version }}
           </span>
           <div class="hidden min-w-0 items-center gap-2 sm:flex">
             <Chip :tone="gatewayHealth.tone" :label="gatewayHealth.label" />
@@ -167,12 +168,21 @@ onMounted(() => {
               :title="panel.detail"
             />
           </div>
-          <Chip class="sm:hidden" :tone="rollup.tone" :label="rollup.label" />
+          <button
+            type="button"
+            class="rounded-full sm:hidden"
+            :aria-expanded="healthOpen"
+            aria-haspopup="true"
+            aria-label="展开健康详情"
+            @click="healthOpen = !healthOpen"
+          >
+            <Chip :tone="rollup.tone" :label="rollup.label" />
+          </button>
         </div>
 
         <div class="flex shrink-0 items-center gap-2">
-          <span class="hidden text-[11px] text-[var(--faint)] md:inline">
-            {{ health.paused ? '已暂停刷新' : stale ? '数据已过期' : updatedText }}
+          <span class="whitespace-nowrap text-[11px] text-[var(--faint)]">
+            {{ health.paused ? '已暂停刷新' : stale ? '数据已过期' : `更新于 ${updatedText}` }}
           </span>
           <template v-if="confirmDisconnect">
             <button type="button" class="btn btn-sm btn-danger" @click="disconnect">断开</button>
@@ -195,6 +205,18 @@ onMounted(() => {
               <Icon name="logout" :size="14" />
             </button>
           </template>
+        </div>
+        <div v-if="healthOpen" class="health-pop sm:hidden">
+          <div class="health-row">
+            <span class="dot" :data-tone="gatewayHealth.tone" />
+            <span class="min-w-0 flex-1 truncate">{{ gatewayHealth.label }}</span>
+          </div>
+          <div v-for="panel in health.panels" :key="panel.instanceId" class="health-row">
+            <span class="dot" :data-tone="panel.tone" />
+            <span class="min-w-0 flex-1 truncate">{{ panel.title }}</span>
+            <span class="text-[var(--muted)]">{{ panel.label }}</span>
+          </div>
+          <p v-if="!health.panels.length" class="px-3 py-2 text-[11px] text-[var(--muted)]">插件尚未登记面板。</p>
         </div>
       </header>
 
@@ -365,6 +387,31 @@ onMounted(() => {
   backdrop-filter: blur(8px);
 }
 
+.health-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 8px;
+  left: 8px;
+  z-index: 30;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 0 12px 32px color-mix(in oklab, #000 28%, transparent);
+}
+
+.health-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  font-size: 12px;
+}
+
+.health-row + .health-row {
+  border-top: 1px solid var(--line);
+}
+
 .mobile-nav {
   display: none;
 }
@@ -416,6 +463,7 @@ onMounted(() => {
     border-bottom: 1px solid var(--line);
     background: var(--canvas);
     scrollbar-width: none;
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
 
   .mobile-nav::-webkit-scrollbar {

@@ -9,7 +9,6 @@ import ErrorNotice from '../../../../web/src/ui/ErrorNotice.vue';
 import PageHeader from '../../../../web/src/ui/PageHeader.vue';
 import RelativeTime from '../../../../web/src/ui/RelativeTime.vue';
 import Section from '../../../../web/src/ui/Section.vue';
-import Stat from '../../../../web/src/ui/Stat.vue';
 import { isAbort, type Tone } from '../../../../web/src/ui/errors.js';
 import { formatRelative, shortId } from '../../../../web/src/ui/format.js';
 
@@ -61,6 +60,20 @@ const available = computed(() => plugins.value.filter((plugin) => plugin.availab
 const newest = computed(() => recent.value[recent.value.length - 1] ?? null);
 const newestAge = computed(() => (newest.value ? formatRelative(newest.value.accepted_at, now.value) : '暂无'));
 
+const panelRollup = computed<{ tone: Tone; value: string; hint: string }>(() => {
+  const panels = health.panels;
+  const bad = panels.filter((panel) => panel.tone === 'bad');
+  const warn = panels.filter((panel) => panel.tone === 'warn' || panel.tone === 'unknown');
+  if (bad.length) {
+    return { tone: 'bad', value: `${bad.length} 项异常`, hint: bad.map((panel) => `${panel.title} ${panel.label}`).join('、') };
+  }
+  if (warn.length) {
+    return { tone: 'warn', value: `${warn.length} 项待确认`, hint: warn.map((panel) => `${panel.title} ${panel.label}`).join('、') };
+  }
+  if (!panels.length) return { tone: 'unknown', value: '未登记', hint: '插件尚未注册面板' };
+  return { tone: 'ok', value: '全部正常', hint: panels.map((panel) => panel.title).join(' · ') };
+});
+
 const stateLabels: Record<string, string> = {
   waiting: '等待中',
   loading: '启动中',
@@ -71,12 +84,14 @@ const stateLabels: Record<string, string> = {
 };
 
 function stateLabel(plugin: AdminPluginStatus): string {
-  return stateLabels[plugin.state] ?? plugin.state;
+  const base = stateLabels[plugin.state] ?? plugin.state;
+  return plugin.last_error ? `${base} · 初始化失败` : base;
 }
 
 function stateTone(plugin: AdminPluginStatus): Tone {
-  if (plugin.available) return 'ok';
   if (plugin.state === 'failed') return 'bad';
+  if (plugin.last_error) return 'warn';
+  if (plugin.available) return 'ok';
   if (plugin.state === 'waiting' || plugin.state === 'loading' || plugin.state === 'stopping') return 'warn';
   return 'idle';
 }
@@ -100,15 +115,38 @@ function reload(): void {
     <ErrorNotice v-if="health.error" :error="health.error" retry @retry="reload" />
 
     <section class="panel overflow-hidden">
-      <div class="grid grid-cols-2 gap-px bg-[var(--line)] sm:grid-cols-4">
-        <Stat class="bg-[var(--surface)]" label="最新序号" :value="health.info?.latest_seq ?? '—'" mono hint="已接纳事件的位置" />
-        <Stat class="bg-[var(--surface)]" label="最近事件" :value="newestAge" :hint="newest ? newest.event.type : '等待第一条事件'" />
-        <Stat class="bg-[var(--surface)]" label="可用插件" :value="`${available} / ${plugins.length}`" mono hint="宿主运行时投影" />
-        <Stat class="bg-[var(--surface)]" label="版本" :value="health.info?.version ?? '—'" mono hint="与 config_version 独立" />
+      <div class="grid grid-cols-2 gap-px bg-[var(--line)] sm:grid-cols-[1.6fr_1fr_1fr]">
+        <div class="col-span-2 min-w-0 bg-[var(--surface)] px-4 py-3 sm:col-span-1">
+          <p class="text-xs leading-tight text-[var(--muted)]">最近事件</p>
+          <p class="mt-1 text-[22px] font-semibold leading-tight tabular-nums">{{ newestAge }}</p>
+          <p class="mt-0.5 truncate font-mono text-[12px]">{{ newest ? newest.event.type : '等待第一条事件' }}</p>
+        </div>
+        <div class="min-w-0 bg-[var(--surface)] px-4 py-3">
+          <p class="text-xs leading-tight text-[var(--muted)]">可用插件</p>
+          <p class="mt-1 text-[22px] font-semibold leading-tight tabular-nums" :class="available < plugins.length ? 'text-[var(--warn)]' : ''">
+            {{ available }} / {{ plugins.length }}
+          </p>
+          <p class="mt-0.5 text-[11px] leading-snug" :class="available < plugins.length ? 'text-[var(--warn)]' : 'text-[var(--faint)]'">
+            {{ plugins.length - available ? `${plugins.length - available} 个不可用` : '全部可用' }}
+          </p>
+        </div>
+        <div class="min-w-0 bg-[var(--surface)] px-4 py-3">
+          <p class="text-xs leading-tight text-[var(--muted)]">面板</p>
+          <p
+            class="mt-1 text-[22px] font-semibold leading-tight"
+            :class="panelRollup.tone === 'bad' ? 'text-[var(--bad)]' : panelRollup.tone === 'warn' ? 'text-[var(--warn)]' : panelRollup.tone === 'ok' ? '' : 'text-[var(--faint)]'"
+          >
+            {{ panelRollup.value }}
+          </p>
+          <p class="mt-0.5 truncate text-[11px] leading-snug text-[var(--muted)]" :title="panelRollup.hint">{{ panelRollup.hint }}</p>
+        </div>
       </div>
     </section>
 
     <Section title="最近事件" description="最新 8 条已接纳事件；完整查询见事件浏览。">
+      <template #actions>
+        <span class="meta">最新序号 <span class="mono text-[var(--text)]">#{{ health.info?.latest_seq ?? '—' }}</span></span>
+      </template>
       <ErrorNotice v-if="recentError" :error="recentError" />
       <div v-else class="panel overflow-hidden">
         <div v-if="recent.length" class="rows">
@@ -116,10 +154,12 @@ function reload(): void {
             v-for="(record, index) in recent"
             :key="record.seq"
             class="row-in flex items-baseline gap-3 px-4 py-2.5"
+            :class="{ 'row-latest': index === recent.length - 1 }"
             :style="{ '--i': index }"
           >
-            <span class="w-10 shrink-0 text-right font-mono text-[11px] tabular-nums text-[var(--faint)]">{{ record.seq }}</span>
+            <span class="w-10 shrink-0 text-right font-mono text-[11px] tabular-nums text-[var(--faint)]">#{{ record.seq }}</span>
             <RelativeTime :value="record.accepted_at" class="w-20 shrink-0 text-xs text-[var(--muted)]" />
+            <span v-if="index === recent.length - 1" class="shrink-0 text-[10px] font-medium text-[var(--accent)]">最新</span>
             <span class="min-w-0 flex-1 truncate font-mono text-xs" :title="record.event.type">{{ record.event.type }}</span>
             <span class="hidden min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--muted)] sm:block" :title="record.event.source">
               {{ record.event.source }}
@@ -137,7 +177,7 @@ function reload(): void {
             <thead>
               <tr>
                 <th>实例</th>
-                <th>模块</th>
+                <th class="hidden sm:table-cell">模块</th>
                 <th>状态</th>
                 <th>必需</th>
                 <th>最近错误</th>
@@ -146,7 +186,7 @@ function reload(): void {
             <tbody>
               <tr v-for="plugin in plugins" :key="plugin.id">
                 <td class="font-mono text-xs">{{ plugin.id }}</td>
-                <td class="font-mono text-xs text-[var(--muted)]">{{ plugin.module_name }}</td>
+                <td class="hidden font-mono text-xs text-[var(--muted)] sm:table-cell">{{ plugin.module_name }}</td>
                 <td>
                   <Chip :tone="stateTone(plugin)" :label="stateLabel(plugin)" />
                 </td>

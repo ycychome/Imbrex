@@ -13,6 +13,7 @@ import PageHeader from '../../../../web/src/ui/PageHeader.vue';
 import RelativeTime from '../../../../web/src/ui/RelativeTime.vue';
 import { isAbort } from '../../../../web/src/ui/errors.js';
 import { formatFull } from '../../../../web/src/ui/format.js';
+import { useNarrow } from '../../../../web/src/ui/media.js';
 
 interface EventRecord {
   seq: string;
@@ -43,6 +44,7 @@ const appliedType = ref('');
 
 const selected = ref<EventRecord | null>(null);
 const sheetOpen = ref(false);
+const narrow = useNarrow();
 
 const storeId = computed(() => health.info?.store_id ?? '');
 
@@ -162,15 +164,17 @@ onUnmounted(() => {
       <section class="panel overflow-hidden">
         <div v-if="records.length" class="rows max-h-[calc(100vh-16rem)] overflow-y-auto">
           <button
-            v-for="record in records"
+            v-for="(record, index) in records"
             :key="record.seq"
             type="button"
             class="row-link flex items-baseline gap-3 px-4 py-2.5"
+            :class="{ 'row-latest': index === records.length - 1 }"
             :aria-current="selected?.seq === record.seq ? 'true' : undefined"
             @click="pick(record)"
           >
-            <span class="w-10 shrink-0 text-right font-mono text-[11px] tabular-nums text-[var(--faint)]">{{ record.seq }}</span>
+            <span class="w-10 shrink-0 text-right font-mono text-[11px] tabular-nums text-[var(--faint)]">#{{ record.seq }}</span>
             <RelativeTime :value="record.accepted_at" class="w-20 shrink-0 text-xs text-[var(--muted)]" />
+            <span v-if="index === records.length - 1" class="shrink-0 text-[10px] font-medium text-[var(--accent)]">最新</span>
             <span class="min-w-0 flex-1 truncate font-mono text-xs" :title="record.event.type">{{ record.event.type }}</span>
             <span class="hidden max-w-[45%] truncate text-[11px] text-[var(--muted)] sm:block" :title="record.event.source">
               {{ record.event.source }}
@@ -195,24 +199,30 @@ onUnmounted(() => {
         </footer>
       </section>
 
-      <button v-if="sheetOpen" type="button" class="scrim lg:hidden" aria-label="关闭详情" @click="closeSheet" />
+      <Teleport to="body" :disabled="!narrow">
+        <button v-if="sheetOpen" type="button" class="scrim" aria-label="关闭详情" @click="closeSheet" />
+      </Teleport>
 
-      <aside class="inspector" :class="{ 'is-open': sheetOpen }">
+      <Teleport to="body" :disabled="!narrow">
+      <aside class="inspector" :class="{ 'is-open': sheetOpen && narrow }">
         <template v-if="selected">
-          <header class="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
-            <div class="min-w-0">
-              <p class="label">事件序号</p>
-              <p class="font-mono text-sm font-medium tabular-nums">#{{ selected.seq }}</p>
-            </div>
+          <header class="border-b border-[var(--line)] px-4 pb-3 pt-2">
+            <span class="sheet-handle" aria-hidden="true" />
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <p class="label">事件详情</p>
+                <p class="font-mono text-sm font-medium tabular-nums">#{{ selected.seq }}</p>
+              </div>
             <div class="flex items-center gap-1">
               <CopyButton :value="selected.event.id" label="复制 ID" />
-              <button type="button" class="btn btn-sm btn-icon btn-quiet lg:hidden" aria-label="关闭详情" @click="closeSheet">
-                <Icon name="close" :size="14" />
-              </button>
+                <button type="button" class="btn btn-sm btn-icon btn-quiet lg:hidden" aria-label="关闭详情" @click="closeSheet">
+                  <Icon name="close" :size="14" />
+                </button>
+              </div>
             </div>
           </header>
           <div class="flex flex-col gap-4 p-4">
-            <KeyValueList :entries="entries" />
+            <KeyValueList :entries="entries" stacked />
             <div>
               <p class="label mb-1">数据</p>
               <JsonBlock :value="selected.event.data" :max-height="260" />
@@ -225,6 +235,7 @@ onUnmounted(() => {
         </template>
         <div v-else class="px-4 py-10 text-center text-xs text-[var(--muted)]">选择一条事件查看详情。</div>
       </aside>
+      </Teleport>
     </div>
   </main>
 </template>
@@ -235,6 +246,15 @@ onUnmounted(() => {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
+}
+
+.sheet-handle {
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: 0 auto 10px;
+  border-radius: 999px;
+  background: var(--line-strong);
 }
 
 @media (min-width: 1024px) {
@@ -252,9 +272,11 @@ onUnmounted(() => {
     position: fixed;
     inset: auto 0 0 0;
     z-index: 40;
-    max-height: 76vh;
+    max-height: 85dvh;
     overflow-y: auto;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    border-radius: 12px 12px 0 0;
+    border-bottom: 0;
     transform: translateY(100%);
     transition: transform 240ms var(--ease);
   }
@@ -263,6 +285,16 @@ onUnmounted(() => {
     display: block;
     transform: none;
   }
+
+  .sheet-handle {
+    display: block;
+  }
+}
+
+@media (min-width: 1024px) {
+  .sheet-handle {
+    display: none;
+  }
 }
 
 .scrim {
@@ -270,7 +302,7 @@ onUnmounted(() => {
   inset: 0;
   z-index: 30;
   border: 0;
-  background: color-mix(in oklab, #000 45%, transparent);
+  background: rgb(18 17 16 / 48%);
   cursor: pointer;
 }
 </style>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { AdminClient } from '../../../../web/src/client-api.js';
 import Chip from '../../../../web/src/ui/Chip.vue';
+import CopyButton from '../../../../web/src/ui/CopyButton.vue';
 import EmptyState from '../../../../web/src/ui/EmptyState.vue';
 import ErrorNotice from '../../../../web/src/ui/ErrorNotice.vue';
 import JsonBlock from '../../../../web/src/ui/JsonBlock.vue';
@@ -59,6 +60,16 @@ function textOf(value: unknown, fallback = '—'): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return value === null || value === undefined ? fallback : JSON.stringify(value);
+}
+
+function errorOf(entry: PanelEntry): string | null {
+  const value = dataOf(entry).last_error;
+  return typeof value === 'string' && value.length ? value : null;
+}
+
+function statusLabel(entry: PanelEntry): string {
+  if (!entry.view) return '读取失败';
+  return errorOf(entry) ? '错误' : entry.view.status.label;
 }
 
 function phaseOf(entry: PanelEntry): string {
@@ -180,8 +191,8 @@ function configurationEntries(entry: PanelEntry): KeyValueEntry[] {
       :instance-id="entry.summary.instance_id"
       :module="entry.summary.module"
       :generation="entry.summary.generation"
-      :tone="entry.view?.status.tone ?? 'unknown'"
-      :label="entry.view?.status.label ?? '读取失败'"
+      :tone="errorOf(entry) ? 'bad' : entry.view?.status.tone ?? 'unknown'"
+      :label="statusLabel(entry)"
     >
       <ErrorNotice v-if="entry.failure" :error="entry.failure" retry @retry="load" />
       <ErrorNotice
@@ -192,6 +203,20 @@ function configurationEntries(entry: PanelEntry): KeyValueEntry[] {
       />
 
       <template v-else-if="entry.view">
+        <div
+          v-if="errorOf(entry)"
+          class="mb-4 rounded-[var(--radius)] border border-[color-mix(in_oklab,var(--bad)_38%,var(--line))] bg-[color-mix(in_oklab,var(--bad)_8%,var(--surface))] px-3 py-2"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-xs font-medium text-[var(--bad)]">运行时错误</p>
+            <CopyButton :value="errorOf(entry) ?? ''" label="复制错误码" />
+          </div>
+          <p class="mt-1 font-mono text-[12px] leading-relaxed">{{ errorOf(entry) }}</p>
+          <p class="mt-0.5 text-[11px] leading-relaxed text-[var(--faint)]">
+            读取于 <RelativeTime :value="updatedAt" />；来自面板投影，不代表持久化错误。
+          </p>
+        </div>
+
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
           <div class="flex flex-wrap items-center gap-1.5 text-xs">
             <template v-for="(step, index) in track" :key="step.value">
@@ -201,7 +226,7 @@ function configurationEntries(entry: PanelEntry): KeyValueEntry[] {
               </span>
             </template>
           </div>
-          <Chip :label="phaseText(entry)" />
+          <Chip v-if="phaseText(entry) !== statusLabel(entry)" :label="phaseText(entry)" />
           <span class="text-[11px] text-[var(--faint)]">状态文件 {{ stateLabels[textOf(dataOf(entry).state_status)] ?? textOf(dataOf(entry).state_status) }}</span>
         </div>
 
