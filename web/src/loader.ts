@@ -14,7 +14,11 @@ export async function loadPluginClients(): Promise<LoadResult> {
   const failures: string[] = [];
   const entries = new Map<string, string>();
   for (const plugin of info.plugins) {
-    if (plugin.enabled && plugin.client_entry) entries.set(plugin.module_name, plugin.client_entry);
+    // A view may only load from an enabled, running instance whose entry is the
+    // same-origin static path; a failed or stopped plugin contributes nothing.
+    if (!plugin.enabled || plugin.state !== 'active' || !plugin.client_entry) continue;
+    if (!plugin.client_entry.startsWith('/admin/plugins/')) continue;
+    entries.set(plugin.module_name, plugin.client_entry);
   }
   for (const [module, entry] of entries) {
     if (loadedModules.has(module)) continue;

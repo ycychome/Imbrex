@@ -61,7 +61,7 @@ ACP 的 tini 依赖用于接管脱离进程组或父进程先退出的后代，�
 
 - 插件客户端：`src/plugins/<module>/client/index.ts` 默认导出 `{inject:['views'], apply(ctx)}`；`apply` 调用 `ctx.views.register({id,title,order,component})`，组件接收 Shell 传入的 `client` 请求器。服务端插件入口导出 `export const client = 'entry.js'` 后，`/api/admin/info` 的插件状态会带 `client_entry`。
 - 构建：`npm run web:build` 先执行 `vue-tsc`，再构建 Shell 与四个插件入口；插件产物固定输出到 `web/dist/plugins/<module>/entry.js`，共享 Vue 运行时 chunk。
-- 装载：登录后 Shell 读取 `/api/admin/info`，仅对 `enabled` 且有 `client_entry` 的插件执行动态 `import()`，再交给 `ctx.plugin()`。插件禁用或加载失败时，对应视图不出现；失败会显示在 Shell 顶部。
+- 装载：登录后 Shell 读取 `/api/admin/info`，仅对 `enabled`、运行状态为 `active` 且有 `client_entry` 的插件执行动态 `import()`，再交给 `ctx.plugin()`。插件禁用或加载失败时，对应视图不出现；失败会显示在 Shell 顶部。
 - 开发：`npm run web:dev`，访问 `http://localhost:5173/admin/`。Vite 中间件把 `/admin/plugins/<module>/entry.js` 重定向到对应源码入口，便于动态加载；`/api` 代理到 `http://127.0.0.1:8080` 并重写 Origin。
 - 视图选择：`ctx.views.register()` 在 vue-router 4 的 hash history 上动态 `addRoute`（路径 `/<view-id>`），Shell 不预置任何业务路由；侧栏点击与浏览器前进/后退都走 router。hash 不发送到服务端，server-http 只提供真实静态文件，不做 SPA 路径回落。
 - 缺失降级：未构建、目录不存在或缺少 `index.html` 时，`/admin` 返回 404；admin API、宿主和其他插件继续运行。
