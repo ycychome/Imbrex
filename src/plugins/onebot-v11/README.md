@@ -110,6 +110,8 @@ identity_namespace 是该账号一段经过验证的原生事件身份范围，�
 
 事件 type 为 `qq.message.group` / `qq.message.private`；data 至少包含 account_id、identity_namespace、conversation_type、conversation_id、sender_id、native_message_id、direction、text 及受控 message_segments。
 
+`message_segments` 解释 text、reply、at、image（只保留有界 summary）与 face（只保留 id）；其他段忽略，不让常见的@、图片或未知扩展拒绝整条消息。CQ 字符串模式只解析 reply，其余 CQ 段跳过。非法身份、非法 message_id、畸形 reply 仍然拒绝。附件不归档，事件只带受限元数据。
+
 只接纳配置账号与允许范围内的事件。self_id/登录账号冲突时报告身份错误；自身消息标 outbound，不伪装成新的入站触发。只有指定连接器主体能发布这个 source 范围，Agent 派生事件使用自己的来源。
 
 入站先校验大小、结构、身份，再通过内核 append。原始 WS 帧和待办队列有界；过大内容、队列失败、磁盘失败及断线都进入诊断，不能以无界缓存宣称不丢。
