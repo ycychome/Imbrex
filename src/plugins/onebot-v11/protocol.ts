@@ -49,9 +49,14 @@ function segments(value: unknown): JsonObject[] {
       const prefix = value.slice(offset, match.index);
       if (prefix.includes('[CQ:')) fail('invalid_event', 'Malformed CQ segment');
       if (prefix) result.push({ type: 'text', data: { text: decode(prefix) } });
-      const reply = /^reply,id=(0|-?[1-9][0-9]*)$/.exec(match[1]!);
-      if (!reply) fail('invalid_event', 'Unsupported message segment');
-      result.push({ type: 'reply', data: { id: nativeId(reply[1], true) } });
+      const body = match[1]!;
+      // CQ string mode keeps only text and reply; attachments or mentions are not
+      // interpreted, but they must not reject the text around them.
+      if (body.startsWith('reply,')) {
+        const reply = /^reply,id=(0|-?[1-9][0-9]*)$/.exec(body);
+        if (!reply) fail('invalid_event', 'Invalid reply segment');
+        result.push({ type: 'reply', data: { id: nativeId(reply[1], true) } });
+      }
       offset = match.index + match[0].length;
     }
     const suffix = value.slice(offset);
@@ -60,13 +65,43 @@ function segments(value: unknown): JsonObject[] {
     return segments(result);
   }
   if (!Array.isArray(value) || value.length > 128) fail('invalid_event', 'Unsupported message segments');
-  return value.map((entry): JsonObject => {
+  const result: JsonObject[] = [];
+  for (const entry of value) {
     const segment = object(entry, 'invalid_event');
-    const data = object(segment.data, 'invalid_event');
-    if (segment.type === 'text') return { type: 'text', data: { text: string(data.text, limits.valueBytes, 'invalid_event', true) } };
-    if (segment.type === 'reply') return { type: 'reply', data: { id: nativeId(data.id, true) } };
-    return fail('invalid_event', 'Unsupported message segment');
-  });
+    const data = segment.data === undefined ? {} : object(segment.data, 'invalid_event');
+    if (segment.type === 'text') {
+      result.push({ type: 'text', data: { text: string(data.text, limits.valueBytes, 'invalid_event', true) } });
+      continue;
+    }
+    if (segment.type === 'reply') {
+      result.push({ type: 'reply', data: { id: nativeId(data.id, true) } });
+      continue;
+    }
+    if (segment.type === 'at') {
+      if (data.qq === 'all') result.push({ type: 'at', data: { qq: 'all' } });
+      else if (typeof data.qq === 'string' || typeof data.qq === 'number') {
+        const qq = safeNativeId(data.qq);
+        if (qq !== undefined) result.push({ type: 'at', data: { qq } });
+      }
+      continue;
+    }
+    if (segment.type === 'image') {
+      const summary = typeof data.summary === 'string' && data.summary.length > 0 ? data.summary.slice(0, 64) : undefined;
+      result.push({ type: 'image', data: summary === undefined ? {} : { summary } });
+      continue;
+    }
+    if (segment.type === 'face') {
+      if (typeof data.id === 'string' || typeof data.id === 'number') result.push({ type: 'face', data: { id: String(data.id).slice(0, 16) } });
+      continue;
+    }
+    // Other OneBot segment types are deliberately not interpreted. Skipping them
+    // keeps the text of a message usable instead of failing the whole event.
+  }
+  return result;
+}
+
+function safeNativeId(value: unknown): string | undefined {
+  try { return nativeId(value); } catch { return undefined; }
 }
 
 export function sourceFor(config: OneBotConfig, kind: string, conversation: string): string {

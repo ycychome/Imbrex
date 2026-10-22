@@ -129,18 +129,40 @@ test('account mismatch, oversized input and implementation changes remain unavai
   assert.equal(saved.app_name, 'standard-numeric-fixture');
 });
 
-test('invalid native IDs and unsupported segments cannot enter storage; demo builtins still reject configuration', async (t) => {
+test('invalid native IDs are rejected while unsupported segments degrade instead of blocking the message', async (t) => {
   const { config } = await fixture(t);
   const parsed = parseOneBotConfig(config.plugins.find((plugin) => plugin.id === 'qq-main')!.config);
   for (const event of [
     { ...numericFixture, message_id: 9007199254740992 }, { ...numericFixture, self_id: 222222 },
-    { ...numericFixture, message: '[CQ:image,file=example]' }, { ...numericFixture, message: '[CQ:reply,id=01]' },
-    { ...numericFixture, message: [{ type: 'image', data: { file: 'example' } }] },
   ]) assert.throws(() => mapMessage(event, parsed));
+  assert.throws(() => mapMessage({ ...numericFixture, message: '[CQ:reply,id=01]' }, parsed));
+
+  const cqImage = object(mapMessage({ ...numericFixture, message: '[CQ:image,file=example]' }, parsed)!.event.data);
+  assert.equal(cqImage.text, '');
+  assert.deepEqual(cqImage.message_segments, []);
+
+  const mixed = mapMessage({ ...numericFixture, message: [
+    { type: 'at', data: { qq: 'all' } },
+    { type: 'at', data: { qq: '01' } },
+    { type: 'image', data: { summary: '[图片]' } },
+    { type: 'face', data: { id: 42 } },
+    { type: 'unknown', data: {} },
+    { type: 'text', data: { text: ' 你好' } },
+  ] }, parsed);
+  const mixedData = object(mixed!.event.data);
+  assert.equal(mixedData.text, ' 你好');
+  assert.deepEqual(mixedData.message_segments, [
+    { type: 'at', data: { qq: 'all' } },
+    { type: 'image', data: { summary: '[图片]' } },
+    { type: 'face', data: { id: '42' } },
+    { type: 'text', data: { text: ' 你好' } },
+  ]);
+
   assert.throws(() => parseOneBotConfig({ ...config.plugins.find((plugin) => plugin.id === 'qq-main')!.config, compatibility_profile: 'imaginary' }));
   config.plugins.find((plugin) => plugin.id === 'qq-main')!.module = 'builtin:mock';
   await assert.rejects(loadModules(config, '/tmp/fixture-config.json'), { code: 'invalid_request' });
 });
+
 
 test('burst ingress is bounded and the connection recovers without automatically sending', async (t) => {
   const { app, sim, ready } = await fixture(t);
