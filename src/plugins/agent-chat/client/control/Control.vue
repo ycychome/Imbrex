@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import type { ViewClient } from '@imbrex/ui-contract';
 import type { PanelEntry } from '@imbrex/ui-contract/ui';
 import { Chip } from '@imbrex/ui-contract/ui';
-import { actionOf, byteLength, operate, record, resultMessage, text } from './operate';
+import { actionOf, byteLength, managementOf, operate, record, resultMessage, text } from './operate';
 import FilterForm from './FilterForm.vue';
 import AgentForm from './AgentForm.vue';
 
@@ -13,11 +13,13 @@ const emit = defineEmits<{ reload: [] }>();
 const summary = computed(() => props.entry.summary);
 const data = computed(() => props.entry.view?.data ?? {});
 const storeId = computed(() => text(data.value.store_id));
+const management = computed(() => managementOf(data.value));
 const status = computed(() => text(data.value.status, 'unknown'));
 const inFlight = computed(() => record(data.value.in_flight));
 const sessions = computed(() => Object.entries(record(data.value.sessions) ?? {}).flatMap(([source, session]) => typeof session === 'string' ? [{ source, session }] : []));
 const stopped = computed(() => status.value === 'stopped_or_error');
 const suspended = computed(() => status.value === 'suspended_in_flight');
+const stateKnown = computed(() => data.value.state_status !== 'unavailable');
 
 const hasRecover = computed(() => actionOf(summary.value, 'recover-input'));
 const hasReset = computed(() => actionOf(summary.value, 'reset-session'));
@@ -113,10 +115,11 @@ function short(value: string): string {
             只在异常暂停时可用；处置对象是当前这一条输入，服务端会核对 seq/source/id。
           </p>
         </div>
-        <Chip :tone="inFlight ? (suspended ? 'bad' : 'warn') : 'idle'" :label="inFlight ? (suspended ? '未决暂停' : '处理中') : '无未决'" />
+        <Chip :tone="!stateKnown ? 'unknown' : inFlight ? (suspended ? 'bad' : 'warn') : 'idle'" :label="!stateKnown ? '未知' : inFlight ? (suspended ? '未决暂停' : '处理中') : '无未决'" />
       </div>
 
-      <div v-if="inFlight" class="mt-2 rounded-[var(--radius)] border border-[var(--line-strong)] px-3 py-2">
+      <p v-if="!stateKnown" class="mt-2 text-[12px] text-[var(--muted)]">状态不可验证，未决输入未知；不要据此认为没有未决项。</p>
+      <div v-else-if="inFlight" class="mt-2 rounded-[var(--radius)] border border-[var(--line-strong)] px-3 py-2">
         <p class="font-mono text-[11px] leading-relaxed">
           {{ text(inFlight.id) }} · seq {{ text(inFlight.seq) }}
         </p>
@@ -158,10 +161,11 @@ function short(value: string): string {
             解除平台会话与 ACP 会话的映射；不删除 Agent 历史，也不停止其他会话。
           </p>
         </div>
-        <span class="text-[11px] text-[var(--faint)]">{{ sessions.length }} 个映射</span>
+        <span class="text-[11px] text-[var(--faint)]">{{ stateKnown ? sessions.length + ' 个映射' : '未知' }}</span>
       </div>
 
-      <p v-if="!sessions.length" class="mt-2 text-[12px] text-[var(--muted)]">暂无已建立的会话映射。</p>
+      <p v-if="!stateKnown" class="mt-2 text-[12px] text-[var(--muted)]">状态不可验证，会话映射与当前轮次未知。</p>
+      <p v-else-if="!sessions.length" class="mt-2 text-[12px] text-[var(--muted)]">暂无已建立的会话映射。</p>
       <ul v-else class="mt-2 divide-y divide-[var(--line)] border-y border-[var(--line)]">
         <li v-for="item in sessions" :key="item.source" class="py-2">
           <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -185,8 +189,11 @@ function short(value: string): string {
       </ul>
     </section>
 
-    <FilterForm v-if="hasFilter" :client="client" :summary="summary" :store-id="storeId" :data="data" @reload="emit('reload')" />
-    <AgentForm v-if="hasAgent" :client="client" :summary="summary" :store-id="storeId" :data="data" @reload="emit('reload')" />
+    <FilterForm v-if="hasFilter && management" :client="client" :summary="summary" :store-id="storeId" :data="data" @reload="emit('reload')" />
+    <AgentForm v-if="hasAgent && management" :client="client" :summary="summary" :store-id="storeId" :data="data" @reload="emit('reload')" />
+    <p v-if="(hasFilter || hasAgent) && !management" class="mt-3 rounded-[var(--radius)] border border-dashed border-[var(--line-strong)] px-3 py-2 text-[11px] leading-relaxed text-[var(--muted)]">
+      消费状态不可验证，配置与动作暂不可用；不要据此认为“没有未决项”或“没有过滤”。
+    </p>
 
     <p v-if="notice" class="mt-3 rounded-[var(--radius)] border border-[color-mix(in_oklab,var(--warn)_35%,var(--line))] bg-[color-mix(in_oklab,var(--warn)_8%,var(--surface))] px-3 py-2 text-[11px] leading-relaxed">
       {{ notice }}

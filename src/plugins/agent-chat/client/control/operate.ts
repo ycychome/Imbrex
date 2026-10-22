@@ -140,7 +140,10 @@ export function byteLength(value: string): number {
 export function parseIds(value: string): string[] | null {
   const parts = value.split(/[\s,，、;；]+/u).filter(Boolean);
   if (parts.length > 1000) return null;
-  for (const part of parts) if (!/^[1-9][0-9]{0,19}$/.test(part)) return null;
+  for (const part of parts) {
+    if (!/^[1-9][0-9]{0,19}$/.test(part)) return null;
+    if (BigInt(part) > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+  }
   return [...new Set(parts)].sort();
 }
 
