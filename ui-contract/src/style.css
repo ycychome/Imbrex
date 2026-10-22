@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @source "../../src/plugins/*/client/**/*.vue";
 @source "../../src/plugins/*/client/**/*.ts";
+@source "../../src/plugins/admin/shell/**/*.vue";
+@source "../../src/plugins/admin/shell/**/*.ts";
 
 /*
  * Design tokens. One palette, two themes, same structure: the console is a

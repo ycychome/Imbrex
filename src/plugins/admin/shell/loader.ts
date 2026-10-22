@@ -1,4 +1,4 @@
-import type { AdminInfo } from './client-api';
+import type { AdminInfo } from '../types';
 import { fetchInfo } from './api';
 import { ctx } from './context';
 

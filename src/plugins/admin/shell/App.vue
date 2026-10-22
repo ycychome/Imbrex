@@ -2,14 +2,11 @@
 import { computed, onMounted, ref } from 'vue';
 import { RouterView } from 'vue-router';
 import { authenticated, clearToken, login, sessionMessage, setToken } from './api';
-import { client, ctx } from './context';
+import { ctx } from './context';
 import { loadPluginClients } from './loader';
 import { gatewayHealth, health, stale, startHealth, stopHealth, togglePolling, updatedText } from './health';
 import { theme, toggleTheme } from './theme';
-import Chip from './ui/Chip.vue';
-import Icon from './ui/Icon.vue';
-import { describeFailure, type Tone } from './ui/errors';
-import { shortId } from './ui/format';
+import { Chip, Icon, describeFailure, shortId, type Tone } from '@imbrex/ui-contract/ui';
 
 const input = ref('');
 const error = ref('');
@@ -242,9 +239,7 @@ onMounted(() => {
           <span v-for="failure in failures" :key="failure" class="mt-1 block font-mono text-[11px] leading-relaxed">{{ failure }}</span>
         </p>
 
-        <RouterView v-if="active" v-slot="{ Component }">
-          <component :is="Component" :key="active.id" :client="client" class="view-in" />
-        </RouterView>
+        <RouterView v-if="active" />
         <div v-else class="px-6 py-16 text-center text-[13px] text-[var(--muted)]">
           {{ loadingViews ? '正在加载插件视图…' : '没有已启用的插件视图。' }}
         </div>

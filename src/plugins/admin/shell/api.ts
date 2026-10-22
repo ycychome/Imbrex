@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue';
-import type { AdminInfo } from './client-api';
+import type { AdminInfo } from '../types';
 
 const STORAGE_KEY = 'imbrex.admin.token';
 

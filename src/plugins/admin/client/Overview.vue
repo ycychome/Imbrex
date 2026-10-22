@@ -1,16 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
-import type { AdminClient, AdminPluginStatus } from '../../../../ui-contract/src/client-api.js';
-import { health, refreshHealth } from '../../../../ui-contract/src/health.js';
-import { now } from '../../../../ui-contract/src/ui/clock.js';
-import Chip from '../../../../ui-contract/src/ui/Chip.vue';
-import EmptyState from '../../../../ui-contract/src/ui/EmptyState.vue';
-import ErrorNotice from '../../../../ui-contract/src/ui/ErrorNotice.vue';
-import PageHeader from '../../../../ui-contract/src/ui/PageHeader.vue';
-import RelativeTime from '../../../../ui-contract/src/ui/RelativeTime.vue';
-import Section from '../../../../ui-contract/src/ui/Section.vue';
-import { isAbort, type Tone } from '../../../../ui-contract/src/ui/errors.js';
-import { formatRelative, shortId } from '../../../../ui-contract/src/ui/format.js';
+import type { ViewClient } from '@imbrex/ui-contract';
+import { Chip, EmptyState, ErrorNotice, PageHeader, RelativeTime, Section, formatRelative, isAbort, now, shortId, type Tone } from '@imbrex/ui-contract/ui';
+import type { AdminPluginStatus } from '../types.js';
+import { health, refreshHealth } from '../shell/health.js';
 
 interface EventRecord {
   seq: string;
@@ -18,7 +11,7 @@ interface EventRecord {
   event: { source: string; id: string; type: string };
 }
 
-const props = defineProps<{ client: AdminClient }>();
+const props = defineProps<{ client: ViewClient }>();
 
 const controller = new AbortController();
 const recent = shallowRef<EventRecord[]>([]);

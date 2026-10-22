@@ -1,16 +1,21 @@
 import { Context } from 'cordis';
 import { shallowRef } from 'vue';
-import type { AdminClient, AdminView, AdminViews } from './client-api';
+import type { ViewClient, ViewDescriptor, Views } from '@imbrex/ui-contract';
 import { request } from './api';
 import { router } from './router';
+import { hostView } from './host-view';
 
 function hashId(): string {
   const match = /^#\/([a-z][a-z0-9_-]{0,63})$/.exec(location.hash);
   return match?.[1] ?? '';
 }
 
-class Views implements AdminViews {
-  private entries = shallowRef<AdminView[]>([]);
+export const client: ViewClient = {
+  request: <T>(path: string, init?: RequestInit) => request<T>(path, init),
+};
+
+class Registry implements Views {
+  private entries = shallowRef<ViewDescriptor[]>([]);
   private activeId = shallowRef('');
   private requested = hashId();
   private userSelected = false;
@@ -31,12 +36,12 @@ class Views implements AdminViews {
     void navigation.finally(() => { this.syncing = false; });
   }
 
-  register(view: AdminView): () => void {
+  register(view: ViewDescriptor): () => void {
     if (!/^[a-z][a-z0-9_-]{0,63}$/.test(view.id)) throw new Error('Invalid admin view id');
     if (this.entries.value.some((entry) => entry.id === view.id)) throw new Error(`Admin view already registered: ${view.id}`);
     const entry = view;
     this.entries.value = [...this.entries.value, entry].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
-    router.addRoute({ path: '/' + entry.id, name: entry.id, component: entry.component, meta: { title: entry.title } });
+    router.addRoute({ path: '/' + entry.id, name: entry.id, component: hostView(entry.mount, client), meta: { title: entry.title } });
     if (this.requested === entry.id) {
       this.userSelected = true;
       this.activeId.value = entry.id;
@@ -62,11 +67,11 @@ class Views implements AdminViews {
     };
   }
 
-  list(): AdminView[] {
+  list(): ViewDescriptor[] {
     return this.entries.value;
   }
 
-  active(): AdminView | undefined {
+  active(): ViewDescriptor | undefined {
     return this.entries.value.find((entry) => entry.id === this.activeId.value) ?? this.entries.value[0];
   }
 
@@ -79,11 +84,7 @@ class Views implements AdminViews {
   }
 }
 
-const views = new Views();
-
-export const client: AdminClient = {
-  request: <T>(path: string, init?: RequestInit) => request<T>(path, init),
-};
+const views = new Registry();
 
 export const ctx = new Context();
 ctx.provide('views', views);

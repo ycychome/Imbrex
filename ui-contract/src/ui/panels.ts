@@ -1,5 +1,5 @@
 import { onMounted, onUnmounted, ref, shallowRef } from 'vue';
-import type { AdminClient } from '../client-api';
+import type { ViewClient } from '../contract.js';
 import { isAbort, toneOf, type Tone } from './errors';
 
 export interface PanelMetric {
@@ -60,7 +60,7 @@ export function asPanelView(value: unknown): PanelView | null {
  * Shared panel polling for every plugin client: the fetch is generic, the
  * rendering belongs to the plugin that owns the data.
  */
-export function usePanels(client: AdminClient, module: string, intervalMs = 5000) {
+export function usePanels(client: ViewClient, module: string, intervalMs = 5000) {
   const entries = shallowRef<PanelEntry[]>([]);
   const error = ref<unknown>(null);
   const updatedAt = ref(0);

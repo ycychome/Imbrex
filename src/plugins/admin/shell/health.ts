@@ -1,9 +1,7 @@
 import { computed, reactive } from 'vue';
-import type { AdminInfo } from './client-api';
+import type { AdminInfo } from '../types';
 import { expireSession, fetchInfo, request } from './api';
-import { now } from './ui/clock';
-import { describeFailure, failureOf, isAbort, toneOf, type Tone } from './ui/errors';
-import { formatRelative } from './ui/format';
+import { describeFailure, failureOf, formatRelative, isAbort, now, toneOf, type Tone } from '@imbrex/ui-contract/ui';
 
 interface PanelSummary {
   instance_id: string;

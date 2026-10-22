@@ -1,15 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, shallowRef } from 'vue';
-import type { AdminClient } from '../../../../ui-contract/src/client-api.js';
-import Chip from '../../../../ui-contract/src/ui/Chip.vue';
-import EmptyState from '../../../../ui-contract/src/ui/EmptyState.vue';
-import ErrorNotice from '../../../../ui-contract/src/ui/ErrorNotice.vue';
-import KeyValueList from '../../../../ui-contract/src/ui/KeyValueList.vue';
-import PageHeader from '../../../../ui-contract/src/ui/PageHeader.vue';
-import Section from '../../../../ui-contract/src/ui/Section.vue';
-import Stat from '../../../../ui-contract/src/ui/Stat.vue';
-import { isAbort } from '../../../../ui-contract/src/ui/errors.js';
-import type { KeyValueEntry } from '../../../../ui-contract/src/ui/types.js';
+import type { ViewClient } from '@imbrex/ui-contract';
+import { Chip, EmptyState, ErrorNotice, KeyValueList, PageHeader, Section, Stat, isAbort, type KeyValueEntry } from '@imbrex/ui-contract/ui';
 
 interface ConfigPrincipal {
   id: string;
@@ -35,7 +27,7 @@ interface Configuration {
   plugins: ConfigPlugin[];
 }
 
-const props = defineProps<{ client: AdminClient }>();
+const props = defineProps<{ client: ViewClient }>();
 
 const controller = new AbortController();
 const config = shallowRef<Configuration | null>(null);

@@ -1,21 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
-import type { AdminClient } from '../../../../ui-contract/src/client-api.js';
-import { health } from '../../../../ui-contract/src/health.js';
-import Chip from '../../../../ui-contract/src/ui/Chip.vue';
-import CopyButton from '../../../../ui-contract/src/ui/CopyButton.vue';
-import EmptyState from '../../../../ui-contract/src/ui/EmptyState.vue';
-import ErrorNotice from '../../../../ui-contract/src/ui/ErrorNotice.vue';
-import Icon from '../../../../ui-contract/src/ui/Icon.vue';
-import JsonBlock from '../../../../ui-contract/src/ui/JsonBlock.vue';
-import KeyValueList from '../../../../ui-contract/src/ui/KeyValueList.vue';
-import PageHeader from '../../../../ui-contract/src/ui/PageHeader.vue';
-import RelativeTime from '../../../../ui-contract/src/ui/RelativeTime.vue';
-import Section from '../../../../ui-contract/src/ui/Section.vue';
-import { isAbort, type Tone } from '../../../../ui-contract/src/ui/errors.js';
-import { formatFull } from '../../../../ui-contract/src/ui/format.js';
-import type { KeyValueEntry } from '../../../../ui-contract/src/ui/types.js';
-import { useNarrow } from '../../../../ui-contract/src/ui/media.js';
+import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';
+import type { ViewClient } from '@imbrex/ui-contract';
+import { Chip, CopyButton, EmptyState, ErrorNotice, Icon, JsonBlock, KeyValueList, PageHeader, RelativeTime, Section, formatFull, isAbort, useNarrow, type KeyValueEntry, type Tone } from '@imbrex/ui-contract/ui';
 
 type CallStatus = 'in_progress' | 'succeeded' | 'failed' | 'unknown';
 type StatusFilter = 'all' | CallStatus;
@@ -45,7 +31,7 @@ interface AdminCapability {
 }
 interface CapabilityPage { capabilities: AdminCapability[] }
 
-const props = defineProps<{ client: AdminClient }>();
+const props = defineProps<{ client: ViewClient }>();
 
 const controller = new AbortController();
 const capabilities = shallowRef<AdminCapability[]>([]);
@@ -64,7 +50,7 @@ const selected = ref<AdminCall | null>(null);
 const sheetOpen = ref(false);
 const narrow = useNarrow();
 
-const storeId = computed(() => health.info?.store_id ?? '');
+const storeId = ref('');
 
 const statusLabels: Record<CallStatus, string> = {
   in_progress: '进行中',
@@ -165,8 +151,15 @@ const entries = computed<KeyValueEntry[]>(() => {
   ];
 });
 
-watch(storeId, (value) => { if (value && !loaded.value) { void loadCapabilities(); void load(true); } });
-onMounted(() => { if (storeId.value) { void loadCapabilities(); void load(true); } });
+onMounted(async () => {
+  try {
+    const info = await props.client.request<{ store_id: string }>('/api/admin/info', { signal: controller.signal });
+    storeId.value = info.store_id;
+    await Promise.all([loadCapabilities(), load(true)]);
+  } catch (cause) {
+    if (!isAbort(cause)) error.value = cause;
+  }
+});
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') closeSheet();

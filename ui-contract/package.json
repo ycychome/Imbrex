@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    ".": "./src/contract.ts",
+    "./ui": "./src/ui/index.ts",
+    "./vue": "./src/vue.ts",
+    "./style.css": "./src/style.css",
     "./dist/*": "./dist/*",
     "./package.json": "./package.json"
   },

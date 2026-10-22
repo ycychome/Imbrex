@@ -1,19 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
-import type { AdminClient } from '../../../../ui-contract/src/client-api.js';
-import { health } from '../../../../ui-contract/src/health.js';
-import CopyButton from '../../../../ui-contract/src/ui/CopyButton.vue';
-import EmptyState from '../../../../ui-contract/src/ui/EmptyState.vue';
-import ErrorNotice from '../../../../ui-contract/src/ui/ErrorNotice.vue';
-import Icon from '../../../../ui-contract/src/ui/Icon.vue';
-import JsonBlock from '../../../../ui-contract/src/ui/JsonBlock.vue';
-import KeyValueList from '../../../../ui-contract/src/ui/KeyValueList.vue';
-import type { KeyValueEntry } from '../../../../ui-contract/src/ui/types.js';
-import PageHeader from '../../../../ui-contract/src/ui/PageHeader.vue';
-import RelativeTime from '../../../../ui-contract/src/ui/RelativeTime.vue';
-import { isAbort } from '../../../../ui-contract/src/ui/errors.js';
-import { formatFull } from '../../../../ui-contract/src/ui/format.js';
-import { useNarrow } from '../../../../ui-contract/src/ui/media.js';
+import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';
+import type { ViewClient } from '@imbrex/ui-contract';
+import { CopyButton, EmptyState, ErrorNotice, Icon, JsonBlock, KeyValueList, PageHeader, RelativeTime, formatFull, isAbort, useNarrow, type KeyValueEntry } from '@imbrex/ui-contract/ui';
 
 interface EventRecord {
   seq: string;
@@ -27,7 +15,7 @@ interface EventPage {
   caught_up: boolean;
 }
 
-const props = defineProps<{ client: AdminClient }>();
+const props = defineProps<{ client: ViewClient }>();
 
 const controller = new AbortController();
 const records = shallowRef<EventRecord[]>([]);
@@ -46,7 +34,7 @@ const selected = ref<EventRecord | null>(null);
 const sheetOpen = ref(false);
 const narrow = useNarrow();
 
-const storeId = computed(() => health.info?.store_id ?? '');
+const storeId = ref('');
 
 function query(values: Record<string, string | number | undefined>): string {
   const params = new URLSearchParams();
@@ -120,8 +108,15 @@ function closeSheet(): void {
   sheetOpen.value = false;
 }
 
-watch(storeId, (value) => { if (value && !loaded.value) void loadPage(true); });
-onMounted(() => { if (storeId.value) void loadPage(true); });
+onMounted(async () => {
+  try {
+    const info = await props.client.request<{ store_id: string }>('/api/admin/info', { signal: controller.signal });
+    storeId.value = info.store_id;
+    await loadPage(true);
+  } catch (cause) {
+    if (!isAbort(cause)) error.value = cause;
+  }
+});
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') closeSheet();
