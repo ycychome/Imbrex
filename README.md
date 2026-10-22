@@ -92,11 +92,11 @@ flowchart LR
 - **[能力与工具系统](docs/design/capabilities.md)**：能力注册、Schema 校验、调用幂等与状态机设计。
 - **[存储与持久化](docs/design/storage-and-recovery.md)**：SQLite 表结构设计、事务边界与运维备份。
 - **[Cordis 插件开发指南](docs/design/plugins.md)**：插件开发规范、服务注入与连接器模板。
-- **[OneBot 与 Agent 接入](docs/design/onebot-and-agent.md)**：参考闭环的协议层——OneBot v11 连接与 Agent 驱动的具体实现。
-- **[Agent 协议接入](docs/design/agent-integration.md)**：MCP 工具与上下文、ACP 事件触发，以及 pi/pi-acp 复用边界。
+- **[应用消费契约](docs/design/applications.md)**：任何应用如何独立消费事件、保存责任状态与恢复。
 - **[配置与运维指南](docs/ops/operations.md)**：主体鉴权、权限配置、单实例启动与优雅停机。
 - **[验证与验收](docs/progress/validation.md)**：T01—T09 用例、M2 退出检查与证据索引。
 - **[设计哲学与不变量](docs/design/philosophy.md)**：长期成立的设计约束与违反判定。
+- **[onebot-v11](src/plugins/onebot-v11/README.md)** / **[agent-chat](src/plugins/agent-chat/README.md)**：参考闭环这两个插件的协议子集、身份映射与 Agent 驱动细节。
 
 ---
 

@@ -1,6 +1,6 @@
 # 能力注册、调用与结果
 
-统一开发基线 0.3 · 2026-10-18。本文是 Capability 行为规范；HTTP 表达见 [HTTP 契约](contracts.md)，QQ 的具体工具见 [OneBot 接入](onebot-and-agent.md)。
+统一开发基线 0.3 · 2026-10-18。本文是 Capability 行为规范；HTTP 表达见 [HTTP 契约](contracts.md)，QQ 的具体工具见 [OneBot 接入](../../src/plugins/onebot-v11/README.md)。
 
 ## 1. 注册和身份
 
@@ -78,6 +78,6 @@ store_id 属于整个数据库，不另建全局调用账本。params_json 保�
 
 插件可注册工具，Agent 可发现并调用；工具描述用于理解，不授予权限，也不构成执行安全证明。JSON Schema 只验证结构，账号、会话、事件可信来源仍由实际 handler 检查。
 
-M1 通过 MCP adapter 复用本契约，按实际主体提供受限发现、调用和结果查询；ACP Consumer 负责向现成 Agent 提交输入。协议边界见 [Agent 接入](agent-integration.md)。不内置通用工作流、动作自动重试、跨提供者事务或永久审计系统。
+M1 通过 MCP adapter 复用本契约，按实际主体提供受限发现、调用和结果查询；ACP Consumer 负责向现成 Agent 提交输入。协议边界见 [Agent 接入](../../src/plugins/agent-chat/README.md)。不内置通用工作流、动作自动重试、跨提供者事务或永久审计系统。
 
 事件、应用决定、调用结果可以通过 EventRef/call_id 关联，但关联本身不保证原子提交。发送成功事实如需再发布，应由连接器用稳定身份补充；不能仅因该补充发布失败就重新发送 QQ 消息。

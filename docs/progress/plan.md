@@ -38,7 +38,7 @@
 
 ## 3. M1 · OneBot、MCP 与 ACP 消费插件
 
-2026-10-19 收敛的开发目标如下，各项状态与验证范围分别记录。Agent 首接复用 pi 与现成 pi-acp；模型循环、上下文和历史交给 Agent。协议职责见 [Agent 接入](../design/agent-integration.md)，消费状态见[应用消费](../design/applications.md)。
+2026-10-19 收敛的开发目标如下，各项状态与验证范围分别记录。Agent 首接复用 pi 与现成 pi-acp；模型循环、上下文和历史交给 Agent。协议职责见 [Agent 接入](../../src/plugins/agent-chat/README.md)，消费状态见[应用消费](../design/applications.md)。
 
 | 任务 | 模块与具体工作 | 必要验证 |
 | --- | --- | --- |
@@ -73,7 +73,7 @@ M2-01 同步清理 observer 专属配置和测试；仍覆盖存储、协议、�
 
 M2-01 前端收敛为 `ui-contract/` npm workspace 构建包，使用原生 HTML + Tailwind，不引入第三方 UI 组件库；admin 插件默认按包名解析 `@imbrex/ui-contract/dist`，`assets_dir` 仅作外部覆盖；资产缺失时 `/admin` 返回 404，不阻塞宿主。前端构建先于全量 `node --test`，基础页面与缺失资产降级由 `test/host/admin.test.ts` 覆盖；1–2 MB 压缩体积预算在 M2-04 实测记录。
 
-管理后台的功能与权限见 [Admin 契约](../design/admin.md)，轮次边界与在线恢复见[应用消费](../design/applications.md)，Agent 托管配置与受控重启见[Agent 接入](../design/agent-integration.md)。管理员通过显式 Principal 和 token_env 认证，不使用本机来源免密，也不向 Agent 的 MCP 工具列表暴露管理动作。
+管理后台的功能与权限见 [Admin 契约](../design/admin.md)，轮次边界与在线恢复见[应用消费](../design/applications.md)，Agent 托管配置与受控重启见[Agent 接入](../../src/plugins/agent-chat/README.md)。管理员通过显式 Principal 和 token_env 认证，不使用本机来源免密，也不向 Agent 的 MCP 工具列表暴露管理动作。
 
 filter 编辑只控制 Consumer 触发范围，不联动扩大连接器采集或 Principal 授权。新配置在当前轮完成并保存检查点后应用；有异常未决输入时拒绝应用。模型、窗口和提示词保存后标为待重启，仅在无活跃轮次、无异常未决项时重启 Agent 子进程；现有模型循环与历史仍归 Agent。
 

@@ -107,16 +107,18 @@ host.startPlugin/stopPlugin 当前是受信内部控制入口，供生命周期�
 
 ## 7. 当前插件与 M2 目标清单
 
-| 插件 | 输入与输出 | 验证价值 |
-| --- | --- | --- |
-| fixture | 有限可重复的 fixture.message.created 事件 | 无需账号验证事件发布与重复身份 |
-| transform | 读取 fixture，发布稳定派生事件 | 验证应用可同时消费和生产 |
-| mock | 注册 mock.echo；测试环境另配可控副作用提供者 | 验证发现、schema、授权与调用记录 |
-| onebot-v11 | 通过标准 v11 接口接纳 QQ 事实与封装 reply | 验证不同服务实现可复用同一插件 |
-| agent-chat | 读取入站事件，通过 ACP stdio 驱动现成 Agent | 保留会话、进度与未决语义，M2 增加管理描述和受控配置应用 |
-| server-http | 提供 ctx.http 共享监听与路由注册 | 路由随插件注销，统一请求预算和连接清理 |
-| api-rest / adapter-mcp | 从 adapters 迁移现有 REST/MCP 入口 | 路径、授权和结果语义不变 |
-| admin（M2） | 管理 API 与静态资产注册；前端视图契约与构建包在 `ui-contract/`，M2-02 消费宿主 AdminRegistry | Admin 晚启动、卸载和重启不影响业务实例 |
+| 插件 | 输入与输出 | 验证价值 | 文档 |
+| --- | --- | --- | --- |
+| fixture | 有限可重复的 fixture.message.created 事件 | 无需账号验证事件发布与重复身份 | — |
+| transform | 读取 fixture，发布稳定派生事件 | 验证应用可同时消费和生产 | — |
+| mock | 注册 mock.echo；测试环境另配可控副作用提供者 | 验证发现、schema、授权与调用记录 | — |
+| onebot-v11 | 通过标准 v11 接口接纳 QQ 事实与封装 reply | 验证不同服务实现可复用同一插件 | [README](../../src/plugins/onebot-v11/README.md) |
+| agent-chat | 读取入站事件，通过 ACP stdio 驱动现成 Agent | 保留会话、进度与未决语义，M2 增加管理描述和受控配置应用 | [README](../../src/plugins/agent-chat/README.md) |
+| server-http | 提供 ctx.http 共享监听与路由注册 | 路由随插件注销，统一请求预算和连接清理 | — |
+| api-rest / adapter-mcp | 从 adapters 迁移现有 REST/MCP 入口 | 路径、授权和结果语义不变 | [HTTP 契约 §13](contracts.md#13-mcp-入口) |
+| admin（M2） | 管理 API 与静态资产注册；前端视图契约与构建包在 `ui-contract/`，M2-02 消费宿主 AdminRegistry | Admin 晚启动、卸载和重启不影响业务实例 | [Admin 契约](admin.md) |
+
+插件自带的 README 放在 `src/plugins/<plugin>/README.md`，随插件一起增删。它记录这个插件的配置、协议细节与实现边界；不记录任何网关对所有调用方的承诺——后者属于本目录下的契约文档，删掉插件不该让它们少一节。第三方插件的 README 自然在自己的包里。
 
 onebot-v11、agent-chat 与三个演示插件使用绑定业务 API。observer 已移除；旧实验记录保留原名称和当时的验证范围。所有业务入口继续按绑定身份使用核心；协议插件按实际远端主体执行授权，管理操作另受 admin 权限约束。不向演示插件开放绕过权限或事务的测试捷径。
 
@@ -144,7 +146,7 @@ onebot-v11、agent-chat 与三个演示插件使用绑定业务 API。observer �
 
 实现品牌不是插件角色。onebot-v11 的通信、事件映射和工具 schema 不依赖 NapCat 或 SnowLuma SDK；差异处理放入该插件内部的显式兼容适配，默认 generic，未知 profile 拒绝启用。不要为了兼容多种实现预先创建空的适配框架或多份连接器副本。
 
-账号、身份命名空间与稳定实例 ID 属于持久绑定；切换实现不能把旧 native_message_id 或未决调用直接交给新服务，具体规则见 [OneBot 接入](onebot-and-agent.md)。
+账号、身份命名空间与稳定实例 ID 属于持久绑定；切换实现不能把旧 native_message_id 或未决调用直接交给新服务，具体规则见 [OneBot 接入](../../src/plugins/onebot-v11/README.md)。
 
 ## 10. M2 共享 HTTP 服务与就绪
 

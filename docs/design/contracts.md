@@ -2,7 +2,7 @@
 
 统一开发基线 0.3。**本文件规定线上表达；SSE 等后续接口未启用。** 事件行为见 [事件与存储](storage-and-recovery.md)，能力行为见 [能力契约](capabilities.md)。
 
-M1-02 已在同一监听提供 `/v1/mcp`，采用 MCP Streamable HTTP 而非本文件的 REST 路由表达；共用领域授权、类型与调用语义，具体工具、参数及错误映射见 [Agent 接入](agent-integration.md)。此端点不启用事件订阅 SSE。
+M1-02 已在同一监听提供 `/v1/mcp`，采用 MCP Streamable HTTP 而非本文件的 REST 路由表达；共用领域授权、类型与调用语义，具体工具、参数及错误映射见第 13 节。此端点不启用事件订阅 SSE。
 
 协议由 api-rest 与 adapter-mcp 插件提供，/v1 行为保持不变。管理入口使用 /api/admin/*，具体接口与权限见第 12 节。
 
@@ -312,3 +312,49 @@ configuration 的 principals 包含 id、permissions、read_sources、write_sour
 身份通过显式 Principal 的 token_env 引用 Bearer 凭据确定，不接受请求体指定管理员身份，不因 loopback 免认证。Admin 停用后撤销路由，普通 Agent Token 不可调用管理操作。管理操作不发布为 Agent 的 MCP 工具。
 
 状态或配置写入失败不能报告成功；旧页面提交的操作若不再对应当前未决项，应拒绝而不推进其他输入。管理请求断开不等于操作取消，后续应查询实际状态；不得把重新提交操作解释成新的外部发送意图。
+
+## 13. MCP 入口
+
+`/v1/mcp` 由 adapter-mcp 插件提供，在进程内直接复用 events、capabilities、access，保持 core 不依赖 MCP、Cordis 或 HTTP 框架。上下文与动作使用同一个 MCP Server。
+
+### 13.1 暴露范围
+
+| 交互 | 复用的责任边界 |
+| --- | --- |
+| 实例信息、事件分页与按引用查询 | 现有 info/read/lookup；来源读取授权、store_id 与十进制序号不变 |
+| 能力发现 | 只列当前主体获授权且可用的能力，参数 schema 来自现有注册 |
+| 能力调用 | 再次校验主体、能力、参数与外部写开关；reply 的目标由可信原事件得出 |
+| 调用结果查询 | 使用稳定 call_id，只读本主体记录；保留 in_progress/succeeded/failed/unknown |
+
+只读查询可映射为 Tools，适合资源读取的上下文可映射为 Resources；按实际需要实现，不强制给同一操作提供两套入口。事件正文及其元数据受既有来源授权限制；info 的 store_id/latest_seq 沿用单所有者共享规则。原始平台 Action 不整体映射成工具。
+
+首版沿用静态 bearer token 与 Principal 配置；外部调用方用专用主体。每个请求重新鉴权，MCP session ID 不能替代认证或在主体间复用。发现过滤和真正执行同时受核心授权约束，不能仅靠隐藏名称或模型提示限制工具；暂不另建权限中间层。
+
+外部写必须携带 store_id、稳定 call_id 与能力参数。MCP 请求 ID 不充当 call_id，收到协议成功响应不等于动作成功；响应丢失后查原调用，unknown 不换 ID 自动补发。
+
+### 13.2 工具清单
+
+tools/list 按每次请求的主体权限过滤以下工具。能力清单由 imbrex_list_capabilities 返回，只包含当前获授权且可用的核心注册，保留其完整 input_schema；schema 的根可以是数组、标量或对象。
+
+| MCP 工具 | 必填参数 | 可选参数 / 对应结果 |
+| --- | --- | --- |
+| imbrex_info | 无 | 与 HTTP info 一致的 store_id、latest_seq 和 features |
+| imbrex_read_events | store_id、after_seq | limit、source_prefix、type；与 HTTP 读取页一致 |
+| imbrex_lookup_event | store_id、source、id | 返回 store_id、record |
+| imbrex_list_capabilities | 无 | 返回 store_id、capabilities，字段与 HTTP 能力发现一致 |
+| imbrex_invoke | store_id、capability_id、params | 外部写必填 call_id，只读能力省略；返回核心 result 或 call |
+| imbrex_get_call | store_id、call_id | 返回本主体的核心 call；原插件离线后仍可查 |
+
+参数 schema 由 tools/list 提供，未知业务参数拒绝；store_id 为字符串，位置是规范十进制字符串，limit 是 1—100 的整数。字符串、JSON 大小与深度限制沿用第 2 节。SDK 转换前检查原始工具请求，业务 schema 校验使用保留的原始 arguments，不因 SDK 删除字段而放行非法请求。工具发现只是一份当前视图，执行重新检查权限、存储身份、参数与提供者状态，不凭模型提示授权。没有事件写入、原始平台 Action 或任意收件人工具。
+
+工具响应的 content 文本与 structuredContent 提供相同 JSON。核心错误返回 isError=true 和 error.code/message、request_id；外部写结果为 failed、unknown 或 in_progress 时也标记 isError=true，并保留完整 call。查询未知调用成功仅表示查询成功，必须继续检查 call.status；不能从 MCP 协议成功或查询的 isError=false 推断远端动作成功。
+
+### 13.3 传输、认证与清理
+
+采用官方 SDK 的 stateless 模式，每次 POST 创建独立 Server/transport，返回 JSON。客户端正常执行 initialize、notifications/initialized 和后续工具请求；SDK 协商初始化版本，校验后续 MCP-Protocol-Version，未携带版本时使用 SDK 的 2025-03-26 兼容默认。服务端不保存客户端初始化状态，不生成 MCP session ID，身份始终来自当前请求的 Bearer 凭据。
+
+POST 的 Accept 须包含 application/json 与 text/event-stream；初始化后的通知返回 202。GET、DELETE 等其他方法返回 405/Allow: POST；MCP session ID、Last-Event-ID 与批请求拒绝，不提供恢复流、资源订阅或 MCP Tasks。鉴权、Origin、HTTP 请求体失败沿用本文件错误结构；SDK 处理的协议失败使用 JSON-RPC 错误，业务失败使用上节的工具结果。
+
+无 Origin 的本地 CLI 请求可用；携带 Origin 时必须精确等于配置监听地址与实际端口构成的 HTTP origin，不能借请求 Host 头放行其他网站。首接 CLI 不需要额外浏览器跨域配置。请求体最多 256 KiB、JSON 深度最多 32、活跃 HTTP 数据请求最多 32、核心并发 handler 最多 8，所有限制与 REST 共用。
+
+响应完成或客户端断开后关闭该请求的协议实例。已经开始的核心调用继续保存结果，占用的请求预算在收尾完成后释放；断开不触发自动重试或回滚。宿主停用时沿用核心 drain 与 HTTP 关闭流程。

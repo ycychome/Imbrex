@@ -56,7 +56,7 @@
 
 D13 不要求为每个实现写一套插件，也不要求预先建设通用协议框架。标准路径优先，遇到实际差异再增加小的兼容适配。
 
-D09、D14、D15 的具体边界见 [Agent 接入](agent-integration.md)与[应用恢复](applications.md)。正常 end_turn 表示一轮结束，动作结果仍以核心 calls 为准；稳定 call_id 不使重跑整个 prompt 安全。
+D09、D14、D15 的具体边界见 [Agent 接入](../../src/plugins/agent-chat/README.md)与[应用恢复](applications.md)。正常 end_turn 表示一轮结束，动作结果仍以核心 calls 为准；稳定 call_id 不使重跑整个 prompt 安全。
 
 D16—D27 取代原 M2 第二消费者交付安排，完整管理契约见 [Admin](admin.md)。现有 M1 目录与命令在对应实现迁移前仍有效；历史运行记录归档保存，不批量改写。M2 按观测、控制、打包验收推进，目标版本 v0.2.0 在验收后冻结。
 

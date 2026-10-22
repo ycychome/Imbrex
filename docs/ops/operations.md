@@ -128,7 +128,7 @@ M1 装配时须先让 MCP 入口可供 Agent 使用，Consumer 核对自己的�
 
 单插件停用时内核继续运行。插件停止未完成时不得启动同实例的新循环；出现不能合作退出的代码应报告 stop_failed，必要时关闭宿主，而不是误报已清理。Cordis 的资源作用域用于装配清理，业务停止顺序由插件与宿主明确实现。
 
-agent-chat 还须停止 ACP 投递、保留未决输入，并关闭标准流、计时器与其拥有的 pi-acp/pi 进程；需要验证后代进程回收和锁描述符不继承，不把独立进程当作权限沙箱。详见 [Agent 资源生命周期](../design/agent-integration.md)。
+agent-chat 还须停止 ACP 投递、保留未决输入，并关闭标准流、计时器与其拥有的 pi-acp/pi 进程；需要验证后代进程回收和锁描述符不继承，不把独立进程当作权限沙箱。详见 [Agent 资源生命周期](../../src/plugins/agent-chat/README.md)。
 
 ## 5. 诊断
 
@@ -215,7 +215,7 @@ Agent 无法恢复旧 session 时，须已无 `in_flight`，并用当前 `last_s
 
 **准备**
 
-1. 在项目忽略的 `data/` 下生成本地配置，从 `examples/agent/acp.json` 开始，按 [Agent 协议接入](../design/agent-integration.md) 设置 Agent 绝对工作目录与环境变量名称。
+1. 在项目忽略的 `data/` 下生成本地配置，从 `examples/agent/acp.json` 开始，按 [Agent 协议接入](../../src/plugins/agent-chat/README.md) 设置 Agent 绝对工作目录与环境变量名称。
 2. 先保持 `external_writes_enabled=false`。
 3. OneBot 的 `ws_url` / `account_id` / `identity_namespace`、允许会话、Consumer `source_prefix` 与 Agent `read_sources` 必须指向同一个获准范围。切换服务身份时使用显式新命名空间，不复用未证实连续的原生消息身份。
 4. 真实凭据通过环境变量或 Agent 自己的配置提供，不粘贴进 PR 或聊天。
@@ -246,7 +246,7 @@ Agent 无法恢复旧 session 时，须已无 `in_flight`，并用当前 `last_s
 | 托管模型、上下文窗口、系统提示词 | 保存为待重启，空闲且无异常未决项时只重启 pi-acp/pi；原会话关联保留，恢复失败单独报告 |
 | 其他宿主配置、连接器采集或 Principal 授权 | 不纳入上述热更新承诺，沿用明确的配置与受控部署流程 |
 
-异常未决输入先按[应用恢复](../design/applications.md#m2-recovery)处置，再应用配置。管理入口不能借修改配置清空未决记录。配置保存值、已应用值、运行时观察事实分开展示；写入一部分或重启失败时不能提示已生效。
+异常未决输入先按[应用恢复](../../src/plugins/agent-chat/README.md#m2-recovery)处置，再应用配置。管理入口不能借修改配置清空未决记录。配置保存值、已应用值、运行时观察事实分开展示；写入一部分或重启失败时不能提示已生效。
 
 在线恢复由宿主协调目标 Consumer 与 Agent、核验输入、备份并更新状态，不调用离线 CLI 与 data_dir/.lock 争锁。正常运行中的一轮不得当成故障项跳过。受控 Agent 重启和恢复期间，宿主、HTTP、OneBot 连接与其他插件保持运行；是否已经回复仍由原 calls 与平台证据判断。
 

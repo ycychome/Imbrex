@@ -10,6 +10,20 @@ v1 附带一条**参考闭环**：QQ 消息经 OneBot v11 服务进入、Agent �
 
 内核不编排模型思考、不管理通用工作流，也不把归档或记忆做成固定角色。应用可以发布派生事件；其他应用按自己的进度消费。插件是本地代码装配方式，外部应用是同等有效的接入方式。
 
+### 协议、实现、传输与业务分别看待
+
+接一个新来源或新 Agent 前，先分清层次，不要把任一层的细节泄进另一层：
+
+| 层次 | 本版对象 | 职责 |
+| --- | --- | --- |
+| 协议 | OneBot v11、MCP、ACP | 定义动作、事件、响应及通信约定 |
+| 远端实现 | NapCat、SnowLuma 或 pi/pi-acp 等 | 提供协议接口，可能是本地程序也可能是第三方服务 |
+| 传输 | 正向通用 WebSocket、stdio、Streamable HTTP | 编解码与连接管理 |
+| Imbrex 插件 | onebot-v11、adapter-mcp、agent-chat | 协议编解码、身份映射、能力封装 |
+| 通用内核 | events / capabilities / access | 存储、读取、授权及调用记录，不认识任何具体平台或 Agent |
+
+这条分层是参考闭环的实现方式，不是它的特权。任何新接入都按同样的层次拆解，不因为"某个实现我们熟"就把品牌名写进 source、type 或能力名称。
+
 ## 2. 组件与数据流
 
 ```mermaid
@@ -135,7 +149,7 @@ examples/          运行配置、插件模板；M1 补充 pi 接入演示
 test/              对应 T01—T09 的必要测试
 ```
 
-后端采用上图的协议目录，adapters 与 observer 已移除，acp-consumer 更名 agent-chat。`ui-contract/` 负责视图契约与插件客户端构建，产出 `ui-contract/dist`（含 `plugins/<module>/entry.js`）；Shell 位于 `src/plugins/admin/shell/`，admin 插件通过 `@imbrex/ui-contract/package.json` 解析该目录并调用 server-http 的静态挂载，`assets_dir` 仅作为外部构建目录的覆盖。前端资产缺失时 `/admin` 返回 404，admin API 与宿主启动不受影响。core 保持无网络/宿主框架依赖，可继续使用已有 schema 校验库；不因目录迁移引入第二套插件运行时。管理接口见 [Admin 契约](admin.md)，协议职责见 [Agent 接入](agent-integration.md)。
+后端采用上图的协议目录，adapters 与 observer 已移除，acp-consumer 更名 agent-chat。`ui-contract/` 负责视图契约与插件客户端构建，产出 `ui-contract/dist`（含 `plugins/<module>/entry.js`）；Shell 位于 `src/plugins/admin/shell/`，admin 插件通过 `@imbrex/ui-contract/package.json` 解析该目录并调用 server-http 的静态挂载，`assets_dir` 仅作为外部构建目录的覆盖。前端资产缺失时 `/admin` 返回 404，admin API 与宿主启动不受影响。core 保持无网络/宿主框架依赖，可继续使用已有 schema 校验库；不因目录迁移引入第二套插件运行时。管理接口见 [Admin 契约](admin.md)，协议职责见 [Agent 接入](../../src/plugins/agent-chat/README.md)。
 
 迁移调整模块名称与配置入口时保留实例 ID、主体、数据目录、消费位置及会话关联；格式变更须有明确的迁移步骤，不静默新建状态。M0/M1 实验文档保留当时路径与证据。
 
@@ -143,4 +157,4 @@ test/              对应 T01—T09 的必要测试
 
 onebot-v11 是 Imbrex 插件，NapCat、SnowLuma 等是它对接的服务实现。标准事件/动作和通用 WS 路径优先复用；实现特有扩展只在有实际需求与测试后增加兼容适配。不导入服务私有 SDK，不将实现名写入通用内核或 Agent 工具协议。
 
-首版 OneBot v11 仅用于明确的 QQ 子集；其他来源可通过自己的插件直接接入内核。切换实现的身份连续性与兼容状态见 [OneBot 接入](onebot-and-agent.md)。
+首版 OneBot v11 仅用于明确的 QQ 子集；其他来源可通过自己的插件直接接入内核。切换实现的身份连续性与兼容状态见 [OneBot 接入](../../src/plugins/onebot-v11/README.md)。
