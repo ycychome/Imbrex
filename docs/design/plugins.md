@@ -40,7 +40,7 @@ reason 可携带匹配 /^[a-z][a-z0-9_]{0,63}$/ 的常量 code，作为 setAvail
 
 ## 3. 一个最小只读工具插件
 
-以下形式已由内置 mock 插件编译并运行；另有可直接复制的 [uppercase 模板](../examples/plugins/uppercase.ts)，通过实际配置加载及 HTTP 调用验证：
+以下形式已由内置 mock 插件编译并运行；另有可直接复制的 [uppercase 模板(../../examples/plugins/uppercase.ts)，通过实际配置加载及 HTTP 调用验证：
 
 ```typescript
 import type { Context } from 'cordis';

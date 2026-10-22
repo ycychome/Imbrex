@@ -137,6 +137,6 @@ Ctrl-C 或 SIGTERM 正常关闭；第二个进程使用同一数据目录会以 
 
 ## 7. 添加插件
 
-复制 [uppercase 模板](../examples/plugins/uppercase.ts)，使用绑定 API，实现实际需要的配置和资源清理。运行 npm run build 后，在配置中增加独立实例、主体和模块路径，例如从 examples/demo.json 引用 ../dist/examples/plugins/uppercase.js；同时为调用方授权该实例的完整能力 ID。初次启动按配置顺序装配，服务提供者须在依赖它的插件之前。
+复制 [uppercase 模板(../../examples/plugins/uppercase.ts)，使用绑定 API，实现实际需要的配置和资源清理。运行 npm run build 后，在配置中增加独立实例、主体和模块路径，例如从 examples/demo.json 引用 ../dist/examples/plugins/uppercase.js；同时为调用方授权该实例的完整能力 ID。初次启动按配置顺序装配，服务提供者须在依赖它的插件之前。
 
 当前示例使用配置 version 2 与协议插件，observer 已移除。旧配置使用 [迁移命令](operations.md#11-旧配置迁移)升级，保持原 data_dir 和业务实例 ID。M0/M1 实验记录保留原版本路径与验证范围。

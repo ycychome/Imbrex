@@ -8,7 +8,7 @@
 
 配置的 JSON 值受 256 KiB 与 32 层嵌套上限约束。server-http 插件的 config.port 为 0 时由系统分配临时端口，适用于本地测试；固定部署使用明确端口。配置校验、主体认证、模块加载与进程启动由宿主与 server-http 插件承担。
 
-配置示例用于本地演示；可运行文件见 [examples/demo.json](../examples/demo.json)，启动步骤见[开发指南](development.md#m0-run)：
+配置示例用于本地演示；可运行文件见 [examples/demo.json(../../examples/demo.json)，启动步骤见[开发指南](development.md#m0-run)：
 
 ```json
 {
