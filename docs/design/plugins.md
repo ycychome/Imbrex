@@ -29,7 +29,7 @@ Cordis 的 apply、inject、Context 与 effect 负责依赖和作用域。本方
 | `api.capabilities.invoke(id, params, {callId?})` | 使用绑定主体；遵循能力契约中的只读/外部写规则 |
 | `api.capabilities.getCall(callId)` | 查询本主体有权查看的记录 |
 | `api.setAvailable(boolean, reason?)` | 更新该插件对外服务可用性，不伪造业务成功 |
-| `api.registerAdminPanel({title,icon,read})` | 按绑定实例登记有界状态读取函数，返回注销函数；详情见第 11 节 |
+| `api.registerAdminPanel({title,icon,read,actions?})` | 按绑定实例登记有界状态读取函数，返回注销函数；详情见第 11 节 |
 | `api.events.readScope()` | 需要 events:read；返回绑定主体的 principalId 与 sources 副本，用于将本地进度绑定到实际读取范围；不返回凭据 |
 
 所有公开对象使用 JSON 值与基本领域类型，只有内部位置使用 bigint。API 不暴露网关 SQL、全局 token、其他应用状态或任意主体 impersonation。需要恢复的插件启动后先核对自己保存的 store_id，再继续调用绑定客户端。
@@ -160,8 +160,12 @@ adapter-mcp 登记 /v1/mcp 后才提供 mcp 服务，agent-chat 声明 mcp 依�
 
 ## 11. M2 管理描述登记与动作
 
-宿主常驻 AdminRegistry，绑定 API 提供 registerAdminPanel(descriptor)。身份来自 api.instanceId；描述不允许冒充其他实例。当前描述包含 title、icon、read()，返回注销入口并随实例释放；read 返回 {status:{tone,label},metrics,data} 声明式视图，前端由插件视图或通用渲染器消费。每个实例最多一份描述，总登记上限 128，详情最多 64 KiB、读取截止 5 秒；动作入口随在线控制功能增加。前端视图与后端面板描述分离：面板描述属于宿主侧 API，视图注册属于插件 client 运行时。
+宿主常驻 AdminRegistry，绑定 API 提供 registerAdminPanel(descriptor)。身份来自 api.instanceId；描述不允许冒充其他实例。描述包含 title、icon、read() 和可选 actions，返回注销入口并随实例释放；read 返回 {status:{tone,label},metrics,data} 声明式视图。每个实例最多一份描述，总登记上限 128，详情最多 256 KiB、读取截止 5 秒。前端视图与后端面板描述分离：面板描述属于宿主侧 API，视图注册属于插件 client 运行时，动作由插件自己的 client 视图渲染。
 
 Admin 只读取注册表并提供认证后的页面/API；业务插件不依赖 Admin 服务存在，因此不采用一次性的 ctx.admin?.register 而错过晚启动，也不因 Admin 卸载而卸载业务。需要停止/重启目标实例的动作由宿主协调，不继续调用已经注销的实例闭包。
 
 读取和动作结果使用有界 JSON，序号转为十进制字符串；未知指标明确标为未提供。动作先检查 admin:operate、输入 schema 和当前状态，界面确认提示不替代这些检查。管理动作不会自动注册为 Agent MCP 工具。权限与字段语义见 [Admin 契约](admin.md)。
+
+动作数组最多 16 项，每项包含 id、title、inputSchema、可选 confirmText 与 execute(input, principal)。宿主编译 schema，不做默认值填充或类型强转；输入须为 JSON。执行前核对 admin:operate、实例 generation 和可用生命周期，同实例最多一个操作。宿主停止时先中止实例信号并等待操作；业务所有者同时负责依赖卸载时等待自己的操作和状态写入，不在注销后启动新工作。Admin 卸载不撤销已经受理的其他实例动作。
+
+api.agentEndpoint(principalId) 是内置 agent-chat 专用的托管配置入口，仅在 MCP 已登记时返回实际 /v1/mcp URL 与 token_env 名称。它验证目标主体拥有 events:read、没有 admin 权限，且 Consumer 的全部读取范围被该主体覆盖；不返回秘密，也不允许普通插件任意 impersonation。

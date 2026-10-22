@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { setTimeout as delay } from 'node:timers/promises';
 import { object } from '../../src/core/validation.js';
 import { consumerLimits } from '../../src/plugins/agent-chat/config.js';
 
@@ -21,6 +22,7 @@ const failure = (id: unknown) => send({ jsonrpc: '2.0', id, error: { code: -3260
 const pending = new Map<string, (message: Record<string, unknown>) => void>();
 let descendant: ChildProcess | undefined;
 let rpcId = 0;
+const selectedModels = new Map<string, string>();
 
 log('boot', { pid: process.pid, parent: process.ppid, operator_token_present: process.env.IMBREX_OPERATOR_TOKEN !== undefined });
 const keepAlive = setInterval(() => {}, 1000);
@@ -67,6 +69,11 @@ async function handle(line: string) {
   } else if (message.method === 'session/load') {
     if (mode === 'load-fail' || typeof params.sessionId !== 'string' || !known.includes(params.sessionId)) { failure(message.id); return; }
     loaded.add(params.sessionId); result(message.id, {});
+  } else if (message.method === 'session/set_config_option') {
+    if (mode === 'model-fail') { failure(message.id); return; }
+    if (typeof params.sessionId !== 'string' || !loaded.has(params.sessionId) || params.configId !== 'model' || typeof params.value !== 'string') { failure(message.id); return; }
+    selectedModels.set(params.sessionId, params.value);
+    result(message.id, { configOptions: [{ id: 'model', category: 'model', name: 'Model', type: 'select', currentValue: mode === 'model-mismatch' ? 'fixture/wrong' : params.value, options: [{ value: params.value, name: params.value }] }] });
   } else if (message.method === 'session/prompt') {
     if (typeof params.sessionId !== 'string' || !loaded.has(params.sessionId) || !Array.isArray(params.prompt)) { failure(message.id); return; }
     const block = object(params.prompt.at(-1));
@@ -84,7 +91,14 @@ async function handle(line: string) {
       if (mode === 'orphan') process.exit(2);
     }
     send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'fixture update' } } } });
+    if (process.env.PI_CODING_AGENT_DIR) {
+      const settings = object(JSON.parse(readFileSync(join(process.env.PI_CODING_AGENT_DIR, 'settings.json'), 'utf8')));
+      log('configured-prompt', { session_id: params.sessionId, model: selectedModels.get(params.sessionId) ?? settings.defaultModel, home: process.env.HOME, cwd: process.cwd(), prompt: readFileSync(join(process.env.PI_CODING_AGENT_DIR, 'SYSTEM.md'), 'utf8') });
+    }
     if (mode === 'hold' || mode === 'tree') return;
+    if (mode === 'wait-release') {
+      while (control().release !== true) await delay(10);
+    }
     if (mode === 'oversize') { process.stdout.write('x'.repeat(consumerLimits.frameBytes + 1) + '\n'); return; }
     if (mode === 'large-update') send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId,
       update: { sessionUpdate: 'tool_call_update', toolCallId: 'large-context', status: 'completed', rawOutput: { content: 'x'.repeat(1024 * 1024) } },

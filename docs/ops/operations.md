@@ -1,6 +1,6 @@
 # 配置、权限与运行运维
 
-统一开发基线 0.3。首版为单所有者部署，本机默认监听；无多租户、自动故障转移或在线数据库替换。配置使用 version 2 与显式协议插件。
+统一开发基线 0.3。首版为单所有者部署，本机默认监听；无多租户、自动故障转移或在线数据库替换。配置使用 version 2 与显式协议插件；托管配置和在线处置的操作边界见第 8 节。
 
 ## 1. 配置来源
 
@@ -234,7 +234,7 @@ Agent 无法恢复旧 session 时，须已无 `in_flight`，并用当前 `last_s
 
 数据目录占用由操作者监看，首版不自动删除。以后需要保留窗口、多个宿主、强隔离或持续采集完整性时，先明确目标再扩展；不以当前演示成功推导长期可用性。
 
-## 8. M2 管理与配置应用
+## 8. 管理与配置应用
 
 管理页面 /admin 与 API /api/admin/* 由 admin 插件登记，使用显式管理员 Principal 和 token_env 引用 Bearer 凭据。admin:inspect 用于全局观测，admin:operate 用于配置应用和受控管理动作。所有管理 API 请求重新鉴权，loopback 不免密；静态页面不嵌入管理数据或凭据。原 operator/Agent 凭据不自动升级。完整范围见 [Admin 契约](../design/admin.md)。
 
@@ -251,3 +251,7 @@ Agent 无法恢复旧 session 时，须已无 `in_flight`，并用当前 `last_s
 在线恢复由宿主协调目标 Consumer 与 Agent、核验输入、备份并更新状态，不调用离线 CLI 与 data_dir/.lock 争锁。正常运行中的一轮不得当成故障项跳过。受控 Agent 重启和恢复期间，宿主、HTTP、OneBot 连接与其他插件保持运行；是否已经回复仍由原 calls 与平台证据判断。
 
 M2-01 更名模块与拆分 HTTP 配置时，保留稳定实例/主体、store_id、消费进度和会话证据；提供明确迁移步骤，不通过删除数据目录完成升级。生产使用先安装依赖并构建，单个网关启动命令同时提供 API 与 Vue 后台，无需另跑前端开发服务器。
+
+管理操作使用 POST /api/admin/panels/<instance>/actions/<action>，先读取对应面板的 store_id、generation 和 management.revision。保存配置后重新读取 saved/applied/pi_status/filter_status；resumed:false 或 inspect_required:true 时保留现场，核对私有 recovery/ 备份与当前消费状态，不能按 HTTP 200 推断已经恢复。精确请求和错误示例见 contracts.md 第 12 节。
+
+在线 recover-input 仅用于异常暂停中的当前输入，processed 与 abandoned 都保留原 calls，包括 unknown。恢复加载失败时原会话继续保留，可在无该会话活跃/未决责任时用 reset-session 精确解除 source/session_id，再显式重启托管 Agent。客户端重试前核对实际状态；备份不是证明最终状态已写入的收据。

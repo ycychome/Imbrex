@@ -5,7 +5,7 @@ import type {} from '../../host/protocol.js';
 import type {} from '../server-http/server.js';
 import { requirePermission } from '../../core/access.js';
 import { fail } from '../../core/errors.js';
-import { fields, string } from '../../core/validation.js';
+import { fields, object, string } from '../../core/validation.js';
 import type { JsonObject } from '../../core/types.js';
 import type { CallQuery } from '../../core/store.js';
 import type { HttpRequest } from '../server-http/server.js';
@@ -79,6 +79,19 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   http.register('GET', '/api/admin/configuration', (request) => {
     const principal = inspect(request); empty(request);
     request.send(200, admin.configuration(principal));
+  });
+  http.register('POST', '/api/admin/panels/:instance/actions/:action', async (request) => {
+    const principal = service.authenticate(request.request.headers.authorization);
+    requirePermission(principal, 'admin:operate');
+    if (request.request.headers.origin !== undefined && request.request.headers.origin !== request.origin) fail('forbidden');
+    request.response.setHeader('cache-control', 'no-store'); empty(request);
+    const body = object(await request.readBody());
+    fields(body, ['store_id', 'generation', 'params'], ['store_id', 'generation', 'params']);
+    const storeId = string(body.store_id, 256);
+    if ((await service.store.info()).storeId !== storeId) fail('store_mismatch');
+    request.ensureActive();
+    const result = await admin.operate(principal, request.params.instance!, string(body.generation, 256), request.params.action!, body.params);
+    request.send(200, { store_id: storeId, instance_id: request.params.instance, result });
   });
   const configured = input.assets_dir;
   const root = configured === undefined ? bundledAssetsDir() : string(configured, 4096);
