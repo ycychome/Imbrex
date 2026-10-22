@@ -57,17 +57,18 @@ ACP 的 tini 依赖用于接管脱离进程组或父进程先退出的后代，�
 
 ## 3. 管理前端开发与构建
 
-`web/` 是 npm workspace 构建包（`@imbrex/admin-web`），不是 Cordis 插件，也不参与宿主装配。它只负责 Vue 3 + Vite + TailwindCSS 的静态构建，产物为 `web/dist`。
+`web/` 是 npm workspace 构建包（`@imbrex/admin-web`），不是 Cordis 宿主插件，也不参与宿主装配。它是纯 Shell：登录、浏览器端 Cordis Context、`ctx.views` 注册表、vue-router 4 动态路由、插件客户端 loader 和渲染插槽；不包含具体业务页面或硬编码路由。
 
-- 开发：`npm run web:dev`，访问 `http://localhost:5173/admin/`。Vite 将 `/api` 代理到 `http://127.0.0.1:8080`，并在开发代理中重写 Origin 以通过 admin 的 Origin 校验；这仅是开发便利，生产由 server-http 同源提供。
-- 构建：`npm run web:build` 先执行 `vue-tsc`，再输出 `web/dist`。
-- 默认挂载：admin 插件通过 `@imbrex/admin-web/package.json` 解析到 `web/dist`，不需要在配置中写绝对路径。`assets_dir` 仅作为外部构建目录的覆盖，必须为绝对目录。
+- 插件客户端：`src/plugins/<module>/client/index.ts` 默认导出 `{inject:['views'], apply(ctx)}`；`apply` 调用 `ctx.views.register({id,title,order,component})`，组件接收 Shell 传入的 `client` 请求器。服务端插件入口导出 `export const client = 'entry.js'` 后，`/api/admin/info` 的插件状态会带 `client_entry`。
+- 构建：`npm run web:build` 先执行 `vue-tsc`，再构建 Shell 与四个插件入口；插件产物固定输出到 `web/dist/plugins/<module>/entry.js`，共享 Vue 运行时 chunk。
+- 装载：登录后 Shell 读取 `/api/admin/info`，仅对 `enabled`、运行状态为 `active` 且有 `client_entry` 的插件执行动态 `import()`，再交给 `ctx.plugin()`。插件禁用或加载失败时，对应视图不出现；失败会显示在 Shell 顶部。
+- 开发：`npm run web:dev`，访问 `http://localhost:5173/admin/`。Vite 中间件把 `/admin/plugins/<module>/entry.js` 重定向到对应源码入口，便于动态加载；`/api` 代理到 `http://127.0.0.1:8080` 并重写 Origin。
+- 视图选择：`ctx.views.register()` 在 vue-router 4 的 hash history 上动态 `addRoute`（路径 `/<view-id>`），Shell 不预置任何业务路由；侧栏点击与浏览器前进/后退都走 router。hash 不发送到服务端，server-http 只提供真实静态文件，不做 SPA 路径回落。
 - 缺失降级：未构建、目录不存在或缺少 `index.html` 时，`/admin` 返回 404；admin API、宿主和其他插件继续运行。
-- Token：管理页只在当前页面内存中保存 Bearer Token，不写入 `localStorage`；刷新或关闭页面后需要重新输入。
+- Token：管理页把 Bearer Token 保存在当前标签页的 `sessionStorage`，刷新页面保留、关闭标签页即清除；不写入 `localStorage`、URL 或构建产物。
+- 轮询：概览与插件看板由各自插件视图提供 5 秒自动轮询开关，可手动暂停；认证失败（401）或权限/Origin 不符（403）时自动停止轮询，401 同时返回登录页。
+- 样式：`web/src/style.css` 的 Tailwind `@source` 扫描 `src/plugins/*/client`，插件视图与 Shell 共用同一份全局样式。
 - 依赖：前端依赖放在 `web/package.json` 的 `devDependencies`，由根 `.npmrc` 精确锁定；不引入第三方 UI 组件库，界面使用原生 HTML + Tailwind。
-- 测试：`test/host/admin.test.ts` 在 `npm test` 中验证默认包名解析、静态资源、`/api/admin/info`，以及缺失 `assets_dir` 时 404 不阻塞。因为 `npm test` 先执行 `npm run build`，测试能直接读取已构建的 `web/dist`。
-- 体积：M2-01 不单独增加体积脚本；1–2 MB 的压缩后预算在 M2-04 记录实际构建结果、压缩方式和测量口径。
-- 打包：生产包必须保留 `@imbrex/admin-web` 的 `package.json` 与 `dist`，admin 才能在部署环境按包名解析；M2-04 的打包脚本负责该 workspace 包的复制或安装。未保留时按 headless 404 降级，不阻止 API。
 
 ## 4. ESM 编译选择
 
@@ -79,7 +80,7 @@ Cordis 4.0.0-rc.11 发布包的 `.d.ts` 使用无扩展名的相对导入。实�
 
 M1-02 增加 DOM 类型库以满足官方 MCP SDK 对 HeadersInit 等 Web API 类型的引用；运行时仍为 Node，保留 strict 和完整依赖声明检查。未通过跳过类型检查绕过 SDK 的声明要求。
 
-`web/` 使用自己的 `web/tsconfig.json` 和 Vite，根 `tsconfig.json` 的 include 不包含 `web/`，避免浏览器 DOM/Vue 类型与 Node 后端类型互相污染。前端类型检查由 `vue-tsc` 单独执行。
+`web/` 使用自己的 `web/tsconfig.json` 和 Vite；根 `tsconfig.json` 排除 `src/plugins/*/client/**`，由 `vue-tsc` 单独检查 Shell 与插件客户端，避免浏览器 DOM/Vue 类型与 Node 后端类型互相污染。
 
 ## 5. M0-01 前置探针记录
 

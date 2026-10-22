@@ -92,7 +92,7 @@ ACP Consumer 在提交 prompt 前持久保存 in_flight；未确认结束时暂�
 | 编译器 | TypeScript 5.9.3 | 与 Node/ws 类型依赖一起锁定并通过检查 |
 | OneBot WS 客户端 | ws 8.22.0 | 超时、释放、限额及发送结果分类通过模拟；SnowLuma 指定群正常单次收发通过 |
 | 单实例启动 | Linux util-linux flock 包装 | 非阻塞排他锁、实际宿主持锁，验证崩溃后释放 |
-| 管理前端（M2） | Vue 3.5.44、Vite 8.3.4、TailwindCSS 4.3.3；原生 HTML + Tailwind，不引入第三方 UI 组件库 | `web/` 是 npm workspace 构建包，不是 Cordis 插件；构建产物由 admin 插件默认按包名解析，缺失时 `/admin` 返回 404 且不阻塞宿主 |
+| 管理前端（M2） | Vue 3.5.44、vue-router 4.6.4、浏览器端 Cordis 4.0.0-rc.11、Vite 8.3.4、TailwindCSS 4.3.3；原生 HTML + Tailwind，不引入第三方 UI 组件库 | `web/` 是纯 Shell，不是 Cordis 宿主插件；`ctx.views` 注册表 + loader 动态加载插件自携 ESM，并用 vue-router 动态 `addRoute`；hash 只用于视图选择，不依赖服务端回落；插件禁用时页面与导航消失；构建产物由 admin 插件默认按包名解析，缺失时 `/admin` 返回 404 且不阻塞宿主 |
 
 已锁定的后端组合及探针范围见[工程基线](development.md)，宿主与内核验证见[M0 运行验收](experiments/m0-runtime.md)，OneBot/Agent 验证见对应 M1 记录。M2 前端组合已锁定版本并通过类型检查与构建；实际压缩体积与浏览器验收在 M2-04 记录。来源与限制见[技术依据](references.md)；后续兼容问题须在保持契约的前提下依据实际验证处理。
 
@@ -117,15 +117,21 @@ src/
     adapter-mcp/   现有 /v1/mcp 协议入口
     onebot-v11/    OneBot v11 连接器与 reply
     agent-chat/    ACP Client、输入消费、会话和托管配置
-    admin/         管理 API、认证与静态资产注册；AdminRegistry 在 M2-02 接入
+    admin/         管理 API、认证与静态资产注册；M2-02 起消费 AdminRegistry
     fixture.ts / transform.ts / mock.ts  必要演示插件
   cli/              启动、配置检查与本地诊断入口
-web/                Vue 3 + Vite + TailwindCSS 管理前端构建包；不是 Cordis 插件
+web/                Vue 3 + Cordis + Vite + TailwindCSS 纯 Shell；不是宿主插件
+  src/context.ts    浏览器端 Context 与 ctx.views 注册表
+  src/router/       空业务路由的 vue-router hash 实例；插件注册时动态 addRoute
+  src/loader.ts     读取 client_entry 并动态 import() 插件 ESM
+  src/client-api.ts 视图/客户端契约
+  src/App.vue       登录、动态导航与渲染插槽
+src/plugins/*/client/  插件自携前端视图与注册入口，构建到 web/dist/plugins/
 examples/          运行配置、插件模板；M1 补充 pi 接入演示
 test/              对应 T01—T09 的必要测试
 ```
 
-后端采用上图的协议目录，adapters 与 observer 已移除，acp-consumer 更名 agent-chat。`web/` 只负责前端构建，产出 `web/dist`；admin 插件通过 `@imbrex/admin-web/package.json` 解析该目录并调用 server-http 的静态挂载，`assets_dir` 仅作为外部构建目录的覆盖。前端资产缺失时 `/admin` 返回 404，admin API 与宿主启动不受影响。core 保持无网络/宿主框架依赖，可继续使用已有 schema 校验库；不因目录迁移引入第二套插件运行时。管理接口见 [Admin 契约](admin.md)，协议职责见 [Agent 接入](agent-integration.md)。
+后端采用上图的协议目录，adapters 与 observer 已移除，acp-consumer 更名 agent-chat。`web/` 只负责 Shell 与插件客户端构建，产出 `web/dist`（含 `plugins/<module>/entry.js`）；admin 插件通过 `@imbrex/admin-web/package.json` 解析该目录并调用 server-http 的静态挂载，`assets_dir` 仅作为外部构建目录的覆盖。前端资产缺失时 `/admin` 返回 404，admin API 与宿主启动不受影响。core 保持无网络/宿主框架依赖，可继续使用已有 schema 校验库；不因目录迁移引入第二套插件运行时。管理接口见 [Admin 契约](admin.md)，协议职责见 [Agent 接入](agent-integration.md)。
 
 迁移调整模块名称与配置入口时保留实例 ID、主体、数据目录、消费位置及会话关联；格式变更须有明确的迁移步骤，不静默新建状态。M0/M1 实验文档保留当时路径与证据。
 

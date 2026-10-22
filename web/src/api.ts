@@ -1,7 +1,42 @@
-export interface AdminInfo {
-  store_id: string;
-  latest_seq: string;
-  version: string;
+import { computed, ref } from 'vue';
+import type { AdminInfo } from './client-api';
+
+const STORAGE_KEY = 'imbrex.admin.token';
+
+function storedToken(): string {
+  try {
+    return sessionStorage.getItem(STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export const token = ref(storedToken());
+export const authenticated = computed(() => token.value.length > 0);
+export const sessionMessage = ref('');
+
+export function setToken(value: string): void {
+  token.value = value;
+  sessionMessage.value = '';
+  try {
+    sessionStorage.setItem(STORAGE_KEY, value);
+  } catch {
+    // The session still works in memory when storage is unavailable.
+  }
+}
+
+export function clearToken(): void {
+  token.value = '';
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Ignore storage failures; the in-memory token is already cleared.
+  }
+}
+
+export function expireSession(message = 'Token 无效或已失效，请重新输入。'): void {
+  clearToken();
+  sessionMessage.value = message;
 }
 
 export class AdminApiError extends Error {
@@ -15,46 +50,79 @@ export class AdminApiError extends Error {
   }
 }
 
-interface ErrorEnvelope {
-  error: { code: string; message: string };
+export function describeError(error: unknown): string {
+  if (!(error instanceof AdminApiError)) return '请求失败。';
+  switch (error.status) {
+    case 0: return '无法连接网关，请确认服务正在运行。';
+    case 401: return 'Token 无效或已失效，请重新连接。';
+    case 403: return '当前凭据没有 admin:inspect 权限，或 Origin 与网关监听地址不一致。';
+    case 404: return 'Admin 入口或目标资源未启用。';
+    case 409: return 'store_id 与当前网关不匹配。';
+    case 429: return '实例正在读取，请稍后重试。';
+    case 503: return '网关尚未完成初始化，请稍后重试。';
+    default: return `请求失败（${error.code}）。`;
+  }
+}
+
+export function errorRequestId(error: unknown): string | undefined {
+  return error instanceof AdminApiError ? error.requestId : undefined;
+}
+
+interface Envelope {
+  error?: { code?: unknown };
   request_id?: string;
 }
 
-function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
-  if (typeof value !== 'object' || value === null || !('error' in value)) return false;
-  const error = (value as { error?: unknown }).error;
-  return typeof error === 'object' && error !== null
-    && typeof (error as { code?: unknown }).code === 'string';
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isEnvelope(value: unknown): value is Envelope {
+  return isObject(value) && isObject(value.error);
 }
 
 function isAdminInfo(value: unknown): value is AdminInfo {
-  if (typeof value !== 'object' || value === null) return false;
-  const info = value as Record<string, unknown>;
-  return typeof info.store_id === 'string'
-    && typeof info.latest_seq === 'string'
-    && typeof info.version === 'string';
+  return isObject(value)
+    && typeof value.store_id === 'string'
+    && typeof value.latest_seq === 'string'
+    && typeof value.version === 'string'
+    && Array.isArray(value.plugins);
 }
 
-export async function fetchAdminInfo(token: string, signal?: AbortSignal): Promise<AdminInfo> {
-  const response = await fetch('/api/admin/info', {
-    method: 'GET',
-    headers: {
-      authorization: `Bearer ${token}`,
-      accept: 'application/json',
-    },
-    credentials: 'omit',
-    cache: 'no-store',
-    signal,
-  });
+async function send(path: string, init: RequestInit, tokenOverride?: string): Promise<unknown> {
+  const headers = new Headers(init.headers);
+  headers.set('accept', 'application/json');
+  const bearer = tokenOverride ?? token.value;
+  if (bearer) headers.set('authorization', `Bearer ${bearer}`);
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, headers, credentials: 'omit', cache: 'no-store' });
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === 'AbortError') throw cause;
+    throw new AdminApiError(0, 'network_error');
+  }
   const body: unknown = await response.json().catch(() => undefined);
   if (!response.ok) {
-    const envelope = isErrorEnvelope(body) ? body : undefined;
-    throw new AdminApiError(
-      response.status,
-      envelope?.error.code ?? 'request_failed',
-      envelope?.request_id,
-    );
+    const envelope = isEnvelope(body) ? body : undefined;
+    if (response.status === 401 && tokenOverride === undefined) expireSession();
+    const code = envelope && typeof envelope.error?.code === 'string' ? envelope.error.code : 'request_failed';
+    throw new AdminApiError(response.status, code, envelope?.request_id);
   }
-  if (!isAdminInfo(body)) throw new AdminApiError(response.status, 'invalid_response');
   return body;
+}
+
+export async function login(value: string): Promise<AdminInfo> {
+  const body = await send('/api/admin/info', {}, value);
+  if (!isAdminInfo(body)) throw new AdminApiError(200, 'invalid_response');
+  return body;
+}
+
+export async function fetchInfo(init: RequestInit = {}): Promise<AdminInfo> {
+  const body = await send('/api/admin/info', init);
+  if (!isAdminInfo(body)) throw new AdminApiError(200, 'invalid_response');
+  return body;
+}
+
+export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return await send(path, init) as T;
 }

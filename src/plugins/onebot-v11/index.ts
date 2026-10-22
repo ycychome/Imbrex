@@ -11,6 +11,7 @@ import { mapMessage, nativeId, parseOneBotConfig, replyAction, replySchema } fro
 import { OneBotSocket, RequestError } from './socket.js';
 
 export const name = 'onebot-v11';
+export const client = 'entry.js';
 export const inject = ['imbrex'];
 
 interface Binding { account_id: string; identity_namespace: string; app_name?: string; app_version?: string; protocol_version?: string }
@@ -44,14 +45,44 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   let draining = false;
   let worker = Promise.resolve();
   let lastCode = 'onebot_connecting';
+  const startedAt = new Date().toISOString();
+  let accepted = 0n;
+  let duplicates = 0n;
   const unavailable = (code: string) => { lastCode = code; ready = false; api.setAvailable(false, { code }); };
   unavailable(lastCode);
+  api.registerAdminPanel({ title: 'OneBot v11', icon: 'onebot', read: () => {
+    const connected = ready && Boolean(connection?.connected);
+    const metrics = connection?.metrics() ?? null;
+    return {
+      status: connected
+        ? { tone: 'ok', label: '已连接' }
+        : { tone: ready ? 'warning' : 'error', label: ready ? '连接中' : '未连接' },
+      metrics: [
+        { label: '账号', value: config.accountId },
+        { label: '已接纳事件', value: accepted.toString() },
+        { label: '重复事件', value: duplicates.toString() },
+        { label: '排队事件', value: String(queue.length) },
+        { label: '接收帧', value: metrics?.received_frames ?? '未提供' },
+        { label: '已发请求', value: metrics?.sent_requests ?? '未提供' },
+        { label: '心跳 RTT', value: metrics?.heartbeat_rtt_ms === null || metrics?.heartbeat_rtt_ms === undefined ? '未提供' : `${metrics.heartbeat_rtt_ms} ms` },
+      ],
+      data: {
+        connected, account_verified: ready, account_id: config.accountId, identity_namespace: config.identityNamespace,
+        binding: binding ? { ...binding } : null, started_at: startedAt, last_error: ready ? null : lastCode,
+        accepted_events: accepted.toString(), duplicate_events: duplicates.toString(), queued_events: queue.length,
+        connection_metrics: metrics,
+      },
+    };
+  } });
   const drain = () => {
     if (draining || !ready || !queue.length || api.signal.aborted) return;
     draining = true;
     worker = (async () => {
       try {
-        while (ready && queue.length && !api.signal.aborted) await api.events.append(queue.shift()!);
+        while (ready && queue.length && !api.signal.aborted) {
+          const result = await api.events.append(queue.shift()!);
+          if (result.status === 'created') accepted += 1n; else duplicates += 1n;
+        }
       } catch { unavailable('onebot_ingress_failed'); connection?.close(); }
       finally { draining = false; }
     })();

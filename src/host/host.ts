@@ -9,10 +9,12 @@ import { limits, namespacePattern, readOptions } from '../core/validation.js';
 import { SqliteStore } from '../storage/store.js';
 import type {} from '../plugins/server-http/server.js';
 import type { ProtocolApi } from './protocol.js';
+import { AdminRegistry } from './admin-registry.js';
+import { inspectConfig } from './admin-config.js';
 import type { HostConfig, PluginConfig } from './config.js';
 import { protocolModules, serverHttpModule, type PluginModule } from './modules.js';
 import type { PluginApi } from './plugin-api.js';
-import type { JsonObject } from '../core/types.js';
+import type { JsonObject, Principal } from '../core/types.js';
 
 type State = 'waiting' | 'loading' | 'active' | 'failed' | 'stopping' | 'stopped';
 interface Runtime {
@@ -26,6 +28,7 @@ interface HostOptions {
 
 export class Host {
   private root = new Context();
+  private admin = new AdminRegistry();
   private runtimes = new Map<string, Runtime>();
   private bindings = new WeakMap<Fiber, PluginApi>();
   private store!: SqliteStore;
@@ -66,6 +69,7 @@ export class Host {
         authenticate: (authorization) => { if (!this.accepting || api.signal.aborted || this.closing) fail('provider_unavailable'); return this.config.authenticate(authorization); },
         store: { info: () => this.store.info() }, events: this.events, capabilities: this.capabilities,
         plugins: () => this.plugins(), report: (code, requestId) => this.report(code, { request_id: requestId }),
+        ...(runtime.config.module === 'builtin:admin' ? { admin: { registry: this.admin, configuration: (principal: Principal) => inspectConfig(this.config, principal, this.root.get('http')?.origin ?? null) } } : {}),
       };
     }, reportRequest: (ctx: Context, code: ErrorCode, requestId: string) => {
       if (this.runtimeFor(ctx.fiber)?.config.module !== serverHttpModule) fail('forbidden');
@@ -127,14 +131,26 @@ export class Host {
   }
   get port(): number { return this.root.get('http')?.port ?? 0; }
   info() { return this.store.info(); }
+  private moduleName(runtime: Runtime): string {
+    return runtime.module?.name && namespacePattern.test(runtime.module.name) ? runtime.module.name : 'external';
+  }
   plugins() {
-    return [...this.runtimes.values()].map((runtime) => ({
-      id: runtime.config.id,
-      module_name: runtime.module?.name && namespacePattern.test(runtime.module.name) ? runtime.module.name : 'external',
-      state: runtime.state === 'active' && runtime.fiber ? (['waiting', 'loading', 'active', 'failed', 'stopped', 'stopping'][runtime.fiber.state] ?? 'failed') : runtime.state,
-      required: runtime.config.required, available: runtime.state === 'active' && runtime.fiber?.state === 2 && runtime.available,
-      ...(runtime.lastError ? { last_error: runtime.lastError } : {}),
-    }));
+    return [...this.runtimes.values()].map((runtime) => {
+      const moduleName = this.moduleName(runtime);
+      const client = runtime.module?.client;
+      const clientEntry = typeof client === 'string' && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(client)
+        ? '/admin/plugins/' + moduleName + '/' + client
+        : undefined;
+      return {
+        id: runtime.config.id,
+        module_name: moduleName,
+        enabled: runtime.config.enabled,
+        state: runtime.state === 'active' && runtime.fiber ? (['waiting', 'loading', 'active', 'failed', 'stopped', 'stopping'][runtime.fiber.state] ?? 'failed') : runtime.state,
+        required: runtime.config.required, available: runtime.state === 'active' && runtime.fiber?.state === 2 && runtime.available,
+        ...(clientEntry ? { client_entry: clientEntry } : {}),
+        ...(runtime.lastError ? { last_error: runtime.lastError } : {}),
+      };
+    });
   }
   private async bounded<T>(promise: PromiseLike<T>): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -156,6 +172,7 @@ export class Host {
     const api: PluginApi = {
       storeId, instanceId: runtime.config.id, dataDir: join(this.config.dataDir, 'plugins', runtime.config.id), signal: controller.signal,
       whenReady: async () => { ensure(); await this.ready.promise; ensure(); },
+      registerAdminPanel: (panel) => { ensure(); return track(this.admin.register(runtime.config.id, this.moduleName(runtime), controller.signal, panel)); },
       events: {
         readScope: () => { ensure(); requirePermission(principal, 'events:read'); return { principalId: principal.id, sources: structuredClone(principal.readSources) }; },
         info: async () => { ensure(); const info = await this.store.info(); return { storeId: info.storeId, latestSeq: info.latestSeq }; },
