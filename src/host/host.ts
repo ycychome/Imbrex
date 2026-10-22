@@ -138,9 +138,9 @@ export class Host {
     return [...this.runtimes.values()].map((runtime) => {
       const moduleName = this.moduleName(runtime);
       const client = runtime.module?.client;
-      const clientEntry = typeof client === 'string' && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(client)
+      const clientEntry = typeof client === 'string'
         ? '/admin/plugins/' + moduleName + '/' + client
-        : undefined;
+        : client?.url;
       return {
         id: runtime.config.id,
         module_name: moduleName,

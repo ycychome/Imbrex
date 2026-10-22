@@ -6,10 +6,12 @@ import { object } from '../core/validation.js';
 import type { JsonObject } from '../core/types.js';
 import type { HostConfig } from './config.js';
 
+export type ClientDeclaration = string | { url: string };
+
 export interface PluginModule {
   name?: string;
   inject?: string[];
-  client?: string;
+  client?: ClientDeclaration;
   Config?: Plugin.Object<JsonObject>['Config'];
   apply(ctx: Context, config: JsonObject): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
 }
@@ -52,7 +54,13 @@ export async function loadModules(config: HostConfig, filename: string): Promise
         ? { apply: candidate, name: candidate.name, inject: Reflect.get(candidate, 'inject'), Config: Reflect.get(candidate, 'Config') }
         : object(candidate);
       const client = Reflect.get(candidate as object, 'client') ?? module.client;
-      if (client !== undefined && (typeof client !== 'string' || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(client))) fail('invalid_request', 'Invalid plugin client entry');
+      if (client !== undefined) {
+        const okString = typeof client === 'string' && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(client);
+        const okObject = typeof client === 'object' && client !== null
+          && typeof (client as { url?: unknown }).url === 'string'
+          && /^\/(?!\/)[A-Za-z0-9._/-]*$/.test((client as { url: string }).url);
+        if (!okString && !okObject) fail('invalid_request', 'Invalid plugin client declaration');
+      }
       if (typeof value.apply !== 'function' || (value.inject !== undefined && (!Array.isArray(value.inject) || value.inject.some((item) => typeof item !== 'string')))) fail('invalid_request', 'Invalid plugin module');
       modules.set(plugin.id, { ...value, ...(client === undefined ? {} : { client }) } as unknown as PluginModule);
     } catch {
