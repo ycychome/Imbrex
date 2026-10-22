@@ -1,22 +1,7 @@
 import { computed, reactive } from 'vue';
 import type { AdminInfo } from '../types';
 import { expireSession, fetchInfo, request } from './api';
-import { describeFailure, failureOf, formatRelative, isAbort, now, toneOf, type Tone } from '@imbrex/ui-contract/ui';
-
-interface PanelSummary {
-  instance_id: string;
-  module: string;
-  generation: string;
-  title: string;
-  icon: string;
-}
-
-interface PanelDetail {
-  instance_id: string;
-  module: string;
-  data?: unknown;
-  error?: { code: string; message?: string };
-}
+import { describeFailure, failureOf, formatRelative, isAbort, now, toneOf, type PanelDetail, type PanelSummary, type Tone } from '@imbrex/ui-contract/ui';
 
 export interface PanelHealth {
   instanceId: string;
