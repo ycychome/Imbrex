@@ -50,24 +50,6 @@ export class AdminApiError extends Error {
   }
 }
 
-export function describeError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '请求失败。';
-  switch (error.status) {
-    case 0: return '无法连接网关，请确认服务正在运行。';
-    case 401: return 'Token 无效或已失效，请重新连接。';
-    case 403: return '当前凭据没有 admin:inspect 权限，或 Origin 与网关监听地址不一致。';
-    case 404: return 'Admin 入口或目标资源未启用。';
-    case 409: return 'store_id 与当前网关不匹配。';
-    case 429: return '实例正在读取，请稍后重试。';
-    case 503: return '网关尚未完成初始化，请稍后重试。';
-    default: return `请求失败（${error.code}）。`;
-  }
-}
-
-export function errorRequestId(error: unknown): string | undefined {
-  return error instanceof AdminApiError ? error.requestId : undefined;
-}
-
 interface Envelope {
   error?: { code?: unknown };
   request_id?: string;

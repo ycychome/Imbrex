@@ -5,6 +5,6 @@ import Panel from './Panel.vue';
 export default {
   inject: ['views'],
   apply(ctx: Context): void {
-    ctx.effect(() => ctx.views.register({ id: 'agent', title: 'Agent', order: 40, component: Panel }));
+    ctx.effect(() => ctx.views.register({ id: 'agent', title: 'Agent', icon: 'spark', order: 40, component: Panel }));
   },
 };

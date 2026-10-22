@@ -1,201 +1,177 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import type { AdminClient, AdminInfo } from '../../../../web/src/client-api.js';
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
+import type { AdminClient, AdminPluginStatus } from '../../../../web/src/client-api.js';
+import { health, refreshHealth } from '../../../../web/src/health.js';
+import { now } from '../../../../web/src/ui/clock.js';
+import Chip from '../../../../web/src/ui/Chip.vue';
+import EmptyState from '../../../../web/src/ui/EmptyState.vue';
+import ErrorNotice from '../../../../web/src/ui/ErrorNotice.vue';
+import PageHeader from '../../../../web/src/ui/PageHeader.vue';
+import RelativeTime from '../../../../web/src/ui/RelativeTime.vue';
+import Section from '../../../../web/src/ui/Section.vue';
+import Stat from '../../../../web/src/ui/Stat.vue';
+import { isAbort, type Tone } from '../../../../web/src/ui/errors.js';
+import { formatRelative, shortId } from '../../../../web/src/ui/format.js';
+
+interface EventRecord {
+  seq: string;
+  accepted_at: string;
+  event: { source: string; id: string; type: string };
+}
 
 const props = defineProps<{ client: AdminClient }>();
+
 const controller = new AbortController();
-const info = ref<AdminInfo | null>(null);
-const error = ref<unknown>(null);
-const lastUpdated = ref<Date | null>(null);
-const copied = ref(false);
-const enabled = ref(true);
-const busy = ref(false);
-let timer: ReturnType<typeof setInterval> | undefined;
-let disposed = false;
+const recent = shallowRef<EventRecord[]>([]);
+const recentError = ref<unknown>(null);
+const loadingRecent = ref(false);
 
-function stop(): void {
-  if (timer !== undefined) { clearInterval(timer); timer = undefined; }
-}
+let inFlight = false;
 
-function statusOf(value: unknown): number | undefined {
-  return typeof value === 'object' && value !== null && 'status' in value && typeof value.status === 'number' ? value.status : undefined;
-}
-function errorText(value: unknown): string {
-  switch (statusOf(value)) {
-    case 0: return '无法连接网关，请确认服务正在运行。';
-    case 401: return 'Token 无效或已失效，请重新连接。';
-    case 403: return '当前凭据没有 admin:inspect 权限，或 Origin 与网关监听地址不一致。';
-    case 404: return 'Admin 入口或目标资源未启用。';
-    case 409: return 'store_id 与当前网关不匹配。';
-    case 429: return '实例正在读取，请稍后重试。';
-    case 503: return '网关尚未完成初始化，请稍后重试。';
-    default: return '请求失败。';
-  }
-}
-function requestId(value: unknown): string | undefined {
-  return typeof value === 'object' && value !== null && 'requestId' in value && typeof value.requestId === 'string' ? value.requestId : undefined;
-}
-
-async function load(): Promise<void> {
-  if (busy.value || disposed) return;
-  busy.value = true;
+async function loadRecent(): Promise<void> {
+  const info = health.info;
+  if (!info || inFlight) return;
+  inFlight = true;
+  loadingRecent.value = true;
   try {
-    info.value = await props.client.request<AdminInfo>('/api/admin/info', { signal: controller.signal });
-    error.value = null;
-    lastUpdated.value = new Date();
+    const latest = BigInt(info.latest_seq);
+    const after = latest > 8n ? (latest - 8n).toString() : '0';
+    const params = new URLSearchParams({ store_id: info.store_id, after_seq: after, limit: '8' });
+    const page = await props.client.request<{ records: EventRecord[] }>(`/api/admin/events?${params.toString()}`, { signal: controller.signal });
+    recent.value = page.records;
+    recentError.value = null;
   } catch (cause) {
-    if (cause instanceof DOMException && cause.name === 'AbortError') return;
-    error.value = cause;
-    if (statusOf(cause) === 401 || statusOf(cause) === 403) enabled.value = false;
+    if (!isAbort(cause)) recentError.value = cause;
   } finally {
-    busy.value = false;
+    inFlight = false;
+    loadingRecent.value = false;
   }
 }
 
-watch(enabled, (value) => {
-  stop();
-  if (value) timer = setInterval(() => { void load(); }, 5000);
-}, { immediate: true });
-onMounted(() => { void load(); });
-onUnmounted(() => { disposed = true; stop(); controller.abort(); });
+watch(() => health.updatedAt, () => { void loadRecent(); });
+onMounted(() => { void loadRecent(); });
+onUnmounted(() => controller.abort());
 
-const plugins = computed(() => info.value?.plugins ?? []);
+const plugins = computed<AdminPluginStatus[]>(() => {
+  const rank = (plugin: AdminPluginStatus): number => (plugin.last_error ? 0 : plugin.available ? 2 : 1);
+  return [...(health.info?.plugins ?? [])].sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id));
+});
+
 const available = computed(() => plugins.value.filter((plugin) => plugin.available).length);
-const failed = computed(() => plugins.value.filter((plugin) => plugin.last_error).length);
-const lastUpdatedText = computed(() => lastUpdated.value?.toLocaleTimeString('zh-CN') ?? '—');
+const newest = computed(() => recent.value[recent.value.length - 1] ?? null);
+const newestAge = computed(() => (newest.value ? formatRelative(newest.value.accepted_at, now.value) : '暂无'));
 
-function stateClass(state: string, isAvailable: boolean): string {
-  if (isAvailable) return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300';
-  if (state === 'failed') return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300';
-  if (state === 'waiting' || state === 'loading' || state === 'stopping') {
-    return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300';
-  }
-  return 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300';
+const stateLabels: Record<string, string> = {
+  waiting: '等待中',
+  loading: '启动中',
+  active: '运行中',
+  failed: '失败',
+  stopping: '停止中',
+  stopped: '已停止',
+};
+
+function stateLabel(plugin: AdminPluginStatus): string {
+  return stateLabels[plugin.state] ?? plugin.state;
 }
 
-async function copyStoreId(): Promise<void> {
-  if (!info.value) return;
-  try {
-    await navigator.clipboard.writeText(info.value.store_id);
-    copied.value = true;
-    window.setTimeout(() => { copied.value = false; }, 1500);
-  } catch {
-    // Clipboard access is optional; the value remains visible for manual copying.
-  }
+function stateTone(plugin: AdminPluginStatus): Tone {
+  if (plugin.available) return 'ok';
+  if (plugin.state === 'failed') return 'bad';
+  if (plugin.state === 'waiting' || plugin.state === 'loading' || plugin.state === 'stopping') return 'warn';
+  return 'idle';
+}
+
+function reload(): void {
+  refreshHealth();
+  void loadRecent();
 }
 </script>
 
 <template>
-  <main class="mx-auto w-full max-w-6xl space-y-6 px-4 py-6 sm:px-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h2 class="text-lg font-semibold">网关状态</h2>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">最近更新 {{ lastUpdatedText }}</p>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <span
-          class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium"
-          :class="error ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300'"
-        >
-          <span class="h-1.5 w-1.5 rounded-full" :class="error ? 'bg-amber-500' : 'bg-emerald-500'"></span>
-          {{ error ? '刷新失败' : '已连接' }}
-        </span>
-        <button
-          type="button"
-          class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
-          @click="enabled = !enabled"
-        >
-          {{ enabled ? '暂停轮询' : '开启轮询' }}
+  <main class="page">
+    <PageHeader title="概览" description="本机网关当前是否正常，以及刚刚发生了什么。">
+      <template #actions>
+        <button type="button" class="btn" :disabled="health.loading" @click="reload">
+          {{ health.loading ? '刷新中…' : '刷新' }}
         </button>
-        <button
-          type="button"
-          :disabled="busy"
-          class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
-          @click="load"
-        >
-          {{ busy ? '刷新中…' : '刷新' }}
-        </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <p
-      v-if="error"
-      role="alert"
-      class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
-    >
-      {{ errorText(error) }}
-      <span v-if="requestId(error)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ requestId(error) }}</span>
-    </p>
+    <ErrorNotice v-if="health.error" :error="health.error" retry @retry="reload" />
 
-    <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <article class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Store ID</p>
-        <p class="mt-2 break-all font-mono text-sm">{{ info?.store_id ?? '—' }}</p>
-        <button
-          type="button"
-          class="mt-3 text-xs font-medium text-slate-500 transition hover:text-slate-900 disabled:opacity-50 dark:text-slate-400 dark:hover:text-slate-100"
-          :disabled="!info"
-          @click="copyStoreId"
-        >
-          {{ copied ? '已复制' : '复制' }}
-        </button>
-      </article>
-      <article class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Latest Seq</p>
-        <p class="mt-2 font-mono text-3xl font-semibold tabular-nums">{{ info?.latest_seq ?? '—' }}</p>
-        <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">最新已接纳事件的序号</p>
-      </article>
-      <article class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">可用插件</p>
-        <p class="mt-2 font-mono text-3xl font-semibold tabular-nums">{{ available }}<span class="text-base text-slate-400"> / {{ plugins.length }}</span></p>
-        <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">最近错误 {{ failed }}</p>
-      </article>
-      <article class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Version</p>
-        <p class="mt-2 font-mono text-sm">{{ info?.version ?? '—' }}</p>
-        <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">产品版本，与 config_version 独立</p>
-      </article>
+    <section class="panel overflow-hidden">
+      <div class="grid grid-cols-2 gap-px bg-[var(--line)] sm:grid-cols-4">
+        <Stat class="bg-[var(--surface)]" label="最新序号" :value="health.info?.latest_seq ?? '—'" mono hint="已接纳事件的位置" />
+        <Stat class="bg-[var(--surface)]" label="最近事件" :value="newestAge" :hint="newest ? newest.event.type : '等待第一条事件'" />
+        <Stat class="bg-[var(--surface)]" label="可用插件" :value="`${available} / ${plugins.length}`" mono hint="宿主运行时投影" />
+        <Stat class="bg-[var(--surface)]" label="版本" :value="health.info?.version ?? '—'" mono hint="与 config_version 独立" />
+      </div>
     </section>
 
-    <section class="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-      <div class="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-        <h3 class="text-sm font-semibold">插件</h3>
-        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">状态来自宿主运行时投影，不代表持久化健康检查。</p>
+    <Section title="最近事件" description="最新 8 条已接纳事件；完整查询见事件浏览。">
+      <ErrorNotice v-if="recentError" :error="recentError" />
+      <div v-else class="panel overflow-hidden">
+        <div v-if="recent.length" class="rows">
+          <div
+            v-for="(record, index) in recent"
+            :key="record.seq"
+            class="row-in flex items-baseline gap-3 px-4 py-2.5"
+            :style="{ '--i': index }"
+          >
+            <span class="w-10 shrink-0 text-right font-mono text-[11px] tabular-nums text-[var(--faint)]">{{ record.seq }}</span>
+            <RelativeTime :value="record.accepted_at" class="w-20 shrink-0 text-xs text-[var(--muted)]" />
+            <span class="min-w-0 flex-1 truncate font-mono text-xs" :title="record.event.type">{{ record.event.type }}</span>
+            <span class="hidden min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--muted)] sm:block" :title="record.event.source">
+              {{ record.event.source }}
+            </span>
+          </div>
+        </div>
+        <EmptyState v-else title="还没有事件" description="外部来源接纳第一条事件后，这里会出现它。" />
       </div>
-      <div class="overflow-x-auto">
-        <table class="w-full min-w-[40rem] text-left text-sm">
-          <thead class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
-            <tr>
-              <th class="px-4 py-2 font-medium">实例</th>
-              <th class="px-4 py-2 font-medium">模块</th>
-              <th class="px-4 py-2 font-medium">状态</th>
-              <th class="px-4 py-2 font-medium">可用</th>
-              <th class="px-4 py-2 font-medium">必需</th>
-              <th class="px-4 py-2 font-medium">最近错误</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-            <tr v-for="plugin in plugins" :key="plugin.id">
-              <td class="px-4 py-3 font-mono text-xs">{{ plugin.id }}</td>
-              <td class="px-4 py-3 font-mono text-xs">{{ plugin.module_name }}</td>
-              <td class="px-4 py-3">
-                <span class="inline-flex rounded-full border px-2 py-0.5 text-xs font-medium" :class="stateClass(plugin.state, plugin.available)">
-                  {{ plugin.state }}
-                </span>
-              </td>
-              <td class="px-4 py-3 text-xs">{{ plugin.available ? '是' : '否' }}</td>
-              <td class="px-4 py-3 text-xs">{{ plugin.required ? '是' : '否' }}</td>
-              <td class="px-4 py-3 font-mono text-xs text-rose-600 dark:text-rose-300">
-                {{ plugin.last_error?.code ?? '—' }}
-                <span v-if="plugin.last_error?.message" class="mt-1 block text-slate-500 dark:text-slate-400">{{ plugin.last_error.message }}</span>
-              </td>
-            </tr>
-            <tr v-if="!plugins.length">
-              <td colspan="6" class="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">暂无插件状态。</td>
-            </tr>
-          </tbody>
-        </table>
+    </Section>
+
+    <Section title="插件" description="实例生命周期与最近错误；状态来自宿主运行时投影。">
+      <div class="panel overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="table min-w-[46rem]">
+            <thead>
+              <tr>
+                <th>实例</th>
+                <th>模块</th>
+                <th>状态</th>
+                <th>必需</th>
+                <th>最近错误</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="plugin in plugins" :key="plugin.id">
+                <td class="font-mono text-xs">{{ plugin.id }}</td>
+                <td class="font-mono text-xs text-[var(--muted)]">{{ plugin.module_name }}</td>
+                <td>
+                  <Chip :tone="stateTone(plugin)" :label="stateLabel(plugin)" />
+                </td>
+                <td class="text-xs text-[var(--muted)]">{{ plugin.required ? '必需' : '可选' }}</td>
+                <td class="text-xs">
+                  <template v-if="plugin.last_error">
+                    <span class="font-mono text-[var(--bad)]">{{ plugin.last_error.code }}</span>
+                    <span v-if="plugin.last_error.message" class="mt-0.5 block leading-snug text-[var(--muted)]">{{ plugin.last_error.message }}</span>
+                  </template>
+                  <span v-else class="text-[var(--faint)]">—</span>
+                </td>
+              </tr>
+              <tr v-if="!plugins.length">
+                <td colspan="5">
+                  <EmptyState title="没有插件状态" description="宿主尚未报告已装配的插件。" />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
-    </section>
+      <p v-if="health.info" class="text-[11px] text-[var(--faint)]">
+        store <span class="font-mono" :title="health.info.store_id">{{ shortId(health.info.store_id, 8) }}</span>
+        <span v-if="loadingRecent" class="ml-2">正在读取最近事件…</span>
+      </p>
+    </Section>
   </main>
 </template>

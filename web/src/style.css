@@ -2,8 +2,61 @@
 @source "../../src/plugins/*/client/**/*.vue";
 @source "../../src/plugins/*/client/**/*.ts";
 
+/*
+ * Design tokens. One palette, two themes, same structure: the console is a
+ * warm near-black instrument at night and warm paper in daylight.
+ */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+
+  --canvas: #f4f1ec;
+  --surface: #fbf9f6;
+  --surface-hi: #ffffff;
+  --line: #e3dcd2;
+  --line-strong: #cfc5b8;
+
+  --text: #1c1917;
+  --muted: #635b52;
+  --faint: #6f665c;
+
+  --accent: #a9502f;
+  --accent-ink: #fff7f1;
+  --accent-tint: color-mix(in oklab, var(--accent) 12%, transparent);
+
+  --ok: #4f7345;
+  --warn: #7b5e22;
+  --bad: #a33a31;
+
+  --radius: 6px;
+  --radius-lg: 8px;
+  --rail: 60px;
+  --band: 46px;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --fast: 120ms;
+  --press: 80ms;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: #121110;
+  --surface: #191715;
+  --surface-hi: #201d19;
+  --line: #2b2723;
+  --line-strong: #3a342e;
+
+  --text: #e9e4dc;
+  --muted: #a79d91;
+  --faint: #8c8275;
+
+  --accent: #c9714a;
+  --accent-ink: #1b0f09;
+  --accent-tint: color-mix(in oklab, var(--accent) 14%, transparent);
+
+  --ok: #7d9b6a;
+  --warn: #c9a15b;
+  --bad: #d0695f;
 }
 
 html,
@@ -14,5 +67,350 @@ body,
 
 body {
   margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 30%, transparent);
+}
+
+code,
+kbd,
+pre,
+.mono {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbars stay quiet so the stream keeps the attention. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .page {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding: 24px 24px 48px;
+    max-width: 1200px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  @media (max-width: 639px) {
+    .page {
+      gap: 18px;
+      padding: 18px 16px 40px;
+    }
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+  }
+
+  .rule {
+    border-top: 1px solid var(--line);
+  }
+
+  .meta {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+
+  .label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  /* Buttons: one shape, one press, one focus ring. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease), transform var(--press) var(--ease);
+  }
+
+  .btn:hover {
+    background: var(--surface-hi);
+  }
+
+  .btn:active {
+    transform: scale(0.97);
+  }
+
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  .btn-primary:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    filter: brightness(1.07);
+  }
+
+  .btn-quiet {
+    border-color: transparent;
+    color: var(--muted);
+  }
+
+  .btn-quiet:hover {
+    color: var(--text);
+    background: var(--surface-hi);
+  }
+
+  .btn-danger {
+    border-color: color-mix(in oklab, var(--bad) 38%, transparent);
+    color: var(--bad);
+  }
+
+  .btn-sm {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  .btn-icon {
+    width: 32px;
+    padding: 0;
+  }
+
+  .btn-sm.btn-icon {
+    width: 28px;
+  }
+
+  .input {
+    height: 32px;
+    width: 100%;
+    padding: 0 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--canvas);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+  }
+
+  .input::placeholder {
+    color: var(--faint);
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 22%, transparent);
+  }
+
+  select.input {
+    appearance: none;
+    padding-right: 28px;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+
+  /* Chips carry state through a dot and a word, never colour alone. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    flex: none;
+    background: var(--faint);
+  }
+
+  [data-tone="ok"] {
+    --tone: var(--ok);
+  }
+
+  [data-tone="warn"] {
+    --tone: var(--warn);
+  }
+
+  [data-tone="bad"] {
+    --tone: var(--bad);
+  }
+
+  [data-tone="idle"],
+  [data-tone="unknown"] {
+    --tone: var(--faint);
+  }
+
+  .chip[data-tone] {
+    border-color: color-mix(in oklab, var(--tone) 34%, var(--line));
+    background: color-mix(in oklab, var(--tone) 10%, var(--surface));
+  }
+
+  .chip[data-tone] .dot,
+  .dot[data-tone] {
+    background: var(--tone);
+  }
+
+  /* Hairline list: rows, not cards. */
+  .rows > * + * {
+    border-top: 1px solid var(--line);
+  }
+
+  .row-link {
+    display: block;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color var(--fast) var(--ease);
+  }
+
+  .row-link:hover {
+    background: var(--surface-hi);
+  }
+
+  .row-link[aria-current="true"] {
+    background: var(--surface-hi);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+
+  .table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .table th {
+    padding: 8px 16px;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+
+  .table td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  .table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .table tbody tr:hover {
+    background: var(--surface-hi);
+  }
+}
+
+/* View changes: short and directional, never a curtain. */
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.view-in {
+  animation: view-in 180ms var(--ease) both;
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.row-in {
+  animation: row-in 220ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

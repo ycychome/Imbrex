@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { RouterView } from 'vue-router';
-import { authenticated, clearToken, describeError, login, sessionMessage, setToken } from './api';
+import { authenticated, clearToken, login, sessionMessage, setToken } from './api';
 import { client, ctx } from './context';
 import { loadPluginClients } from './loader';
+import { gatewayHealth, health, stale, startHealth, stopHealth, togglePolling, updatedText } from './health';
+import { theme, toggleTheme } from './theme';
+import Chip from './ui/Chip.vue';
+import Icon from './ui/Icon.vue';
+import { describeFailure, type Tone } from './ui/errors';
+import { shortId } from './ui/format';
 
 const input = ref('');
 const error = ref('');
@@ -11,11 +17,23 @@ const loading = ref(false);
 const loadingViews = ref(false);
 const loadError = ref('');
 const failures = ref<string[]>([]);
+const confirmDisconnect = ref(false);
 
 const views = computed(() => ctx.views.list());
 const active = computed(() => ctx.views.active());
-const title = computed(() => active.value?.title ?? '管理控制台');
+const activeIndex = computed(() => Math.max(0, views.value.findIndex((view) => view.id === active.value?.id)));
 const loginError = computed(() => error.value || sessionMessage.value);
+
+// One rollup for narrow screens: the band cannot list every panel on a phone.
+const rollup = computed<{ tone: Tone; label: string }>(() => {
+  const tones = [gatewayHealth.value.tone, ...health.panels.map((panel) => panel.tone)];
+  const bad = tones.filter((tone) => tone === 'bad').length;
+  const warn = tones.filter((tone) => tone === 'warn' || tone === 'unknown').length;
+  if (bad) return { tone: 'bad', label: `${bad} 项异常` };
+  if (warn) return { tone: 'warn', label: `${warn} 项待确认` };
+  if (!health.info) return { tone: 'unknown', label: '检测中' };
+  return { tone: 'ok', label: '全部正常' };
+});
 
 async function loadViews(): Promise<void> {
   loadingViews.value = true;
@@ -23,8 +41,9 @@ async function loadViews(): Promise<void> {
   try {
     const result = await loadPluginClients();
     failures.value = result.failures;
+    startHealth();
   } catch (cause) {
-    loadError.value = describeError(cause);
+    loadError.value = describeFailure(cause);
   } finally {
     loadingViews.value = false;
   }
@@ -41,7 +60,7 @@ async function submit(): Promise<void> {
     input.value = '';
     await loadViews();
   } catch (cause) {
-    error.value = describeError(cause);
+    error.value = describeFailure(cause);
   } finally {
     loading.value = false;
   }
@@ -49,6 +68,7 @@ async function submit(): Promise<void> {
 
 function disconnect(): void {
   clearToken();
+  stopHealth();
   window.location.reload();
 }
 
@@ -58,21 +78,20 @@ onMounted(() => {
 </script>
 
 <template>
-  <main
-    v-if="!authenticated"
-    class="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-10 text-slate-900 dark:bg-slate-950 dark:text-slate-100"
-  >
-    <form
-      class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-      @submit.prevent="submit"
-    >
-      <div class="mb-6">
-        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Imbrex</p>
-        <h1 class="mt-2 text-2xl font-semibold tracking-tight">Admin Console</h1>
-        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">使用 admin:inspect 凭据连接网关。</p>
+  <main v-if="!authenticated" class="login">
+    <form class="login-card" @submit.prevent="submit">
+      <div class="mb-7">
+        <span class="mark" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square">
+            <path d="M4 20V11a8 8 0 0 1 16 0v9" />
+            <path d="M8 20v-9a4 4 0 0 1 8 0v9" />
+          </svg>
+        </span>
+        <h1 class="login-title mt-5">Imbrex 管理控制台</h1>
+        <p class="mt-1.5 text-[13px] leading-relaxed text-[var(--muted)]">使用 admin:inspect 凭据连接本机网关。</p>
       </div>
 
-      <label class="block text-sm font-medium" for="admin-token">Admin Token</label>
+      <label class="label" for="admin-token">管理令牌</label>
       <input
         id="admin-token"
         v-model="input"
@@ -80,104 +99,351 @@ onMounted(() => {
         autocomplete="off"
         spellcheck="false"
         autofocus
-        class="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:focus:border-slate-400 dark:focus:ring-slate-700"
+        placeholder="Bearer token"
+        class="input mt-2"
       />
 
-      <p
-        v-if="loginError"
-        role="alert"
-        class="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
-      >
-        {{ loginError }}
-      </p>
+      <p v-if="loginError" role="alert" class="login-error">{{ loginError }}</p>
 
-      <button
-        type="submit"
-        :disabled="loading || !input.trim()"
-        class="mt-5 w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
-      >
+      <button type="submit" :disabled="loading || !input.trim()" class="btn btn-primary mt-5 w-full">
         {{ loading ? '连接中…' : '连接网关' }}
       </button>
 
-      <p class="mt-4 text-center text-xs text-slate-400 dark:text-slate-500">Token 保存在本标签页的 sessionStorage，关闭标签页即清除。</p>
+      <p class="mt-4 text-center text-[11px] leading-relaxed text-[var(--faint)]">
+        令牌只保存在本标签页，关闭标签页即清除。
+      </p>
     </form>
   </main>
 
-  <div v-else class="flex min-h-screen bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-    <aside class="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-slate-200 bg-white px-4 py-6 dark:border-slate-800 dark:bg-slate-900 sm:flex">
-      <div class="flex items-center gap-2 px-2">
-        <span class="grid h-7 w-7 place-items-center rounded-lg bg-slate-900 text-sm font-bold text-white dark:bg-slate-100 dark:text-slate-900">I</span>
-        <span class="text-sm font-semibold tracking-tight">Imbrex</span>
-      </div>
-      <nav class="mt-8 space-y-1">
+  <div v-else class="shell">
+    <aside class="rail">
+      <span class="mark mark-sm" aria-hidden="true">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square">
+            <path d="M4 20V11a8 8 0 0 1 16 0v9" />
+            <path d="M8 20v-9a4 4 0 0 1 8 0v9" />
+          </svg>
+      </span>
+
+      <nav class="rail-nav" aria-label="视图">
+        <span class="rail-marker" :style="{ transform: `translateY(${activeIndex * 44}px)` }" aria-hidden="true" />
         <button
           v-for="view in views"
           :key="view.id"
           type="button"
-          class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
-          :class="active?.id === view.id ? 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' : ''"
+          class="rail-item"
+          :class="{ 'is-active': active?.id === view.id }"
+          :aria-current="active?.id === view.id ? 'page' : undefined"
+          :title="view.title"
           @click="ctx.views.select(view.id)"
         >
-          <span class="h-1.5 w-1.5 rounded-full bg-current opacity-40"></span>
-          {{ view.title }}
+          <Icon :name="view.icon ?? 'dot'" :size="18" />
+          <span class="sr-only">{{ view.title }}</span>
         </button>
-        <p v-if="!views.length && loadingViews" class="px-2 py-2 text-xs text-slate-400 dark:text-slate-500">加载插件视图…</p>
+        <span v-if="!views.length" class="px-2 py-3 text-center text-[10px] leading-tight text-[var(--faint)]">
+          {{ loadingViews ? '加载中' : '无视图' }}
+        </span>
       </nav>
-      <p class="mt-auto px-2 text-xs text-slate-400 dark:text-slate-500">admin:inspect</p>
     </aside>
 
-    <div class="flex min-w-0 flex-1 flex-col">
-      <header class="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90 sm:px-6">
-        <div class="flex items-center gap-2">
-          <span class="grid h-7 w-7 place-items-center rounded-lg bg-slate-900 text-sm font-bold text-white dark:bg-slate-100 dark:text-slate-900 sm:hidden">I</span>
-          <h1 class="text-base font-semibold">{{ title }}</h1>
+    <div class="workspace">
+      <header class="band">
+        <div class="flex min-w-0 items-center gap-3">
+          <span class="mark mark-sm sm:hidden" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square">
+            <path d="M4 20V11a8 8 0 0 1 16 0v9" />
+            <path d="M8 20v-9a4 4 0 0 1 8 0v9" />
+          </svg>
+          </span>
+          <span v-if="health.info" class="hidden shrink-0 font-mono text-[11px] text-[var(--faint)] sm:inline" :title="health.info.store_id">
+            {{ shortId(health.info.store_id, 6) }}
+          </span>
+          <div class="hidden min-w-0 items-center gap-2 sm:flex">
+            <Chip :tone="gatewayHealth.tone" :label="gatewayHealth.label" />
+            <Chip
+              v-for="panel in health.panels"
+              :key="panel.instanceId"
+              :tone="panel.tone"
+              :label="`${panel.title} · ${panel.label}`"
+              :title="panel.detail"
+            />
+          </div>
+          <Chip class="sm:hidden" :tone="rollup.tone" :label="rollup.label" />
         </div>
-        <button
-          type="button"
-          class="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950"
-          @click="disconnect"
-        >
-          断开
-        </button>
+
+        <div class="flex shrink-0 items-center gap-2">
+          <span class="hidden text-[11px] text-[var(--faint)] md:inline">
+            {{ health.paused ? '已暂停刷新' : stale ? '数据已过期' : updatedText }}
+          </span>
+          <template v-if="confirmDisconnect">
+            <button type="button" class="btn btn-sm btn-danger" @click="disconnect">断开</button>
+            <button type="button" class="btn btn-sm btn-quiet" @click="confirmDisconnect = false">取消</button>
+          </template>
+          <template v-else>
+            <button
+              type="button"
+              class="btn btn-sm btn-icon btn-quiet"
+              :title="health.paused ? '恢复自动刷新' : '暂停自动刷新'"
+              :aria-label="health.paused ? '恢复自动刷新' : '暂停自动刷新'"
+              @click="togglePolling"
+            >
+              <Icon :name="health.paused ? 'play' : 'pause'" :size="14" />
+            </button>
+            <button type="button" class="btn btn-sm btn-icon btn-quiet" :title="theme === 'dark' ? '切换到浅色' : '切换到深色'" @click="toggleTheme">
+              <Icon :name="theme === 'dark' ? 'sun' : 'moon'" :size="14" />
+            </button>
+            <button type="button" class="btn btn-sm btn-icon btn-quiet" title="断开连接" aria-label="断开连接" @click="confirmDisconnect = true">
+              <Icon name="logout" :size="14" />
+            </button>
+          </template>
+        </div>
       </header>
 
-      <nav class="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900 sm:hidden">
+      <nav class="mobile-nav" aria-label="视图">
         <button
           v-for="view in views"
           :key="view.id"
           type="button"
-          class="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300"
-          :class="active?.id === view.id ? 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' : ''"
+          class="mobile-nav-item"
+          :class="{ 'is-active': active?.id === view.id }"
+          :aria-current="active?.id === view.id ? 'page' : undefined"
           @click="ctx.views.select(view.id)"
         >
+          <Icon :name="view.icon ?? 'dot'" :size="14" />
           {{ view.title }}
         </button>
       </nav>
 
-      <p
-        v-if="loadError"
-        role="alert"
-        class="mx-4 mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200 sm:mx-6"
-      >
-        {{ loadError }}
-      </p>
-      <p
-        v-if="failures.length"
-        role="alert"
-        class="mx-4 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 sm:mx-6"
-      >
-        部分插件视图加载失败：
-        <span v-for="failure in failures" :key="failure" class="mt-1 block font-mono text-xs">{{ failure }}</span>
-      </p>
+      <div class="view-host">
+        <p v-if="loadError" role="alert" class="notice-bad mx-4 mt-4 sm:mx-6">{{ loadError }}</p>
+        <p v-if="failures.length" role="alert" class="notice-warn mx-4 mt-4 sm:mx-6">
+          部分插件视图加载失败
+          <span v-for="failure in failures" :key="failure" class="mt-1 block font-mono text-[11px] leading-relaxed">{{ failure }}</span>
+        </p>
 
-      <div class="flex-1">
         <RouterView v-if="active" v-slot="{ Component }">
-          <component :is="Component" :client="client" />
+          <component :is="Component" :key="active.id" :client="client" class="view-in" />
         </RouterView>
-        <div v-else class="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-          {{ loadingViews ? '加载插件视图…' : '没有已启用的插件视图。' }}
+        <div v-else class="px-6 py-16 text-center text-[13px] text-[var(--muted)]">
+          {{ loadingViews ? '正在加载插件视图…' : '没有已启用的插件视图。' }}
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.login {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px 16px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 360px;
+  padding: 32px 28px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.login-title {
+  font-size: 21px;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.login-error {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--bad) 35%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--bad) 8%, var(--surface));
+  color: var(--bad);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.mark-sm {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.rail {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  height: 100vh;
+  padding: 12px 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.rail-nav {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.rail-marker {
+  position: absolute;
+  top: 7px;
+  left: 0;
+  width: 2px;
+  height: 30px;
+  background: var(--accent);
+  transition: transform 220ms var(--ease);
+}
+
+.rail-item {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), background-color var(--fast) var(--ease);
+}
+
+.rail-item:hover {
+  background: var(--surface-hi);
+  color: var(--text);
+}
+
+.rail-item.is-active {
+  background: var(--surface-hi);
+  color: var(--accent);
+}
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.band {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: var(--band);
+  padding: 0 16px 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--canvas) 88%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.mobile-nav {
+  display: none;
+}
+
+.view-host {
+  flex: 1;
+  min-width: 0;
+}
+
+.notice-bad,
+.notice-warn {
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.notice-bad {
+  border: 1px solid color-mix(in oklab, var(--bad) 35%, var(--line));
+  background: color-mix(in oklab, var(--bad) 8%, var(--surface));
+  color: var(--bad);
+}
+
+.notice-warn {
+  border: 1px solid color-mix(in oklab, var(--warn) 35%, var(--line));
+  background: color-mix(in oklab, var(--warn) 8%, var(--surface));
+  color: var(--warn);
+}
+
+@media (max-width: 639px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rail {
+    display: none;
+  }
+
+  .band {
+    height: 52px;
+    padding: 0 12px;
+  }
+
+  .mobile-nav {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--canvas);
+    scrollbar-width: none;
+  }
+
+  .mobile-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-nav-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: none;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .mobile-nav-item.is-active {
+    border-color: var(--line-strong);
+    background: var(--surface);
+    color: var(--text);
+  }
+}
+</style>

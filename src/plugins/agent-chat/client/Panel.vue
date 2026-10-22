@@ -1,261 +1,254 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import type { AdminClient } from '../../../../web/src/client-api.js';
-
-type PanelTone = 'ok' | 'warning' | 'error' | 'idle' | 'unknown';
-interface PanelMetric { label: string; value: string; hint?: string }
-interface PanelView { status: { tone: PanelTone; label: string }; metrics: PanelMetric[]; data: Record<string, unknown> }
-interface PanelSummary { instance_id: string; module: string; generation: string; title: string; icon: string }
-interface PanelDetail { instance_id: string; module: string; generation: string; data?: unknown; error?: { code: string; message: string } }
-interface PanelEntry {
-  summary: PanelSummary;
-  detail: PanelDetail | null;
-  failure: unknown;
-  view: PanelView | null;
-}
+import Chip from '../../../../web/src/ui/Chip.vue';
+import EmptyState from '../../../../web/src/ui/EmptyState.vue';
+import ErrorNotice from '../../../../web/src/ui/ErrorNotice.vue';
+import JsonBlock from '../../../../web/src/ui/JsonBlock.vue';
+import KeyValueList from '../../../../web/src/ui/KeyValueList.vue';
+import PageHeader from '../../../../web/src/ui/PageHeader.vue';
+import PanelFrame from '../../../../web/src/ui/PanelFrame.vue';
+import RelativeTime from '../../../../web/src/ui/RelativeTime.vue';
+import { formatDuration, formatFull } from '../../../../web/src/ui/format.js';
+import { usePanels, type PanelEntry } from '../../../../web/src/ui/panels.js';
+import type { KeyValueEntry } from '../../../../web/src/ui/types.js';
 
 const props = defineProps<{ client: AdminClient }>();
-const MODULE = 'agent-chat';
 
-function statusOf(value: unknown): number | undefined {
-  return typeof value === 'object' && value !== null && 'status' in value && typeof value.status === 'number' ? value.status : undefined;
-}
-function errorText(value: unknown): string {
-  switch (statusOf(value)) {
-    case 0: return '无法连接网关，请确认服务正在运行。';
-    case 401: return 'Token 无效或已失效，请重新连接。';
-    case 403: return '当前凭据没有 admin:inspect 权限，或 Origin 与网关监听地址不一致。';
-    case 404: return 'Admin 入口或目标资源未启用。';
-    case 409: return 'store_id 与当前网关不匹配。';
-    case 429: return '实例正在读取，请稍后重试。';
-    case 503: return '网关尚未完成初始化，请稍后重试。';
-    default: return '请求失败。';
-  }
-}
-function requestId(value: unknown): string | undefined {
-  return typeof value === 'object' && value !== null && 'requestId' in value && typeof value.requestId === 'string' ? value.requestId : undefined;
-}
+const { entries, error, updatedAt, loading, paused, load, toggle } = usePanels(props.client, 'agent-chat');
 
-const controller = new AbortController();
-const entries = shallowRef<PanelEntry[]>([]);
-const error = ref<unknown>(null);
-const lastUpdated = ref<Date | null>(null);
-const loaded = ref(false);
-const enabled = ref(true);
-const busy = ref(false);
-let timer: ReturnType<typeof setInterval> | undefined;
-let disposed = false;
+const track = [
+  { value: 'starting', label: '启动' },
+  { value: 'idle', label: '空闲' },
+  { value: 'session', label: '会话' },
+  { value: 'prompt', label: '本轮' },
+  { value: 'checkpoint', label: '检查点' },
+];
+
+const phaseLabels: Record<string, string> = {
+  starting: '启动中',
+  idle: '空闲等待',
+  session: '会话就绪',
+  prompt: '等待模型',
+  checkpoint: '写入检查点',
+  error: '错误',
+  stopping: '停止中',
+  stopped: '已停止',
+};
+
+const stateLabels: Record<string, string> = {
+  loaded: '已加载',
+  missing: '不存在',
+  unavailable: '不可用',
+};
+
+const piLabels: Record<string, string> = {
+  unmanaged: '未托管',
+  configured_unverified: '已配置未验证',
+  unavailable: '不可用',
+};
 
 function record(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
-function asPanelView(value: unknown): PanelView | null {
-  const root = record(value);
-  const status = record(root?.status);
-  if (!root || !status || typeof status.tone !== 'string' || typeof status.label !== 'string') return null;
-  if (!Array.isArray(root.metrics)) return null;
-  const metrics = root.metrics.flatMap((entry) => {
-    const metric = record(entry);
-    if (!metric || typeof metric.label !== 'string' || typeof metric.value !== 'string') return [];
-    return [{ label: metric.label, value: metric.value, ...(typeof metric.hint === 'string' ? { hint: metric.hint } : {}) }];
-  });
-  const data = record(root.data);
-  if (!data) return null;
-  return { status: { tone: status.tone as PanelTone, label: status.label }, metrics, data };
+function dataOf(entry: PanelEntry): Record<string, unknown> {
+  return entry.view?.data ?? {};
 }
 
-function pretty(value: unknown): string {
-  return JSON.stringify(value ?? null, null, 2);
-}
-
-function valueText(value: unknown): string {
-  if (value === null || value === undefined) return '—';
+function textOf(value: unknown, fallback = '—'): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return pretty(value);
+  return value === null || value === undefined ? fallback : JSON.stringify(value);
 }
 
-function isComplex(value: unknown): boolean {
-  return typeof value === 'object' && value !== null;
+function phaseOf(entry: PanelEntry): string {
+  return textOf(dataOf(entry).phase, '未知');
 }
 
-function dataEntries(view: PanelView): Array<[string, unknown]> {
-  return Object.entries(view.data);
+function phaseText(entry: PanelEntry): string {
+  const phase = phaseOf(entry);
+  return phaseLabels[phase] ?? phase;
 }
 
-function keyLabel(key: string): string {
-  return key.replaceAll('_', ' ');
+function stateKnown(entry: PanelEntry): boolean {
+  return dataOf(entry).state_status !== 'unavailable';
 }
 
-function toneClass(tone: string): string {
-  switch (tone) {
-    case 'ok':
-      return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300';
-    case 'warning':
-      return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300';
-    case 'error':
-      return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300';
-    default:
-      return 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300';
+function inFlight(entry: PanelEntry): Record<string, unknown> | null {
+  return record(dataOf(entry).in_flight);
+}
+
+function facts(entry: PanelEntry): KeyValueEntry[] {
+  const data = dataOf(entry);
+  const known = stateKnown(entry);
+  const sessions = record(data.sessions);
+  const flight = inFlight(entry);
+  return [
+    { label: '检查点序号', value: known ? textOf(data.last_seq) : '未知', mono: true },
+    {
+      label: '本轮耗时',
+      value: typeof data.elapsed_ms === 'number' ? formatDuration(data.elapsed_ms) : '未开始',
+    },
+    { label: '当前输入', value: known ? textOf(flight?.id) : '未知', mono: true },
+    { label: '会话数', value: known && sessions ? String(Object.keys(sessions).length) : '未知' },
+  ];
+}
+
+function sourcesText(value: unknown): string {
+  if (!Array.isArray(value) || !value.length) return '—';
+  return value.flatMap((item): string[] => {
+    if (typeof item === 'string') return [item];
+    const source = record(item);
+    if (!source) return [];
+    if (typeof source.exact === 'string') return [source.exact];
+    if (typeof source.prefix === 'string') return [`prefix:${source.prefix}`];
+    return [];
+  }).join('、') || '—';
+}
+
+function environmentText(value: unknown): string {
+  if (!Array.isArray(value) || !value.length) return '—';
+  return value.flatMap((entry): string[] => {
+    const item = record(entry);
+    if (!item || typeof item.name !== 'string') return [];
+    return [`${item.name}${item.configured === true ? ' 已配置' : ' 未配置'}`];
+  }).join('、') || '—';
+}
+
+function configurationEntries(entry: PanelEntry): KeyValueEntry[] {
+  const configuration = record(dataOf(entry).configuration);
+  if (!configuration) return [];
+  const list: KeyValueEntry[] = [
+    { label: '消费过滤', value: configuration.filter ?? '未配置' },
+    { label: '来源前缀', value: textOf(configuration.source_prefix), mono: true },
+    {
+      label: '最大事件年龄',
+      value: typeof configuration.max_event_age_seconds === 'number' ? `${configuration.max_event_age_seconds} 秒` : '—',
+    },
+    {
+      label: '单轮超时',
+      value: typeof configuration.turn_timeout_ms === 'number' ? formatDuration(configuration.turn_timeout_ms) : '—',
+    },
+    { label: '读取授权', value: sourcesText(configuration.reader), mono: true },
+    { label: '环境变量', value: environmentText(configuration.agent_environment) },
+  ];
+  const pi = record(configuration.pi);
+  if (pi) {
+    list.push({ label: '托管状态', value: piLabels[textOf(pi.status)] ?? textOf(pi.status) });
+    const saved = record(pi.saved);
+    if (saved) {
+      list.push({ label: '已保存模型', value: `${textOf(saved.provider)} / ${textOf(saved.model)}` });
+      list.push({
+        label: '声明上下文窗口',
+        value: typeof saved.context_window === 'number' ? saved.context_window.toLocaleString('zh-CN') : '未声明',
+        hint: '本地声明，不代表远端容量',
+      });
+      list.push({ label: '系统提示词', value: typeof saved.system_prompt === 'string' && saved.system_prompt.length ? '已保存' : '未保存' });
+    } else {
+      list.push({ label: '已保存配置', value: '不存在' });
+    }
   }
+  return list;
 }
-
-function stop(): void {
-  if (timer !== undefined) { clearInterval(timer); timer = undefined; }
-}
-
-async function load(): Promise<void> {
-  if (busy.value || disposed) return;
-  busy.value = true;
-  try {
-    const list = await props.client.request<{ panels: PanelSummary[] }>('/api/admin/panels', { signal: controller.signal });
-    const nextEntries = await Promise.all(list.panels.filter((summary) => summary.module === MODULE).map(async (summary): Promise<PanelEntry> => {
-      try {
-        const detail = await props.client.request<PanelDetail>('/api/admin/panels/' + encodeURIComponent(summary.instance_id), { signal: controller.signal });
-        return { summary, detail, failure: null, view: asPanelView(detail.data) };
-      } catch (failure) {
-        return { summary, detail: null, failure, view: null };
-      }
-    }));
-    entries.value = nextEntries;
-    loaded.value = true;
-    error.value = null;
-    lastUpdated.value = new Date();
-  } catch (cause) {
-    if (cause instanceof DOMException && cause.name === 'AbortError') return;
-    error.value = cause;
-    if (statusOf(cause) === 401 || statusOf(cause) === 403) enabled.value = false;
-  } finally {
-    busy.value = false;
-  }
-}
-
-watch(enabled, (value) => {
-  stop();
-  if (value) timer = setInterval(() => { void load(); }, 5000);
-}, { immediate: true });
-onMounted(() => { void load(); });
-onUnmounted(() => { disposed = true; stop(); controller.abort(); });
 </script>
 
 <template>
-  <main class="mx-auto w-full max-w-6xl space-y-6 px-4 py-6 sm:px-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h2 class="text-lg font-semibold">Agent</h2>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          最近更新 {{ lastUpdated?.toLocaleTimeString('zh-CN') ?? '—' }}
-        </p>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
-          @click="enabled = !enabled"
-        >
-          {{ enabled ? '暂停轮询' : '开启轮询' }}
-        </button>
-        <button
-          type="button"
-          :disabled="busy"
-          class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
-          @click="load"
-        >
-          {{ busy ? '刷新中…' : '刷新' }}
-        </button>
-      </div>
-    </div>
+  <main class="page">
+    <PageHeader title="Agent" description="消费轮次、ACP 会话与托管配置；未取得的信息显示为未知。">
+      <template #actions>
+        <span class="hidden text-[11px] text-[var(--faint)] sm:inline">
+          {{ paused ? '已暂停刷新' : '更新于' }}
+          <RelativeTime v-if="!paused && updatedAt" :value="updatedAt" />
+        </span>
+        <button type="button" class="btn" @click="toggle">{{ paused ? '恢复刷新' : '暂停刷新' }}</button>
+        <button type="button" class="btn" :disabled="loading" @click="load">{{ loading ? '刷新中…' : '刷新' }}</button>
+      </template>
+    </PageHeader>
 
-    <p
-      v-if="error"
-      role="alert"
-      class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
-    >
-      {{ errorText(error) }}
-      <span v-if="requestId(error)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ requestId(error) }}</span>
-    </p>
+    <ErrorNotice v-if="error" :error="error" retry @retry="load" />
 
-    <p v-if="loaded && !entries.length && !busy" class="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-      该插件尚未登记可读面板。
-    </p>
+    <EmptyState
+      v-if="!entries.length && !loading && !error"
+      title="该插件尚未登记可读面板"
+      description="Agent 运行时注册面板后，这里会显示轮次与配置。"
+    />
 
-    <article
+    <PanelFrame
       v-for="entry in entries"
       :key="entry.summary.instance_id"
-      class="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+      :title="entry.summary.title"
+      :instance-id="entry.summary.instance_id"
+      :module="entry.summary.module"
+      :generation="entry.summary.generation"
+      :tone="entry.view?.status.tone ?? 'unknown'"
+      :label="entry.view?.status.label ?? '读取失败'"
     >
-      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-        <div class="flex flex-wrap items-center gap-2">
-          <h3 class="text-sm font-semibold">{{ entry.summary.title }}</h3>
-          <span class="rounded-full border border-slate-200 px-2 py-0.5 font-mono text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-            {{ entry.summary.module }}
-          </span>
-          <span class="font-mono text-xs text-slate-500 dark:text-slate-400">{{ entry.summary.instance_id }}</span>
+      <ErrorNotice v-if="entry.failure" :error="entry.failure" retry @retry="load" />
+      <ErrorNotice
+        v-else-if="entry.detail?.error"
+        :error="entry.detail.error"
+        title="面板读取失败"
+        :detail="`${entry.detail.error.code}${entry.detail.error.message ? ` — ${entry.detail.error.message}` : ''}`"
+      />
+
+      <template v-else-if="entry.view">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div class="flex flex-wrap items-center gap-1.5 text-xs">
+            <template v-for="(step, index) in track" :key="step.value">
+              <span v-if="index" class="text-[var(--faint)]">›</span>
+              <span :class="phaseOf(entry) === step.value ? 'font-medium text-[var(--accent)]' : 'text-[var(--muted)]'">
+                {{ step.label }}
+              </span>
+            </template>
+          </div>
+          <Chip :label="phaseText(entry)" />
+          <span class="text-[11px] text-[var(--faint)]">状态文件 {{ stateLabels[textOf(dataOf(entry).state_status)] ?? textOf(dataOf(entry).state_status) }}</span>
         </div>
-        <span class="font-mono text-[11px] text-slate-400 dark:text-slate-500" :title="entry.summary.generation">
-          generation {{ entry.summary.generation.slice(0, 8) }}
-        </span>
-      </div>
 
-      <div class="p-4">
-        <p
-          v-if="entry.failure"
-          role="alert"
-          class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
-        >
-          读取失败：{{ errorText(entry.failure) }}
-          <span v-if="requestId(entry.failure)" class="mt-1 block font-mono text-xs opacity-75">request_id: {{ requestId(entry.failure) }}</span>
+        <dl class="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-[var(--line)] pt-4 sm:grid-cols-4">
+          <div v-for="fact in facts(entry)" :key="fact.label" class="min-w-0">
+            <dt class="label">{{ fact.label }}</dt>
+            <dd class="mt-0.5 font-mono text-base font-semibold tabular-nums" :class="fact.value === '未知' || fact.value === '未开始' ? 'text-[var(--faint)]' : ''">
+              {{ fact.value }}
+            </dd>
+          </div>
+        </dl>
+
+        <div v-if="inFlight(entry)" class="mt-4 rounded-[var(--radius)] border border-[color-mix(in_oklab,var(--warn)_35%,var(--line))] bg-[color-mix(in_oklab,var(--warn)_8%,var(--surface))] px-3 py-2">
+          <p class="text-xs font-medium">进行中的输入</p>
+          <p class="mt-1 font-mono text-[11px] leading-relaxed text-[var(--muted)]">
+            {{ textOf(inFlight(entry)?.id) }} · seq {{ textOf(inFlight(entry)?.seq) }} · {{ textOf(inFlight(entry)?.source) }}
+          </p>
+          <p v-if="inFlight(entry)?.session_id" class="mt-0.5 font-mono text-[11px] text-[var(--faint)]">
+            会话 {{ textOf(inFlight(entry)?.session_id) }}
+          </p>
+        </div>
+
+        <p class="mt-3 text-[11px] leading-relaxed text-[var(--faint)]">
+          模型阶段 {{ textOf(dataOf(entry).model_stage, '未知') }}；未取得模型或工具阶段时不从进程推断。
         </p>
 
-        <p
-          v-else-if="entry.detail?.error"
-          role="alert"
-          class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
-        >
-          读取失败：{{ entry.detail.error.code }} — {{ entry.detail.error.message }}
-        </p>
-
-        <template v-else-if="entry.view">
-          <div class="mb-4 flex flex-wrap items-center gap-2">
-            <span class="inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium" :class="toneClass(entry.view.status.tone)">
-              {{ entry.view.status.label }}
-            </span>
-            <span class="font-mono text-xs text-slate-400 dark:text-slate-500">{{ entry.view.status.tone }}</span>
+        <details class="mt-4 border-t border-[var(--line)] pt-3">
+          <summary class="cursor-pointer text-xs font-medium text-[var(--muted)]">配置</summary>
+          <div class="mt-2">
+            <KeyValueList :entries="configurationEntries(entry)" />
           </div>
+        </details>
 
-          <dl v-if="entry.view.metrics.length" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div v-for="metric in entry.view.metrics" :key="metric.label">
-              <dt class="text-xs text-slate-500 dark:text-slate-400">{{ metric.label }}</dt>
-              <dd class="mt-1 break-all font-mono text-sm">{{ metric.value }}</dd>
-              <p v-if="metric.hint" class="mt-1 text-xs text-slate-400 dark:text-slate-500">{{ metric.hint }}</p>
-            </div>
-          </dl>
-
-          <div v-if="dataEntries(entry.view).length" class="mt-5">
-            <p class="text-xs font-medium text-slate-500 dark:text-slate-400">详情</p>
-            <dl class="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 text-xs dark:divide-slate-800 dark:border-slate-700">
-              <div v-for="pair in dataEntries(entry.view)" :key="pair[0]" class="grid gap-2 px-3 py-2 sm:grid-cols-[12rem_1fr]">
-                <dt class="font-mono text-slate-500 dark:text-slate-400">{{ keyLabel(pair[0]) }}</dt>
-                <dd class="min-w-0 break-all">
-                  <span v-if="!isComplex(pair[1])" class="font-mono">{{ valueText(pair[1]) }}</span>
-                  <details v-else>
-                    <summary class="cursor-pointer font-mono text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100">查看</summary>
-                    <pre class="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-50 p-3 font-mono text-xs text-slate-700 dark:bg-slate-950 dark:text-slate-300">{{ pretty(pair[1]) }}</pre>
-                  </details>
-                </dd>
-              </div>
-            </dl>
+        <details class="mt-3">
+          <summary class="cursor-pointer text-xs font-medium text-[var(--muted)]">原始面板数据</summary>
+          <div class="mt-2">
+            <JsonBlock :value="entry.view.data" :max-height="320" />
           </div>
-        </template>
+        </details>
+      </template>
 
-        <template v-else-if="entry.detail && entry.detail.data !== undefined">
-          <p class="mb-2 text-xs text-slate-500 dark:text-slate-400">该面板未使用声明式格式，显示原始数据。</p>
-          <pre class="max-h-96 overflow-auto rounded-lg bg-slate-50 p-3 font-mono text-xs text-slate-700 dark:bg-slate-950 dark:text-slate-300">{{ pretty(entry.detail.data) }}</pre>
-        </template>
+      <template v-else-if="entry.detail">
+        <p class="mb-2 text-xs text-[var(--muted)]">该面板未使用声明式格式，显示原始数据。</p>
+        <JsonBlock :value="entry.detail.data" :max-height="320" />
+      </template>
 
-        <p v-else class="text-sm text-slate-500 dark:text-slate-400">面板暂无可读数据。</p>
-      </div>
-    </article>
+      <p v-else class="text-[13px] text-[var(--muted)]">面板暂无可读数据。</p>
+    </PanelFrame>
   </main>
 </template>

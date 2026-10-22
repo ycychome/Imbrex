@@ -120,7 +120,7 @@ host.startPlugin/stopPlugin 当前是受信内部控制入口，供生命周期�
 
 onebot-v11、agent-chat 与三个演示插件使用绑定业务 API。observer 已移除；旧实验记录保留原名称和当时的验证范围。所有业务入口继续按绑定身份使用核心；协议插件按实际远端主体执行授权，管理操作另受 admin 权限约束。不向演示插件开放绕过权限或事务的测试捷径。
 
-`web/` 是管理前端的纯 Shell，不是 Cordis 宿主插件，不通过 `PluginApi` 注册或读取服务。admin 插件提供管理 API 与静态资产注册；M2-02 起由 admin 消费宿主 AdminRegistry。各插件在 `client/` 中自携前端 ESM，服务端入口导出 `client` 路径后，Shell 通过 `/api/admin/info` 的 `client_entry` 动态 `import()` 并调用 `ctx.plugin()`；视图由插件用 `ctx.views.register()` 登记，注册表动态写入 vue-router；禁用、启动失败或已停止的插件不进入装载，页面、路由和导航随之一并消失。admin 默认解析 `@imbrex/admin-web/dist` 后调用 server-http 静态挂载；`assets_dir` 仅作外部构建目录覆盖。
+`web/` 是管理前端的纯 Shell，不是 Cordis 宿主插件，不通过 `PluginApi` 注册或读取服务。admin 插件提供管理 API 与静态资产注册；M2-02 起由 admin 消费宿主 AdminRegistry。各插件在 `client/` 中自携前端 ESM，服务端入口导出 `client` 路径后，Shell 通过 `/api/admin/info` 的 `client_entry` 动态 `import()` 并调用 `ctx.plugin()`；视图由插件用 `ctx.views.register()` 登记，注册表动态写入 vue-router；禁用、启动失败或已停止的插件不进入装载，页面、路由和导航随之一并消失。插件 client 可以引用 `web/src/ui/` 的通用视觉原语（只做展示，不含业务语义），但不得引用其他插件的 client 代码。admin 默认解析 `@imbrex/admin-web/dist` 后调用 server-http 静态挂载；`assets_dir` 仅作外部构建目录覆盖。
 
 ## 8. 插件开发完成条件
 

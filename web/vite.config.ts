@@ -33,6 +33,9 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
+    // Plugin entries are imported by the shell at runtime, so their per-chunk
+    // CSS would never be injected. Ship one stylesheet with the shell.
+    cssCodeSplit: false,
     rollupOptions: {
       preserveEntrySignatures: 'strict',
       input: {

@@ -28,7 +28,7 @@
   - `src/plugins/`：业务、连接器、协议和管理插件，通过绑定服务与核心交互，不直接操作存储或篡改其他插件状态。M2-01 已将 adapters 迁入 `server-http/`、`api-rest/`、`adapter-mcp/`，将 `acp-consumer` 更名 `agent-chat` 并删除 `observer`；具体管理权限和生命周期遵循 `docs/`，不因目录迁移绕过授权。
   - `web/`：管理前端的 npm workspace 构建包（Vue 3 + 浏览器端 Cordis + Vite + TailwindCSS），**不是宿主 Cordis 插件**，不参与宿主装配。它是纯 Shell：登录、`ctx.views` 注册表、插件 loader 与渲染插槽，不包含具体业务视图。admin 插件默认按包名解析其 `dist` 并通过 server-http 静态挂载；`assets_dir` 仅作外部构建目录覆盖。
   - `src/plugins/<plugin>/client/`：插件自携前端视图与注册入口，编译为 `web/dist/plugins/<module>/entry.js`；插件通过 `client_entry` 被 Shell 动态加载，禁用插件时对应页面与导航消失。
-- **依赖控制**：新增 npm 依赖必须有明确依据，优先复用 Node.js 内置能力与已锁定的核心库，避免无节制引入三方库。M2-01 管理前端使用原生 HTML + Tailwind，不引入第三方 UI 组件库。
+- **依赖控制**：新增 npm 依赖必须有明确依据，优先复用 Node.js 内置能力与已锁定的核心库，避免无节制引入三方库。管理前端使用 Vue 单文件组件 + Tailwind，通用视觉原语集中在 `web/src/ui/`；不引入第三方 UI 组件库。
 
 ### 2.2 类型安全与数据校验
 - **杜绝 `any` 滥用**：使用精确的 TypeScript 类型；无法确定来源类型的外部输入一律使用 `unknown`，并在校验后收敛类型。

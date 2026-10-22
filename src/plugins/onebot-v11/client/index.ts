@@ -5,6 +5,6 @@ import Panel from './Panel.vue';
 export default {
   inject: ['views'],
   apply(ctx: Context): void {
-    ctx.effect(() => ctx.views.register({ id: 'onebot', title: 'OneBot', order: 30, component: Panel }));
+    ctx.effect(() => ctx.views.register({ id: 'onebot', title: 'OneBot', icon: 'link', order: 30, component: Panel }));
   },
 };
