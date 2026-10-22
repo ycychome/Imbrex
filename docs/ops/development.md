@@ -1,6 +1,6 @@
 # 本地开发与工程基线
 
-统一开发基线 0.3。M0 已提供可运行宿主、事件/能力服务、HTTP 和演示插件；OneBot 与 Agent 接入在 M1 完成。验收范围见[M0 运行记录](experiments/m0-runtime.md)。
+统一开发基线 0.3。M0 已提供可运行宿主、事件/能力服务、HTTP 和演示插件；OneBot 与 Agent 接入在 M1 完成。验收范围见[M0 运行记录](../progress/validation.md#9-证据索引)。
 
 ## 1. 工具链与依赖锁
 
@@ -103,7 +103,7 @@ Node 实际绑定的 SQLite 为 **3.53.4**，source id：
 2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc
 ```
 
-以上是工程初始化时的前置结果。后续完整 M0 实现和风险验证见[运行验收](experiments/m0-runtime.md)，真实平台行为仍属 M1。
+以上是工程初始化时的前置结果。后续完整 M0 实现和风险验证见[运行验收](../progress/validation.md#9-证据索引)，真实平台行为仍属 M1。
 
 <a id="m0-run"></a>
 
@@ -131,7 +131,7 @@ curl -sS -H "Authorization: Bearer $IMBREX_DEMO_AGENT_TOKEN" http://127.0.0.1:80
 curl -sS -H "Authorization: Bearer $IMBREX_OPERATOR_TOKEN" http://127.0.0.1:8080/v1/plugins
 ```
 
-从 info 取得 store_id 后，按[HTTP 契约](contracts.md)读取事件和调用 mock.echo。示例 Agent 凭据只有读取和工具权限；HTTP 发布者需另外配置 events:write 及明确 write_sources，不可在请求体伪造主体。
+从 info 取得 store_id 后，按[HTTP 契约](../design/contracts.md)读取事件和调用 mock.echo。示例 Agent 凭据只有读取和工具权限；HTTP 发布者需另外配置 events:write 及明确 write_sources，不可在请求体伪造主体。
 
 Ctrl-C 或 SIGTERM 正常关闭；第二个进程使用同一数据目录会以 75 拒绝启动。进程崩溃后锁随实际宿主退出释放。不要直接运行内部 run.js 来跳过启动包装。
 

@@ -1,6 +1,6 @@
 # 开发目标与实施计划
 
-统一开发基线 0.3；M2 目标于 2026-10-20 修订定稿。M0-01—M0-08 已实现，范围与证据见[M0 运行验收](experiments/m0-runtime.md)；M1 的 OneBot、MCP、ACP Consumer 和离线恢复已实现。M2 改为全插件化与管理控制台，先观测、后控制。下文为完整 M2 目标；M2-01 的协议迁移、基础管理 API 与前端骨架已实现，M2-02 的只读观测与前端页面已实现、待独立审核，M2-03/04 待实现。阶段按依赖推进，不给未经估算的日历承诺。
+统一开发基线 0.3；M2 目标于 2026-10-20 修订定稿。本页定义各阶段的范围与退出条件，不记录完成情况——哪一步做完了见[项目状态](status.md)，验收结论见[验证与验收](validation.md)。阶段按依赖推进，不给未经估算的日历承诺。
 
 ## 1. 第一版目标
 
@@ -21,14 +21,14 @@
 
 | 任务 | 产物 | 退出检查 |
 | --- | --- | --- |
-| M0-01（已完成） | Node/TS ESM 工程、依赖锁、类型检查与测试脚本、数据忽略规则 | [锁定版本与 4 项风险探针](development.md)通过；不代表整个 T01 完成 |
-| M0-02（已实现） | 基本配置校验、主体绑定、数据目录实例锁和启动关闭 | 错配拒绝、实际宿主持锁、双实例拒绝、崩溃释放与重启通过 |
-| M0-03（已实现） | 领域类型、JSON/schema 校验和 HTTP DTO 转换 | 大整数往返、Unicode 身份、非法/超限输入与 schema 边界通过 |
-| M0-04（已实现） | SQLite worker、初始 schema、事件追加/读取/lookup | T02/T03 核心与 HTTP 链路通过；提交与通知结果独立 |
-| M0-05（已实现） | 能力注册、授权、只读调用、calls 记录和查询 | T05/T06 公共机制及 HTTP 响应丢失路径通过 |
-| M0-06（已实现） | Cordis 服务适配、插件 API 与生命周期 | 绑定、启停/重启、依赖卸载、清理失败与编译模板通过 |
-| M0-07（已实现） | HTTP /v1 与必要诊断 | 鉴权、读写、工具/调用查询、诊断、限额和错误路径通过 |
-| M0-08（已实现） | fixture、transform、mock 的实际示例，observer 最小读取版 | 两条原事件生成两条派生事件，独立位置与 mock.echo 可演示 |
+| M0-01（已完成） | Node/TS ESM 工程、依赖锁、类型检查与测试脚本、数据忽略规则 | [锁定版本与 4 项风险探针](../ops/development.md)通过；不代表整个 T01 完成 |
+| M0-02 | 基本配置校验、主体绑定、数据目录实例锁和启动关闭 | 错配拒绝、实际宿主持锁、双实例拒绝、崩溃释放与重启通过 |
+| M0-03 | 领域类型、JSON/schema 校验和 HTTP DTO 转换 | 大整数往返、Unicode 身份、非法/超限输入与 schema 边界通过 |
+| M0-04 | SQLite worker、初始 schema、事件追加/读取/lookup | T02/T03 核心与 HTTP 链路通过；提交与通知结果独立 |
+| M0-05 | 能力注册、授权、只读调用、calls 记录和查询 | T05/T06 公共机制及 HTTP 响应丢失路径通过 |
+| M0-06 | Cordis 服务适配、插件 API 与生命周期 | 绑定、启停/重启、依赖卸载、清理失败与编译模板通过 |
+| M0-07 | HTTP /v1 与必要诊断 | 鉴权、读写、工具/调用查询、诊断、限额和错误路径通过 |
+| M0-08 | fixture、transform、mock 的实际示例，observer 最小读取版 | 两条原事件生成两条派生事件，独立位置与 mock.echo 可演示 |
 
 退出：G01—G03 成立，T01—T03 和 T05/T06 公共部分通过；从干净开发环境可以按照说明启动示例。实际 SQLite 版本/PRAGMA、包锁和命令写入运行说明。
 
@@ -38,15 +38,15 @@
 
 ## 3. M1 · OneBot、MCP 与 ACP 消费插件
 
-2026-10-19 收敛的开发目标如下，各项状态与验证范围分别记录。Agent 首接复用 pi 与现成 pi-acp；模型循环、上下文和历史交给 Agent。协议职责见 [Agent 接入](agent-integration.md)，消费状态见[应用消费](applications.md)。
+2026-10-19 收敛的开发目标如下，各项状态与验证范围分别记录。Agent 首接复用 pi 与现成 pi-acp；模型循环、上下文和历史交给 Agent。协议职责见 [Agent 接入](../../src/plugins/agent-chat/README.md)，消费状态见[应用消费](../design/applications.md)。
 
 | 任务 | 模块与具体工作 | 必要验证 |
 | --- | --- | --- |
-| M1-01（已实现，协议模拟通过） | `src/plugins/onebot-v11/`：正向通用 WS、认证与账号核对、重连、入站映射、来源范围和 `<instance>.reply`；附小型 OneBot 模拟服务 | T04/T05/T06/T09：可信原事件决定回复目标，实际 Action 参数、重复输入、账号隔离、超限帧与发送未知结果；两组独立协议夹具 |
-| M1-02（已实现，SDK 互通通过） | `src/adapters/mcp/`：在现有监听上挂载 `/v1/mcp` Streamable HTTP；按主体提供事件上下文、受限能力发现/调用和自己的调用查询 | T03/T05/T06 的 MCP 路径：发现与执行均鉴权，store_id/序号/call_id 不失真，结果不把 unknown 当成功 |
+| M1-01 | `src/plugins/onebot-v11/`：正向通用 WS、认证与账号核对、重连、入站映射、来源范围和 `<instance>.reply`；附小型 OneBot 模拟服务 | T04/T05/T06/T09：可信原事件决定回复目标，实际 Action 参数、重复输入、账号隔离、超限帧与发送未知结果；两组独立协议夹具 |
+| M1-02 | `src/adapters/mcp/`：在现有监听上挂载 `/v1/mcp` Streamable HTTP；按主体提供事件上下文、受限能力发现/调用和自己的调用查询 | T03/T05/T06 的 MCP 路径：发现与执行均鉴权，store_id/序号/call_id 不失真，结果不把 unknown 当成功 |
 | M1-03（真实 pi/模型的模拟平台回复与不回复已通过） | OneBot 模拟服务 + Imbrex + 人工驱动的 pi 演示；记录实际 pi/MCP 配置、版本和运行命令 | 真实 pi 能查到模拟输入、调用 reply，模拟服务收到正确 Action；不回复路径不发送；本项不需要真实 QQ 账号 |
-| M1-04（已实现，模拟/故障及真实单轮自动触发通过） | `src/plugins/acp-consumer/`：通过 stdio 启动配置的 ACP 程序，首接 pi-acp；读事件并筛选触发、关联平台会话与 ACP session、处理客户端请求、清理进程；保存最少消费状态 | T07：正常自动触发；发送 prompt 前持久保存 in_flight；未确认结束时暂停、不重放；会话不串用，停用/崩溃后资源按约定清理 |
-| M1-05（恢复工具与模拟恢复通过，指定群单次真实闭环通过） | 离线 Consumer 恢复 CLI；[两阶段接入、处置命令与验收记录](experiments/m1-operations.md)；SnowLuma 指定群的真实模型自动回复见[实测记录](experiments/m1-live.md) | 锁、备份、单条处置、不改 calls、恢复后不重发旧输入已模拟验证；T04/T07/T09 指定服务正常单次路径已通过；真实多会话、重启与 unknown 扩展演练未执行 |
+| M1-04 | `src/plugins/acp-consumer/`：通过 stdio 启动配置的 ACP 程序，首接 pi-acp；读事件并筛选触发、关联平台会话与 ACP session、处理客户端请求、清理进程；保存最少消费状态 | T07：正常自动触发；发送 prompt 前持久保存 in_flight；未确认结束时暂停、不重放；会话不串用，停用/崩溃后资源按约定清理 |
+| M1-05（恢复工具与模拟恢复通过，指定群单次真实闭环通过） | 离线 Consumer 恢复 CLI；[两阶段接入、处置命令与验收记录](validation.md#9-证据索引)；SnowLuma 指定群的真实模型自动回复见[实测记录](validation.md#9-证据索引) | 锁、备份、单条处置、不改 calls、恢复后不重发旧输入已模拟验证；T04/T07/T09 指定服务正常单次路径已通过；真实多会话、重启与 unknown 扩展演练未执行 |
 
 实施顺序为 M1-01 → M1-02 → M1-03 → M1-04 → M1-05。第一步在实现 onebot-v11 时一并修正 `src/host/modules.ts` 对所有 builtin 配置必须为空的限制：保留现有演示插件校验，让新插件用自己的结构化配置校验。无需先开一个脱离实际消费者的通用配置框架任务。
 
@@ -54,7 +54,7 @@ M1-01、M1-02 及 ACP 消费、恢复、生命周期的模拟验证可自动推�
 
 自动推进沿用分支/worktree → 实现与必要验证 → PR → 独立审核、修复并复审 → 最新提交 CI → 按已有授权合并的流程。每项分别记录已验证范围，不把计划调整当成功能已交付。
 
-正常运行时，新入站消息由 Consumer 触发 Agent；Agent 可以不回复，也可经 MCP 调用受限能力回复同一会话。Consumer 只保存位置、会话关联和未决输入，不保存模型生成的 reply/no_reply 决定或另建发送队列。未决输入暂停并人工核验，核心 unknown 不自动补发；详见[恢复规则](applications.md)。
+正常运行时，新入站消息由 Consumer 触发 Agent；Agent 可以不回复，也可经 MCP 调用受限能力回复同一会话。Consumer 只保存位置、会话关联和未决输入，不保存模型生成的 reply/no_reply 决定或另建发送队列。未决输入暂停并人工核验，核心 unknown 不自动补发；详见[恢复规则](../design/applications.md)。
 
 本阶段不新增 Runner、Agent 决策引擎、独立决策数据库或持久消息中间层。MCP stdio、远程 ACP 传输与通用调度由实际消费者需求触发。来源不可验证的行为记录为不支持/未知，不要求先证明全部 QQ 消息、历史和材料完整。
 
@@ -64,16 +64,16 @@ M1-01、M1-02 及 ACP 消费、恢复、生命周期的模拟验证可自动推�
 
 | 任务 | 产物 | 退出检查 |
 | --- | --- | --- |
-| M2-01（已实现，待独立审核） | 一次完成目录重构：删除 observer，acp-consumer 更名 agent-chat；移除 adapters，建立 server-http、api-rest、adapter-mcp；建立 admin 服务端与 Vue 3 + Vite + TailwindCSS 骨架 | 编译通过；REST/MCP 原路径、鉴权、序号与调用结果语义保留；对应 M1 回归用例通过；路由可注销，就绪包含监听与依赖路由；/admin 可显示基础页面 |
-| M2-02（已实现，待独立审核） | 宿主常驻 AdminRegistry；OneBot/Agent 声明式面板；全局状态、事件浏览、能力与跨主体调用审计；模型、窗口、提示词及触发白名单配置展示；`ui-contract/` 为视图契约与构建包，控制台 Shell 在 admin 插件 `shell/`，views 由 admin/api-rest/onebot-v11/agent-chat 的 `client/` 自携 ESM 动态注册 | 同类多实例不混淆；Admin 启停不重启业务；处理中、空闲、未决挂起准确区分；断线与原因可见；admin:inspect 与 Agent 权限隔离；构建与托管归位到 `ui-contract/` 与 admin 的 `shell/`；插件入口扫描发现；视图以 `mount(el, ctx)` 交付；第三方插件可声明 `{ url }` 自带托管 |
-| M2-03（待实现） | 在线确认/放弃未决输入、单会话重置；filter 在轮次边界应用；模型、上下文窗口与系统提示词可编辑，保存后受控重启 Agent | 宿主不停机；旧轮使用旧配置，已完成/跳过历史不回放；异常未决先处置；仅重启 pi-acp/pi，OneBot/HTTP 与其他插件连续运行；保留会话证据，恢复失败可解释；不篡改 calls 或自动补发 |
-| M2-04（待实现） | 静态资产打包；配置/迁移/部署和后台手册；完整 M2 验收与版本记录，目标版本 v0.2.0 | 完成依赖安装与构建后，单个网关启动命令提供 API 和后台；故障恢复、过滤更新、Agent 重启端到端通过；G01—G04、G06、G07 有证据；验证后才标记版本交付 |
+| M2-01 | 一次完成目录重构：删除 observer，acp-consumer 更名 agent-chat；移除 adapters，建立 server-http、api-rest、adapter-mcp；建立 admin 服务端与 Vue 3 + Vite + TailwindCSS 骨架 | 编译通过；REST/MCP 原路径、鉴权、序号与调用结果语义保留；对应 M1 回归用例通过；路由可注销，就绪包含监听与依赖路由；/admin 可显示基础页面 |
+| M2-02 | 宿主常驻 AdminRegistry；OneBot/Agent 声明式面板；全局状态、事件浏览、能力与跨主体调用审计；模型、窗口、提示词及触发白名单配置展示；`ui-contract/` 为视图契约与构建包，控制台 Shell 在 admin 插件 `shell/`，views 由 admin/api-rest/onebot-v11/agent-chat 的 `client/` 自携 ESM 动态注册 | 同类多实例不混淆；Admin 启停不重启业务；处理中、空闲、未决挂起准确区分；断线与原因可见；admin:inspect 与 Agent 权限隔离；构建与托管归位到 `ui-contract/` 与 admin 的 `shell/`；插件入口扫描发现；视图以 `mount(el, ctx)` 交付；第三方插件可声明 `{ url }` 自带托管 |
+| M2-03 | 在线确认/放弃未决输入、单会话重置；filter 在轮次边界应用；模型、上下文窗口与系统提示词可编辑，保存后受控重启 Agent | 宿主不停机；旧轮使用旧配置，已完成/跳过历史不回放；异常未决先处置；仅重启 pi-acp/pi，OneBot/HTTP 与其他插件连续运行；保留会话证据，恢复失败可解释；不篡改 calls 或自动补发 |
+| M2-04 | 静态资产打包；配置/迁移/部署和后台手册；完整 M2 验收与版本记录，目标版本 v0.2.0 | 完成依赖安装与构建后，单个网关启动命令提供 API 和后台；故障恢复、过滤更新、Agent 重启端到端通过；G01—G04、G06、G07 有证据；验证后才标记版本交付 |
 
 M2-01 同步清理 observer 专属配置和测试；仍覆盖存储、协议、插件生命周期等有效行为的测试保留并适配新目录。模块更名时保留实例 ID、主体、数据和会话关联，不把迁移当作建立空白实例。旧实验记录不改写。
 
 M2-01 前端收敛为 `ui-contract/` npm workspace 构建包，使用原生 HTML + Tailwind，不引入第三方 UI 组件库；admin 插件默认按包名解析 `@imbrex/ui-contract/dist`，`assets_dir` 仅作外部覆盖；资产缺失时 `/admin` 返回 404，不阻塞宿主。前端构建先于全量 `node --test`，基础页面与缺失资产降级由 `test/host/admin.test.ts` 覆盖；1–2 MB 压缩体积预算在 M2-04 实测记录。
 
-管理后台的功能与权限见 [Admin 契约](admin.md)，轮次边界与在线恢复见[应用消费](applications.md)，Agent 托管配置与受控重启见[Agent 接入](agent-integration.md)。管理员通过显式 Principal 和 token_env 认证，不使用本机来源免密，也不向 Agent 的 MCP 工具列表暴露管理动作。
+管理后台的功能与权限见 [Admin 契约](../design/admin.md)，轮次边界与在线恢复见[应用消费](../design/applications.md)，Agent 托管配置与受控重启见[Agent 接入](../../src/plugins/agent-chat/README.md)。管理员通过显式 Principal 和 token_env 认证，不使用本机来源免密，也不向 Agent 的 MCP 工具列表暴露管理动作。
 
 filter 编辑只控制 Consumer 触发范围，不联动扩大连接器采集或 Principal 授权。新配置在当前轮完成并保存检查点后应用；有异常未决输入时拒绝应用。模型、窗口和提示词保存后标为待重启，仅在无活跃轮次、无异常未决项时重启 Agent 子进程；现有模型循环与历史仍归 Agent。
 

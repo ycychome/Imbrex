@@ -1,6 +1,6 @@
 # 能力注册、调用与结果
 
-统一开发基线 0.3 · 2026-10-18。本文是 Capability 行为规范；HTTP 表达见 [HTTP 契约](contracts.md)，QQ 的具体工具见 [OneBot 接入](onebot-and-agent.md)。
+统一开发基线 0.3 · 2026-10-18。本文是 Capability 行为规范；HTTP 表达见 [HTTP 契约](contracts.md)，QQ 的具体工具见 [OneBot 接入](../../src/plugins/onebot-v11/README.md)。
 
 ## 1. 注册和身份
 
@@ -20,7 +20,7 @@
 - handler 收到校验后的参数快照；后续修改调用者对象不改变已记录意图。读取调用参数引用的事件时，使用 invocation 上下文的 readEvent，按实际 caller 的权限检查，不能仅用连接器自身权限代替。
 - HTTP 未验证值使用 unknown；JSON 结构和值的限制见 [HTTP 契约](contracts.md)。
 
-采用 Draft 2020-12 的有限子集：object/properties/required/additionalProperties、array/items、有界长度与数值约束、enum/const 及受控的组合。首版不支持远程引用、自定义可执行关键词或任意插件编译代码。M0 根据实际校验器锁定受支持词汇，未支持的 schema 在注册时失败，不能静默跳过。[R5](references.md#r5)
+采用 Draft 2020-12 的有限子集：object/properties/required/additionalProperties、array/items、有界长度与数值约束、enum/const 及受控的组合。首版不支持远程引用、自定义可执行关键词或任意插件编译代码。M0 根据实际校验器锁定受支持词汇，未支持的 schema 在注册时失败，不能静默跳过。[R5](../ops/references.md#r5)
 
 当前词汇白名单为 $schema（仅 Draft 2020-12）、title、description、type、properties、required、additionalProperties、items、minItems、maxItems、uniqueItems、minLength、maxLength、minimum、maximum、exclusiveMinimum、exclusiveMaximum、multipleOf、enum、const、allOf、anyOf、oneOf、not；允许布尔 schema。其余关键词（包括 $ref、format、pattern、default）拒绝注册，不执行外部加载或静默忽略。
 
@@ -78,6 +78,6 @@ store_id 属于整个数据库，不另建全局调用账本。params_json 保�
 
 插件可注册工具，Agent 可发现并调用；工具描述用于理解，不授予权限，也不构成执行安全证明。JSON Schema 只验证结构，账号、会话、事件可信来源仍由实际 handler 检查。
 
-M1 通过 MCP adapter 复用本契约，按实际主体提供受限发现、调用和结果查询；ACP Consumer 负责向现成 Agent 提交输入。协议边界见 [Agent 接入](agent-integration.md)。不内置通用工作流、动作自动重试、跨提供者事务或永久审计系统。
+M1 通过 MCP adapter 复用本契约，按实际主体提供受限发现、调用和结果查询；ACP Consumer 负责向现成 Agent 提交输入。协议边界见 [Agent 接入](../../src/plugins/agent-chat/README.md)。不内置通用工作流、动作自动重试、跨提供者事务或永久审计系统。
 
 事件、应用决定、调用结果可以通过 EventRef/call_id 关联，但关联本身不保证原子提交。发送成功事实如需再发布，应由连接器用稳定身份补充；不能仅因该补充发布失败就重新发送 QQ 消息。

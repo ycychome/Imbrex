@@ -1,12 +1,12 @@
 # 配置、权限与运行运维
 
-统一开发基线 0.3；2026-10-20 补充 M2 管理目标。首版为单所有者部署，本机默认监听；无多租户、自动故障转移或在线数据库替换。配置使用 version 2 与显式协议插件；基础管理 API/UI 已实现，第 8 节的托管配置和在线处置仍待实现。
+统一开发基线 0.3。首版为单所有者部署，本机默认监听；无多租户、自动故障转移或在线数据库替换。配置使用 version 2 与显式协议插件。
 
 ## 1. 配置来源
 
 使用一个显式 JSON 配置文件，config_version=2。相对数据路径以配置文件目录为基准；插件模块只从 builtin 映射、已安装包或明确本地文件加载，不在线下载安装代码。无效字段、未知插件、重复实例 ID、未知主体或不支持的配置在启动前报错；server-http 的 host/port 在配置解析阶段校验，其他插件模块的结构化配置在对应插件装配时校验。
 
-配置的 JSON 值受 256 KiB 与 32 层嵌套上限约束。server-http 插件的 config.port 为 0 时由系统分配临时端口，适用于本地测试；固定部署使用明确端口。配置校验、主体认证、模块加载与进程启动均已实现。
+配置的 JSON 值受 256 KiB 与 32 层嵌套上限约束。server-http 插件的 config.port 为 0 时由系统分配临时端口，适用于本地测试；固定部署使用明确端口。配置校验、主体认证、模块加载与进程启动由宿主与 server-http 插件承担。
 
 配置示例用于本地演示；可运行文件见 [examples/demo.json](../examples/demo.json)，启动步骤见[开发指南](development.md#m0-run)：
 
@@ -128,7 +128,7 @@ M1 装配时须先让 MCP 入口可供 Agent 使用，Consumer 核对自己的�
 
 单插件停用时内核继续运行。插件停止未完成时不得启动同实例的新循环；出现不能合作退出的代码应报告 stop_failed，必要时关闭宿主，而不是误报已清理。Cordis 的资源作用域用于装配清理，业务停止顺序由插件与宿主明确实现。
 
-agent-chat 还须停止 ACP 投递、保留未决输入，并关闭标准流、计时器与其拥有的 pi-acp/pi 进程；需要验证后代进程回收和锁描述符不继承，不把独立进程当作权限沙箱。详见 [Agent 资源生命周期](agent-integration.md)。
+agent-chat 还须停止 ACP 投递、保留未决输入，并关闭标准流、计时器与其拥有的 pi-acp/pi 进程；需要验证后代进程回收和锁描述符不继承，不把独立进程当作权限沙箱。详见 [Agent 资源生命周期](../../src/plugins/agent-chat/README.md)。
 
 ## 5. 诊断
 
@@ -144,11 +144,89 @@ agent-chat 还须停止 ACP 投递、保留未决输入，并关闭标准流、�
 
 备份网关不等于备份 Agent 自己的会话、Consumer 进度与 in_flight、插件私有状态、凭据或附件。第一次依赖真实重要数据前，用户明确故障域、保留和恢复目标，另做对应演练。
 
-恢复旧副本时：先停止相关组件并禁用外部写，备份当前状态；把恢复副本作为新的存储历史并更新 store_id；分别检查应用进度、Consumer 未决输入、Agent 会话及原 in_progress/unknown 调用；选择新起点或只读核验，确认后才启用明确范围的外部写。不要只改 store_id 或清除 in_flight 后自动重播原 prompt。Consumer 的逐条人工处置见[应用消费](applications.md)。
+恢复旧副本时：先停止相关组件并禁用外部写，备份当前状态；把恢复副本作为新的存储历史并更新 store_id；分别检查应用进度、Consumer 未决输入、Agent 会话及原 in_progress/unknown 调用；选择新起点或只读核验，确认后才启用明确范围的外部写。不要只改 store_id 或清除 in_flight 后自动重播原 prompt。Consumer 的逐条人工处置见[应用消费](../design/applications.md)。
 
 普通启动无法辨识文件是原库还是旧备份，这项流程是显式运维前置。首版没有自动回滚恢复保证。
 
-Consumer 的单条人工处置已提供离线命令 npm --silent run consumer:recover。它使用正式入口同一数据目录 flock，锁占用退出 75；只读核对数据库，不执行 in_progress → unknown 的普通启动恢复。备份在插件私有 recovery/ 目录中先于消费状态更新持久保存，成功输出备份路径和新位置，失败不输出原始状态或原因。用法、恢复语义及输出丢失/目录同步失败时的检查步骤见 [M1-05 运行记录](experiments/m1-operations.md)。这不是存储回滚、任意改位置或补发工具。
+### 6.1 单条人工处置（`consumer:recover`）
+
+Consumer 的逐条处置使用离线命令，不使用管理页面，也不与运行中的宿主争锁。
+
+先构建（`npm run build`）。查看参数：
+
+    npm --silent run consumer:recover -- --help
+
+统一使用 `--silent` 关闭 npm 自身的参数回显；普通 `npm run` 会把 `--reason` 的内容打印到 stdout。也可直接运行 `node dist/src/cli/recover.js`，参数相同。输出脱敏不代替对本地命令历史和进程参数的访问控制，`--reason` 中仍不得包含凭据或消息全文。
+
+**前置条件**
+
+- 先用原 Agent 主体通过 `imbrex_get_call` 或单条 calls HTTP 接口查询实际 `store_id` / `call_id`，并核对 Agent 会话与平台接收记录。operator 没有跨主体调用查询权限；猜测的 `call_id` 查不到不等于没有发送。无法建立输入与调用的关联时保持未确认。
+- 正常停止整个宿主，确认其 Agent、监督进程及 tini 已退出。命令会取得 `data_dir/.lock`；仅停用插件而保持宿主运行会被拒绝。不要删除锁文件。
+- `--data-dir` 相对当前工作目录解析，必须指向宿主实际的数据目录。私有状态位于 `data_dir/plugins/<instance>/consumer-state.json`。
+
+**处置动作**
+
+确认该条已处理：
+
+    npm --silent run consumer:recover -- \
+      --data-dir data/acp --instance agent \
+      --store-id "$EXPECTED_STORE_ID" --seq "$EXPECTED_PENDING_SEQ" \
+      --action processed --reason '已核对原调用与会话记录，确认本条处理结束'
+
+放弃该输入并为它的会话选择新的 ACP session：
+
+    npm --silent run consumer:recover -- \
+      --data-dir data/acp --instance agent \
+      --store-id "$EXPECTED_STORE_ID" --seq "$EXPECTED_PENDING_SEQ" \
+      --action abandoned --new-session --reason '保留未知调用，放弃本条自动处理并启用新会话'
+
+Agent 无法恢复旧 session 时，须已无 `in_flight`，并用当前 `last_seq` 作为 `EXPECTED_LAST_SEQ`：
+
+    npm --silent run consumer:recover -- \
+      --data-dir data/acp --instance agent \
+      --store-id "$EXPECTED_STORE_ID" --seq "$EXPECTED_LAST_SEQ" \
+      --action reset-sessions --reason '原会话不可恢复，保留进度并显式重新建立会话'
+
+`processed` 与 `abandoned` 都只推进到保存的未决 seq 并清除 `in_flight`，不修改 calls、不补发、不重跑模型。`--new-session` 只删除该输入所属会话的映射，其他映射保留。需要为新的明确意图发送时另按能力契约操作，不能把 `abandoned` 当作重试开关。`reset-sessions` 清空全部会话关联和观察到的 Agent 名称/版本，保留消费位置、输入选择、主体与程序/工作目录绑定。
+
+命令不负责更换存储、调整读取范围、回退位置或修复损坏状态；这些情况按应用恢复规则确定新起点。这不是存储回滚、任意改位置或补发工具。
+
+**持久记录与错误**
+
+命令只读打开现有 SQLite，不执行普通启动时的 `in_progress → unknown` 恢复。它核对 `schema_version`、`store_id`、`last_seq` / `in_flight` 及未决事件的真实序号；位置、会话关联或实际事件不一致时拒绝。
+
+更新前先在 `plugins/<instance>/recovery/<operation_id>.json` 保存准备记录：`version`、`operation_id`、`prepared_at`、`operator_uid`、`instance`、`action`、`new_session`、`expected_seq`、`reason` 和 `before`（完整旧状态）。目录权限 `0700`，文件权限 `0600`；先写临时文件、fsync、rename、同步目录，再用同样顺序替换状态。`reason` 非空、最多 2048 UTF-8 字节，保存在本地私有记录中。
+
+备份记录只证明已准备处置，不能单独证明状态已经替换。成功返回 `consumer_recovered`、最终 `last_seq` 和相对数据目录的 backup 路径；不输出原因、会话或消息正文。退出码 0 表示完成，75 表示实例锁正在使用，其他失败为 1。
+
+| 错误码 | 处理 |
+| --- | --- |
+| `recovery_invalid_arguments` | 核对必填参数、规范十进制序号和非空原因 |
+| `recovery_state_invalid` / `recovery_store_unavailable` | 保留原文件，核对格式、路径和数据库可读性，禁止自动重置 |
+| `recovery_store_mismatch` / `recovery_position_mismatch` / `recovery_event_mismatch` | 对照实际存储和状态重新核验，命令没有推进进度 |
+| `recovery_backup_write_failed` | 备份未确认持久保存，命令未开始替换状态；检查磁盘与私有目录权限 |
+| `recovery_state_write_uncertain` | 备份已保存但状态替换/目录同步失败；按返回路径检查备份与当前文件，不能盲目重试或复制旧状态回去 |
+
+进程被信号中断、命令输出丢失或磁盘故障也可能发生在状态替换之后；同样先核对当前 `last_seq` / `in_flight` 和准备记录。普通完成后再次提交旧未决 seq 会被拒绝。此流程不保证断电或磁盘损坏恢复，也不消除平台 `unknown`。
+
+## 6.2 首次接入顺序
+
+把 OneBot、Consumer 与 Agent 接到同一个获准范围，按阶段推进，每阶段通过后再进入下一阶段。
+
+**准备**
+
+1. 在项目忽略的 `data/` 下生成本地配置，从 `examples/agent/acp.json` 开始，按 [Agent 协议接入](../../src/plugins/agent-chat/README.md) 设置 Agent 绝对工作目录与环境变量名称。
+2. 先保持 `external_writes_enabled=false`。
+3. OneBot 的 `ws_url` / `account_id` / `identity_namespace`、允许会话、Consumer `source_prefix` 与 Agent `read_sources` 必须指向同一个获准范围。切换服务身份时使用显式新命名空间，不复用未证实连续的原生消息身份。
+4. 真实凭据通过环境变量或 Agent 自己的配置提供，不粘贴进 PR 或聊天。
+
+**阶段**
+
+1. 在模拟 OneBot 上运行真实 Agent，分别验证上下文读取、回复和不回复。保留 MCP 实际调用与 Action 记录，不能只记录工具发现成功。
+2. 切到真实 OneBot，先禁写核验账号元数据、入站映射、范围过滤、重复输入与断线重连。此阶段不开自动回复。
+3. 明确启用约定范围的外部写，在模拟平台的手动阶段通过后，验证真实新输入由 ACP 自动触发。对不应回复的输入同时检查模型记录、calls 与平台 Action。
+4. 验证会话隔离、旧消息与自发回流过滤。核对恢复/重启前后的 prompt 次数和 `call_id`，而不只看界面有无响应。
+5. 只有受控故障演练获准时才制造丢响应或中断。保存 `unknown` 与原 `call_id`，核验真实平台，再按 6.1 处置；不得为了让结果成功而自动换 ID 重发。
 
 ## 7. 部署边界
 
@@ -156,9 +234,9 @@ Consumer 的单条人工处置已提供离线命令 npm --silent run consumer:re
 
 数据目录占用由操作者监看，首版不自动删除。以后需要保留窗口、多个宿主、强隔离或持续采集完整性时，先明确目标再扩展；不以当前演示成功推导长期可用性。
 
-## 8. M2 管理与配置应用（基础入口已实现，观测/控制待实现）
+## 8. M2 管理与配置应用
 
-管理页面 /admin 与 API /api/admin/* 由 admin 插件登记，使用显式管理员 Principal 和 token_env 引用 Bearer 凭据。admin:inspect 用于全局观测，admin:operate 用于配置应用和受控管理动作。所有管理 API 请求重新鉴权，loopback 不免密；静态页面不嵌入管理数据或凭据。原 operator/Agent 凭据不自动升级。完整范围见 [Admin 契约](admin.md)。
+管理页面 /admin 与 API /api/admin/* 由 admin 插件登记，使用显式管理员 Principal 和 token_env 引用 Bearer 凭据。admin:inspect 用于全局观测，admin:operate 用于配置应用和受控管理动作。所有管理 API 请求重新鉴权，loopback 不免密；静态页面不嵌入管理数据或凭据。原 operator/Agent 凭据不自动升级。完整范围见 [Admin 契约](../design/admin.md)。
 
 托管配置位于 Imbrex 专属数据目录，包含独立 Agent 工作目录、PI_CODING_AGENT_DIR 和 HOME。MCP 地址及凭据引用由该配置同步生成，不修改用户全局 pi 环境，不回显秘密；不得假定 pi-acp 支持未经验证的 --cwd 参数。迁移已有目录时保留会话映射、进度和凭据引用，具体说明随实现更新。
 
@@ -168,7 +246,7 @@ Consumer 的单条人工处置已提供离线命令 npm --silent run consumer:re
 | 托管模型、上下文窗口、系统提示词 | 保存为待重启，空闲且无异常未决项时只重启 pi-acp/pi；原会话关联保留，恢复失败单独报告 |
 | 其他宿主配置、连接器采集或 Principal 授权 | 不纳入上述热更新承诺，沿用明确的配置与受控部署流程 |
 
-异常未决输入先按[应用恢复](applications.md#m2-recovery)处置，再应用配置。管理入口不能借修改配置清空未决记录。配置保存值、已应用值、运行时观察事实分开展示；写入一部分或重启失败时不能提示已生效。
+异常未决输入先按[应用恢复](../../src/plugins/agent-chat/README.md#m2-recovery)处置，再应用配置。管理入口不能借修改配置清空未决记录。配置保存值、已应用值、运行时观察事实分开展示；写入一部分或重启失败时不能提示已生效。
 
 在线恢复由宿主协调目标 Consumer 与 Agent、核验输入、备份并更新状态，不调用离线 CLI 与 data_dir/.lock 争锁。正常运行中的一轮不得当成故障项跳过。受控 Agent 重启和恢复期间，宿主、HTTP、OneBot 连接与其他插件保持运行；是否已经回复仍由原 calls 与平台证据判断。
 

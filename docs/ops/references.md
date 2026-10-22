@@ -130,7 +130,7 @@ https://github.com/advisories/GHSA-96hv-2xvq-fx4p
 
 ## R9 · 证据范围
 
-正式开发选择与取舍集中在[决策记录](decisions.md)。本文件保留支撑当前设计的公开来源及固定版本，不收录讨论记录或无关调研。
+正式开发选择与取舍集中在[决策记录](../design/decisions.md)。本文件保留支撑当前设计的公开来源及固定版本，不收录讨论记录或无关调研。
 
 机制观察、官方声明和本项目运行验证是不同层次的证据，不能用其中一项冒充另一项。
 
@@ -168,7 +168,7 @@ M1 补充核对日期：2026-10-19。读取 MCP 2025-11-25 的传输规范：Str
 https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
 ```
 
-M1-02 锁定官方 @modelcontextprotocol/sdk 1.32.1；核对其 stateless Streamable HTTP 示例、Node 传输、初始化与协议版本处理源码，并用同版本 SDK Client 对实际监听端口验证。既有监听上的 /v1/mcp 直接复用内核授权、事件与调用服务，具体工具和结果见[MCP 记录](experiments/m1-mcp.md)。pi 的真实工具调用仍按 M1-03 验证，不能由 SDK 互通代替。
+M1-02 锁定官方 @modelcontextprotocol/sdk 1.32.1；核对其 stateless Streamable HTTP 示例、Node 传输、初始化与协议版本处理源码，并用同版本 SDK Client 对实际监听端口验证。既有监听上的 /v1/mcp 直接复用内核授权、事件与调用服务，具体工具和结果见[MCP 记录](../progress/validation.md#9-证据索引)。pi 的真实工具调用仍按 M1-03 验证，不能由 SDK 互通代替。
 
 <a id="r13"></a>
 
@@ -184,7 +184,7 @@ https://agentclientprotocol.com/protocol/session-setup
 https://agentclientprotocol.com/protocol/prompt-turn
 ```
 
-M1-04 使用官方 @agentclientprotocol/sdk 1.9.0 的 ACP v1 stdio 接口，并用独立逐行 JSON Agent 核验协议、持久状态与生命周期。真实 pi-acp 握手和基础 RPC 见[运行记录](experiments/m1-acp.md)；后续真实模型与指定群单次自动回复见[实测记录](experiments/m1-live.md)，未将草案或可选能力算作已实现。
+M1-04 使用官方 @agentclientprotocol/sdk 1.9.0 的 ACP v1 stdio 接口，并用独立逐行 JSON Agent 核验协议、持久状态与生命周期。真实 pi-acp 握手和基础 RPC 见[运行记录](../progress/validation.md#9-证据索引)；后续真实模型与指定群单次自动回复见[实测记录](../progress/validation.md#9-证据索引)，未将草案或可选能力算作已实现。
 
 <a id="r14"></a>
 

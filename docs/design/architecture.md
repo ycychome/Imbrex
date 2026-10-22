@@ -1,12 +1,28 @@
 # 系统设计
 
-统一开发基线 0.3；M2 架构于 2026-10-20 定稿。M0/M1 已实现的范围见[实测记录](experiments/m1-live.md)。本文组件图包含 M2 的完整管理目标；代码采用协议插件及 agent-chat 目录，基础管理页已实现，完整管理后台尚未交付。状态与阅读顺序见[入口](README.md)。
+统一开发基线 0.3；M2 架构于 2026-10-20 定稿。本页描述产品范围、组件与内核/宿主边界。阅读顺序与文档分层见[入口](../README.md)，当前进度见[项目状态](../progress/status.md)。
 
 ## 1. 产品目标
 
-把来源接入、可重读事件与可调用工具放进一个易扩展的网关，让应用按自己的策略使用。第一条真实链路是 QQ 消息经 OneBot v11 服务进入、Agent 分析并按需回复；M2 交付可观测、可配置、可人工处置异常的管理后台。保留必要的模拟来源、变换和工具示例，取消 observer 与第二消费者产品交付目标。
+把来源接入、可重读事件与可调用工具放进一个易扩展的网关，让应用按自己的策略使用。网关本身不绑定任何平台、Agent 或模型；它只定义事件与能力的契约，以及装配这些契约的插件机制。
+
+v1 附带一条**参考闭环**：QQ 消息经 OneBot v11 服务进入、Agent 分析并按需回复。它的作用是证明契约端到端可用，不是项目的必需组成——这些插件与任何第三方连接器或应用等价，可以替换、禁用或删除。管理后台同样以插件形式提供，禁用后网关退化为无头服务。
 
 内核不编排模型思考、不管理通用工作流，也不把归档或记忆做成固定角色。应用可以发布派生事件；其他应用按自己的进度消费。插件是本地代码装配方式，外部应用是同等有效的接入方式。
+
+### 协议、实现、传输与业务分别看待
+
+接一个新来源或新 Agent 前，先分清层次，不要把任一层的细节泄进另一层：
+
+| 层次 | 本版对象 | 职责 |
+| --- | --- | --- |
+| 协议 | OneBot v11、MCP、ACP | 定义动作、事件、响应及通信约定 |
+| 远端实现 | NapCat、SnowLuma 或 pi/pi-acp 等 | 提供协议接口，可能是本地程序也可能是第三方服务 |
+| 传输 | 正向通用 WebSocket、stdio、Streamable HTTP | 编解码与连接管理 |
+| Imbrex 插件 | onebot-v11、adapter-mcp、agent-chat | 协议编解码、身份映射、能力封装 |
+| 通用内核 | events / capabilities / access | 存储、读取、授权及调用记录，不认识任何具体平台或 Agent |
+
+这条分层是参考闭环的实现方式，不是它的特权。任何新接入都按同样的层次拆解，不因为"某个实现我们熟"就把品牌名写进 source、type 或能力名称。
 
 ## 2. 组件与数据流
 
@@ -37,6 +53,8 @@ flowchart LR
     C -->|调用已注册 handler| P
 ```
 
+图中 OneBot v11、agent-chat 与 pi 是参考闭环的实现，其余组件不依赖它们存在。
+
 M2 中所有外部协议和业务由 Cordis 插件装配：server-http 提供共享监听，api-rest、adapter-mcp、admin 分别注册可注销路由；宿主只保留配置、存储/服务装配、实例锁、注册表与生命周期协调。协议插件通过宿主提供的服务和实际请求主体复用内核授权，不以插件自身身份替代远端调用者。
 
 agent-chat 是原 acp-consumer 的现名称，通过 ACP stdio 驱动独立 Agent。M2-02 将让 AdminRegistry 常驻宿主，管理页面晚启动或重启不影响业务插件。其他外部应用仍可通过 HTTP 接入，但不再要求交付第二消费者；远程 ACP 不在本阶段。
@@ -56,8 +74,8 @@ agent-chat 是原 acp-consumer 的现名称，通过 ACP stdio 驱动独立 Agen
 | api-rest / adapter-mcp | 按实际请求主体鉴权、校验、映射领域调用 | 保留 /v1 REST 与 /v1/mcp 契约，共用内核服务 |
 | 宿主 AdminRegistry（M2-02） | 按实例绑定管理描述与受控操作入口 | 登记随业务实例清理，Admin 启停不影响业务 |
 | admin | 管理认证与静态资产注册；M2-02 增加聚合面板与管理动作入口；前端视图契约与构建包在 `ui-contract/`，Shell 位于 admin 的 `shell/` | admin:inspect / admin:operate，与 Agent 工具权限分离 |
-| 平台插件 | 连接、身份映射、平台操作与可用性 | 使用内核接口，拥有自己的连接状态 |
-| agent-chat（原 acp-consumer） | 筛选触发、ACP 会话关联、进度、未决输入与托管配置应用 | 绑定 API 读事件，ACP stdio 提交输入；不实现模型循环 |
+| 平台插件（如 onebot-v11） | 连接、身份映射、平台操作与可用性 | 使用内核接口，拥有自己的连接状态；参考闭环的一部分，可替换 |
+| agent-chat（原 acp-consumer） | 筛选触发、ACP 会话关联、进度、未决输入与托管配置应用 | 绑定 API 读事件，ACP stdio 提交输入；不实现模型循环；参考闭环的一部分，可替换 |
 | Agent | 上下文、模型、工具选择和 Agent 历史 | 首接复用 pi/pi-acp，通过 MCP 使用网关；内核不依赖具体 Agent |
 
 内核服务是必需组件，启动失败则整个实例启动失败，不提供运行中替换存储。协议和业务插件按 required/optional 及依赖关系装配；模块初始化失败与运行时外部服务断线分别报告。底层监听和所需协议路由均就绪后才投递 Agent 输入；依赖卸载时停止新投递，不能把 TCP 监听成功当作全部服务就绪。
@@ -94,7 +112,7 @@ ACP Consumer 在提交 prompt 前持久保存 in_flight；未确认结束时暂�
 | 单实例启动 | Linux util-linux flock 包装 | 非阻塞排他锁、实际宿主持锁，验证崩溃后释放 |
 | 管理前端（M2） | Vue 3.5.44、vue-router 4.6.4、浏览器端 Cordis 4.0.0-rc.11、Vite 8.3.4、TailwindCSS 4.3.3；原生 HTML + Tailwind，不引入第三方 UI 组件库 | `ui-contract/` 是视图契约与构建包，不是 Cordis 宿主插件；Shell 位于 admin 的 `shell/`，通过 `ctx.views` 注册表 + loader 动态加载插件自携 ESM，并用 vue-router 动态 `addRoute`；视图以 `mount(el, ctx) => teardown` 交付，框架无关；第三方插件可声明 `client = { url }` 自带托管；hash 只用于视图选择，不依赖服务端回落；插件禁用时页面与导航消失；构建产物由 admin 默认按包名解析，缺失时 `/admin` 返回 404 且不阻塞宿主 |
 
-已锁定的后端组合及探针范围见[工程基线](development.md)，宿主与内核验证见[M0 运行验收](experiments/m0-runtime.md)，OneBot/Agent 验证见对应 M1 记录。M2 前端组合已锁定版本并通过类型检查与构建；实际压缩体积与浏览器验收在 M2-04 记录。来源与限制见[技术依据](references.md)；后续兼容问题须在保持契约的前提下依据实际验证处理。
+已锁定的后端组合及探针范围见[工程基线](../ops/development.md)，宿主与内核验证见[M0 运行验收](../progress/validation.md#9-证据索引)，OneBot/Agent 验证见对应 M1 记录。M2 前端组合已锁定版本并通过类型检查与构建；实际压缩体积与浏览器验收在 M2-04 记录。来源与限制见[技术依据](../ops/references.md)；后续兼容问题须在保持契约的前提下依据实际验证处理。
 
 ## 6. 首版的可靠性范围
 
@@ -131,7 +149,7 @@ examples/          运行配置、插件模板；M1 补充 pi 接入演示
 test/              对应 T01—T09 的必要测试
 ```
 
-后端采用上图的协议目录，adapters 与 observer 已移除，acp-consumer 更名 agent-chat。`ui-contract/` 负责视图契约与插件客户端构建，产出 `ui-contract/dist`（含 `plugins/<module>/entry.js`）；Shell 位于 `src/plugins/admin/shell/`，admin 插件通过 `@imbrex/ui-contract/package.json` 解析该目录并调用 server-http 的静态挂载，`assets_dir` 仅作为外部构建目录的覆盖。前端资产缺失时 `/admin` 返回 404，admin API 与宿主启动不受影响。core 保持无网络/宿主框架依赖，可继续使用已有 schema 校验库；不因目录迁移引入第二套插件运行时。管理接口见 [Admin 契约](admin.md)，协议职责见 [Agent 接入](agent-integration.md)。
+后端采用上图的协议目录，adapters 与 observer 已移除，acp-consumer 更名 agent-chat。`ui-contract/` 负责视图契约与插件客户端构建，产出 `ui-contract/dist`（含 `plugins/<module>/entry.js`）；Shell 位于 `src/plugins/admin/shell/`，admin 插件通过 `@imbrex/ui-contract/package.json` 解析该目录并调用 server-http 的静态挂载，`assets_dir` 仅作为外部构建目录的覆盖。前端资产缺失时 `/admin` 返回 404，admin API 与宿主启动不受影响。core 保持无网络/宿主框架依赖，可继续使用已有 schema 校验库；不因目录迁移引入第二套插件运行时。管理接口见 [Admin 契约](admin.md)，协议职责见 [Agent 接入](../../src/plugins/agent-chat/README.md)。
 
 迁移调整模块名称与配置入口时保留实例 ID、主体、数据目录、消费位置及会话关联；格式变更须有明确的迁移步骤，不静默新建状态。M0/M1 实验文档保留当时路径与证据。
 
@@ -139,4 +157,4 @@ test/              对应 T01—T09 的必要测试
 
 onebot-v11 是 Imbrex 插件，NapCat、SnowLuma 等是它对接的服务实现。标准事件/动作和通用 WS 路径优先复用；实现特有扩展只在有实际需求与测试后增加兼容适配。不导入服务私有 SDK，不将实现名写入通用内核或 Agent 工具协议。
 
-首版 OneBot v11 仅用于明确的 QQ 子集；其他来源可通过自己的插件直接接入内核。切换实现的身份连续性与兼容状态见 [OneBot 接入](onebot-and-agent.md)。
+首版 OneBot v11 仅用于明确的 QQ 子集；其他来源可通过自己的插件直接接入内核。切换实现的身份连续性与兼容状态见 [OneBot 接入](../../src/plugins/onebot-v11/README.md)。
