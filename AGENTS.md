@@ -15,9 +15,9 @@
 
 全文与判定方式见[设计哲学与不变量](docs/design/philosophy.md)。破坏其中任何一条都必须先写一条[决策记录](docs/design/decisions.md)。
 
-1. **网关不拥有 Agent**：不实现模型循环、不保存决策状态、不解释业务载荷。
+1. **网关不拥有 Agent，也不要求任何 Agent**：不实现模型循环、不保存决策状态、不解释业务载荷。
 2. **Everything is a plugin**：协议入口、连接器、管理面、前端视图都是插件；宿主只做装配、注入、生命周期。
-3. **双协议、单向职责**：北向 ACP 是 Client，南向 MCP 是 Server，不混用。
+3. **协议即插件，方向不混用**：没有必需协议；南向 MCP 是 Server、北向 ACP 是 Client，方向固定。
 4. **事件是事实，消费是应用的事**：append-only，`(source,id)` 首次写入胜出，消费者自持 `last_seq`，通知只唤醒。
 5. **能力是唯一的外部效果入口**：Schema 校验、Principal 授权、稳定 `call_id`、`unknown` 永不自动重试。
 6. **视图所有权属于插件**：Shell 不感知业务，视图以 `mount(el, ctx) => teardown` 交付。

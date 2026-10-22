@@ -2,6 +2,8 @@
 
 Imbrex 是基于 Cordis 的可扩展事件与能力网关。插件接入事实，内核保存可重读事件，独立应用按自己的节奏处理，需要产生动作时调用获授权的能力。
 
+网关不绑定任何平台、Agent 或模型。v1 附带的 OneBot v11 连接器与 agent-chat 构成一条**参考闭环**，用来证明契约端到端可用；它们与任何第三方连接器或应用等价，可替换、可禁用、可删除。
+
 本目录是唯一设计依据。全部文档按**变更频率**分四层，每层的修改规则不同：
 
 | 层 | 目录 | 内容 | 修改规则 |
@@ -28,7 +30,7 @@ Imbrex 是基于 Cordis 的可扩展事件与能力网关。插件接入事实�
 | [能力调用](design/capabilities.md) | 注册、参数、授权、调用记录与 unknown |
 | [插件开发](design/plugins.md) | Cordis 绑定、模板、生命周期及扩展入口 |
 | [应用消费](design/applications.md) | 独立位置、ACP Consumer 未决输入与人工恢复 |
-| [OneBot 与 Agent 接入](design/onebot-and-agent.md) | 协议层、实现差异、QQ 映射与回复链路 |
+| [OneBot 与 Agent 接入](design/onebot-and-agent.md) | 参考闭环的协议层：OneBot v11 连接、实现差异、QQ 映射与回复链路 |
 | [Agent 协议接入](design/agent-integration.md) | MCP 暴露与授权、ACP stdio、pi/pi-acp 接缝与生命周期 |
 | [管理控制台](design/admin.md) | 管理 API、权限、面板登记、视图契约与静态挂载 |
 | [决策记录](design/decisions.md) | 已采用选择、理由及代价 |
@@ -59,6 +61,8 @@ Imbrex 是基于 Cordis 的可扩展事件与能力网关。插件接入事实�
 要动手开发：读[开发与工程基线](ops/development.md)与[插件开发](design/plugins.md)，对照[项目状态](progress/status.md)找当前任务。
 
 事件与能力文档定义行为，HTTP 文档定义 REST 表达，Agent 接入文档定义 MCP/ACP 边界，插件文档定义进程内接入。发生矛盾应一起修复，不可从不同章节选择便利的解释。
+
+`onebot-and-agent.md`、`applications.md` 与 `agent-integration.md` 描述的是参考闭环这条具体路径，不是网关的必要组成；读它们之前先读[设计哲学与不变量](design/philosophy.md)。
 
 ---
 
