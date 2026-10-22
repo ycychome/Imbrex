@@ -4,7 +4,7 @@
 
 ## 1. 信封与事件身份
 
-发布封装为 `{ store_id, event, parents? }`。event 采用 JSON-only 的 CloudEvents 子集，必填 specversion=1.0、source、id、type、datacontenttype=application/json、data；可选 time、subject、dataschema。parents 是外层 EventRef 数组，默认空数组。[R4](references.md#r4)
+发布封装为 `{ store_id, event, parents? }`。event 采用 JSON-only 的 CloudEvents 子集，必填 specversion=1.0、source、id、type、datacontenttype=application/json、data；可选 time、subject、dataschema。parents 是外层 EventRef 数组，默认空数组。[R4](../ops/references.md#r4)
 
 source 是有效绝对 URI，id/type 为非空字符串；保留原字符串，不通过大小写转换、URI 重新序列化或 Unicode 规范化改变身份。dataschema 只作标识，不触发网络请求。data 可以是任意受限的 JSON 值；平台 ID 与精确大数使用字符串。来源 time 可省略，accepted_at 由网关生成，二者不互相代替。
 
@@ -28,7 +28,7 @@ duplicate_identity 不证明本次正文与旧正文相同，也不表示新正�
 
 将同一个标识用于事件写入和工具调用，是本基线统一的存储绑定规则：旧客户端不能在网关重建后把旧发布或回复意图悄悄发送到新存储。无需再引入多种 epoch 或签名令牌。
 
-事件 seq 使用 SQLite INTEGER PRIMARY KEY AUTOINCREMENT。内核为 bigint，HTTP 为非负十进制字符串；事件 seq 大于 0，初始读取边界为 0，上界为 2^63−1。序号不承诺连续，禁止插件指定 seq、回写旧位置或重置 SQLite 序号表。[R3](references.md#r3)
+事件 seq 使用 SQLite INTEGER PRIMARY KEY AUTOINCREMENT。内核为 bigint，HTTP 为非负十进制字符串；事件 seq 大于 0，初始读取边界为 0，上界为 2^63−1。序号不承诺连续，禁止插件指定 seq、回写旧位置或重置 SQLite 序号表。[R3](../ops/references.md#r3)
 
 latest_seq 是当前事件表已提交最大序号，空表为 0。首版不删除事件，因此它在同一存储中不倒退。只有提交后的行能作为对外边界；回滚产生的空洞或未提交编号不对外发布。
 
@@ -54,7 +54,7 @@ through_seq 只对本页有效，下一页会获得新的短事务视图。caugh
 
 ## 5. 表与索引的最小职责
 
-网关只有一个数据库文件，初始 schema_version=1，由内核拥有。当前实现结构如下；验证范围见[存储验证](experiments/m0-storage.md)：
+网关只有一个数据库文件，初始 schema_version=1，由内核拥有。当前实现结构如下；验证范围见[存储验证](../progress/validation.md#9-证据索引)：
 
 ```sql
 CREATE TABLE metadata (
@@ -98,7 +98,7 @@ calls 的状态与派发语义见[能力契约](capabilities.md)。配置和插�
 
 所有网关 SQL 由一个专用 worker 执行，完整命令串行，不允许两个业务命令的事务交错。命令队列有界，排队超限在入队前报 busy。HTTP 请求超时或断开不撤销已提交事务。
 
-启动设置并读回 WAL、synchronous=FULL、foreign_keys=ON、busy_timeout=5000ms；关闭扩展加载，读取实际 SQLite 版本/source id。所有可能返回 seq 的语句启用 BigInt 读取控制。参考 API 与实验门槛见 [技术依据](references.md#r1)。
+启动设置并读回 WAL、synchronous=FULL、foreign_keys=ON、busy_timeout=5000ms；关闭扩展加载，读取实际 SQLite 版本/source id。所有可能返回 seq 的语句启用 BigInt 读取控制。参考 API 与实验门槛见 [技术依据](../ops/references.md#r1)。
 
 每个写命令在短事务中完成，不跨网络请求或任意插件 await 持有事务。事件创建和它的字段一起提交；调用占位记录和状态更新分别是短事务；不把远端操作放在 SQLite 事务中。
 
@@ -108,7 +108,7 @@ calls 的状态与派发语义见[能力契约](capabilities.md)。配置和插�
 
 COMMIT 成功即确定本次接纳结果。通知随后尝试触发，仅 created 产生“有新事件”的提示；重复身份不产生新业务输入。通知的同步错误与异步拒绝都被处理并记录，不推翻接纳结果。
 
-优先复用 Cordis 的受控并发通知机制；具体行为按锁定版本验证。可靠消费者收到提示后从本地位置读取；也在启动、重连和低频定时器中补查。通知无 ACK、无持久队列，可以合并或丢失。[R2](references.md#r2)
+优先复用 Cordis 的受控并发通知机制；具体行为按锁定版本验证。可靠消费者收到提示后从本地位置读取；也在启动、重连和低频定时器中补查。通知无 ACK、无持久队列，可以合并或丢失。[R2](../ops/references.md#r2)
 
 每个参考消费者只运行一个读取循环；循环忙时把新提示合并为一个 pending 标记，不对每条提示创建无界 Promise。重业务不在通知回调同步执行。
 
@@ -118,4 +118,4 @@ COMMIT 成功即确定本次接纳结果。通知随后尝试触发，仅 create
 
 开发数据可停机后整体重建并生成新 store_id。真实数据若需要自动保留策略，须先增加最早可读边界、旧位置错误和调用去重期限，再实现删除。
 
-恢复旧备份需显式更新 store_id 并处置客户端状态与旧调用意图；备份副本自动带着旧标识，普通启动无法猜出它被回滚了。具体步骤与不承诺的故障域见 [运维说明](operations.md)。
+恢复旧备份需显式更新 store_id 并处置客户端状态与旧调用意图；备份副本自动带着旧标识，普通启动无法猜出它被回滚了。具体步骤与不承诺的故障域见 [运维说明](../ops/operations.md)。

@@ -4,7 +4,9 @@
 
 Imbrex 是一个面向个人数字生活与 AI Agent 的可扩展事件与能力网关。它以现代插件系统为骨骼、以轻量有序日志为血液，将分散在聊天平台、开发工具和本地系统的异构数据汇聚为一条不可变的事实流，并为外部 AI 和应用提供标准、受控的动作工具调用通道。
 
-**当前状态：M0 核心原型可运行，M1 指定范围的真实 QQ → Agent → 回复闭环已验证，M2-01 的协议插件化与基础管理页、M2-02 的只读观测与插件自携前端视图已实现（待独立审核）。** 已提供 SQLite 事件日志、能力调用、HTTP/MCP、Cordis 宿主、OneBot 插件、agent-chat、离线恢复工具与 `ui-contract/` 管理前端视图契约与构建包。真实 pi/模型通过模拟平台回复与不回复，并在 SnowLuma 的指定群完成一次自动回复；实际范围与未覆盖项见[真实验证记录](docs/experiments/m1-live.md)。安装见[开发指南](docs/development.md)，恢复步骤见[M1 运行记录](docs/experiments/m1-operations.md)。
+已提供 SQLite 事件日志、能力调用、HTTP/MCP、Cordis 宿主、OneBot 插件、agent-chat、离线恢复工具，以及独立于宿主的 `ui-contract/` 视图契约与构建包。
+
+**当前进度、已知缺口与未覆盖范围见[项目状态](docs/progress/status.md)。** 安装见[开发与工程基线](docs/ops/development.md)，恢复步骤见[配置与运维](docs/ops/operations.md#61-单条人工处置consumerrecover)。
 
 ---
 
@@ -83,21 +85,22 @@ flowchart LR
 
 详细的技术架构、协议契约与开发规范请查阅 [`docs/`](docs/) 目录：
 
-- **[统一架构设计](docs/architecture.md)**：系统全貌、分层职责、数据所有权与核心概念。
-- **[HTTP 契约规范](docs/contracts.md)**：外部 `/v1` REST API、事件模型、类型映射与错误码定义。
-- **[能力与工具系统](docs/capabilities.md)**：能力注册、Schema 校验、调用幂等与状态机设计。
-- **[存储与持久化](docs/storage-and-recovery.md)**：SQLite 表结构设计、事务边界与运维备份。
-- **[Cordis 插件开发指南](docs/plugins.md)**：插件开发规范、服务注入与连接器模板。
-- **[OneBot 与 Agent 接入](docs/onebot-and-agent.md)**：OneBot v11 协议连接与 Agent 闭环指南。
-- **[Agent 协议接入](docs/agent-integration.md)**：MCP 工具与上下文、ACP 事件触发，以及 pi/pi-acp 复用边界。
-- **[配置与运维指南](docs/operations.md)**：主体鉴权、权限配置、单实例启动与优雅停机。
-- **[M1 接入与恢复记录](docs/experiments/m1-operations.md)**：停机恢复命令、模拟证据、真实服务配置与待验范围。
+- **[统一架构设计](docs/design/architecture.md)**：系统全貌、分层职责、数据所有权与核心概念。
+- **[HTTP 契约规范](docs/design/contracts.md)**：外部 `/v1` REST API、事件模型、类型映射与错误码定义。
+- **[能力与工具系统](docs/design/capabilities.md)**：能力注册、Schema 校验、调用幂等与状态机设计。
+- **[存储与持久化](docs/design/storage-and-recovery.md)**：SQLite 表结构设计、事务边界与运维备份。
+- **[Cordis 插件开发指南](docs/design/plugins.md)**：插件开发规范、服务注入与连接器模板。
+- **[OneBot 与 Agent 接入](docs/design/onebot-and-agent.md)**：OneBot v11 协议连接与 Agent 闭环指南。
+- **[Agent 协议接入](docs/design/agent-integration.md)**：MCP 工具与上下文、ACP 事件触发，以及 pi/pi-acp 复用边界。
+- **[配置与运维指南](docs/ops/operations.md)**：主体鉴权、权限配置、单实例启动与优雅停机。
+- **[验证与验收](docs/progress/validation.md)**：T01—T09 用例、M2 退出检查与证据索引。
+- **[设计哲学与不变量](docs/design/philosophy.md)**：长期成立的设计约束与违反判定。
 
 ---
 
 ## 参与开发与协作
 
-M0 已完成，M1 的连接器、Agent 协议适配和恢复工具已实现。M2 已定稿为全插件化与[管理后台](docs/admin.md)，M2-01 的协议插件、基础管理 API 与前端骨架已实现，其余按观测、控制、打包验收推进；原 observer/第二消费者交付目标取消。工具链、启动命令和当前验证范围见[本地开发指南](docs/development.md)。
+M2 已定稿为全插件化与[管理控制台](docs/design/admin.md)，按观测、控制、打包验收推进；原 observer/第二消费者交付目标取消。进度见[项目状态](docs/progress/status.md)，工具链与启动命令见[开发与工程基线](docs/ops/development.md)。
 
 本项目遵循规范的工程规范与 Git PR 协作流程：
 - 编码前请查阅 **[协作与开发规范 (AGENTS.md)](AGENTS.md)**。

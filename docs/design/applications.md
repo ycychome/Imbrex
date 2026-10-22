@@ -1,6 +1,6 @@
 # 应用消费、Agent Chat 与恢复
 
-统一开发基线 0.3 · 2026-10-19。M0 演示消费者与 M1-04 ACP Consumer 已实现，模拟链路与故障验证见[运行记录](experiments/m1-acp.md)，真实模型与指定群的单次自动回复已通过，范围见[实测记录](experiments/m1-live.md)。Agent 协议分工见 [Agent 接入](agent-integration.md)，读取规则见[事件与存储](storage-and-recovery.md)，动作结果见[能力契约](capabilities.md)。
+统一开发基线 0.3。本页规定应用如何独立消费事件、如何保存未决输入以及如何人工处置。Agent 协议分工见 [Agent 接入](agent-integration.md)，读取规则见[事件与存储](storage-and-recovery.md)，动作结果见[能力契约](capabilities.md)。
 
 Consumer 模块名为 agent-chat（原 acp-consumer）；实例 ID、消费状态 version=1 和离线恢复语义保持。第 10—12 节定义观测、在线恢复及配置应用的 M2 目标。
 
@@ -72,7 +72,7 @@ Consumer 模块名为 agent-chat（原 acp-consumer）；实例 ID、消费状�
 
 操作者明确选择确认已处理或放弃该输入后，记录处置原因，并在 Consumer 停止期间原子更新该输入的 last_seq、清除 in_flight；不得借此跳过其他未处理输入。需要补发时按[能力契约](capabilities.md)显式建立新意图并关联旧记录，不让 Consumer 自动重播旧 prompt。不支持恢复旧 ACP 会话时，需明确选择新会话再恢复运行。
 
-已提供 npm --silent run consumer:recover 的离线入口，实际命令见[恢复记录](experiments/m1-operations.md)。必须停止整个宿主并取得同一 data_dir/.lock；核对指定 store_id、未决 seq、事件引用与会话关联后，先持久保存含原因的私有备份，再一次替换状态。processed 与 abandoned 都只推进当前未决输入；--new-session 仅移除该会话映射。reset-sessions 仅在没有未决输入且指定 seq 等于 last_seq 时清空会话，位置不变。命令不执行模型、能力或 SQLite 调用恢复，也不修改读取/Agent 绑定。状态替换后发生同步错误时，需检查当前文件与备份，不能盲目重试。
+已提供 npm --silent run consumer:recover 的离线入口，实际命令见[恢复记录](../progress/validation.md#9-证据索引)。必须停止整个宿主并取得同一 data_dir/.lock；核对指定 store_id、未决 seq、事件引用与会话关联后，先持久保存含原因的私有备份，再一次替换状态。processed 与 abandoned 都只推进当前未决输入；--new-session 仅移除该会话映射。reset-sessions 仅在没有未决输入且指定 seq 等于 last_seq 时清空会话，位置不变。命令不执行模型、能力或 SQLite 调用恢复，也不修改读取/Agent 绑定。状态替换后发生同步错误时，需检查当前文件与备份，不能盲目重试。
 
 ## 6. 历史、积压与循环
 
@@ -96,7 +96,7 @@ fixture-transform 保留位置持久化和读取循环。observer 已删除，�
 
 M1 要验证当前存储中的事件续读、正常自动触发、未决输入阻止自动重放，以及同一调用意图的核心去重。接受结果不确定时需要人工处置，也可能最终没有回复。
 
-这不证明来源离线窗口完整采集、平台端恰好一次、Agent 工具完全受控或状态删除/回滚后仍不重复。对应 T03、T06、T07、T08；实际状态见[验收](validation.md)。
+这不证明来源离线窗口完整采集、平台端恰好一次、Agent 工具完全受控或状态删除/回滚后仍不重复。对应 T03、T06、T07、T08；实际状态见[验收](../progress/validation.md)。
 
 ## 9. M1-04 配置与状态格式
 
@@ -118,7 +118,7 @@ Linux stdio 使用 tini 0.19.0 的 subreaper 模式包裹监督进程，再通�
 
 Consumer 等待 api.whenReady() 确认 HTTP/MCP 已监听后才读取并投递，避免较晚初始化的插件拖延监听使首轮失败。ACP 过程通知不参与消费确认，直接丢弃；无效报文和未知响应 ID 在 SDK 前拒绝，阻断 SDK 将原始通知或 ID 写入异常日志的路径。
 
-## 10. M2 运行态观测（待实现）
+## 10. M2 运行态观测
 
 Admin 展示 Consumer 的事实投影：available=true 且 in_flight=null 为 idle；available=true 且非空为 processing；available=false 且非空为 suspended_in_flight；available=false 且为空为 stopped_or_error。后两者结合实际生命周期、停止过程与错误原因解释，不能把正常处理或正在停止都说成模型卡死。
 
@@ -126,7 +126,7 @@ Admin 展示 Consumer 的事实投影：available=true 且 in_flight=null 为 id
 
 <a id="m2-recovery"></a>
 
-## 11. M2 在线处置与单会话重置（待实现）
+## 11. M2 在线处置与单会话重置
 
 在线处置保持宿主运行，由宿主协调目标 Consumer，不在 Admin 内直接执行持 data_dir/.lock 的离线 CLI。处置对象包含实例、store_id、未决 seq 和原事件引用，服务端核对与当前状态相同；不能由旧页面按钮推进另一条输入。
 
@@ -141,7 +141,7 @@ Admin 展示 Consumer 的事实投影：available=true 且 in_flight=null 为 id
 
 <a id="m2-config"></a>
 
-## 12. M2 filter 轮次边界应用（待实现）
+## 12. M2 filter 轮次边界应用
 
 管理入口仅编辑 filter.group_ids 与 filter.private_user_ids，OR 匹配、空名单不放行等规则不变。它不修改 OneBot 采集名单或 Principal 授权；扩大到未采集/未授权范围时显示该限制，不虚报已可接收。
 

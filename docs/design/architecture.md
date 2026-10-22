@@ -1,6 +1,6 @@
 # 系统设计
 
-统一开发基线 0.3；M2 架构于 2026-10-20 定稿。M0/M1 已实现的范围见[实测记录](experiments/m1-live.md)。本文组件图包含 M2 的完整管理目标；代码采用协议插件及 agent-chat 目录，基础管理页已实现，完整管理后台尚未交付。状态与阅读顺序见[入口](README.md)。
+统一开发基线 0.3；M2 架构于 2026-10-20 定稿。本页描述产品范围、组件与内核/宿主边界。阅读顺序与文档分层见[入口](../README.md)，当前进度见[项目状态](../progress/status.md)。
 
 ## 1. 产品目标
 
@@ -94,7 +94,7 @@ ACP Consumer 在提交 prompt 前持久保存 in_flight；未确认结束时暂�
 | 单实例启动 | Linux util-linux flock 包装 | 非阻塞排他锁、实际宿主持锁，验证崩溃后释放 |
 | 管理前端（M2） | Vue 3.5.44、vue-router 4.6.4、浏览器端 Cordis 4.0.0-rc.11、Vite 8.3.4、TailwindCSS 4.3.3；原生 HTML + Tailwind，不引入第三方 UI 组件库 | `ui-contract/` 是视图契约与构建包，不是 Cordis 宿主插件；Shell 位于 admin 的 `shell/`，通过 `ctx.views` 注册表 + loader 动态加载插件自携 ESM，并用 vue-router 动态 `addRoute`；视图以 `mount(el, ctx) => teardown` 交付，框架无关；第三方插件可声明 `client = { url }` 自带托管；hash 只用于视图选择，不依赖服务端回落；插件禁用时页面与导航消失；构建产物由 admin 默认按包名解析，缺失时 `/admin` 返回 404 且不阻塞宿主 |
 
-已锁定的后端组合及探针范围见[工程基线](development.md)，宿主与内核验证见[M0 运行验收](experiments/m0-runtime.md)，OneBot/Agent 验证见对应 M1 记录。M2 前端组合已锁定版本并通过类型检查与构建；实际压缩体积与浏览器验收在 M2-04 记录。来源与限制见[技术依据](references.md)；后续兼容问题须在保持契约的前提下依据实际验证处理。
+已锁定的后端组合及探针范围见[工程基线](../ops/development.md)，宿主与内核验证见[M0 运行验收](../progress/validation.md#9-证据索引)，OneBot/Agent 验证见对应 M1 记录。M2 前端组合已锁定版本并通过类型检查与构建；实际压缩体积与浏览器验收在 M2-04 记录。来源与限制见[技术依据](../ops/references.md)；后续兼容问题须在保持契约的前提下依据实际验证处理。
 
 ## 6. 首版的可靠性范围
 

@@ -1,6 +1,6 @@
 # M2 管理控制台契约
 
-本文规定 M2 的管理行为。当前 admin 插件提供基础 info API、只读观测面板、实例面板、配置查询与默认 UI 静态挂载，视图契约与构建包位于 `ui-contract/`，Shell 位于 admin 的 `shell/`；配置编辑和在线处置按[开发计划](development-plan.md#m2)扩展，具体线上表达见 [HTTP 契约](contracts.md#12-管理-api)。
+本文规定 M2 的管理行为。当前 admin 插件提供基础 info API、只读观测面板、实例面板、配置查询与默认 UI 静态挂载，视图契约与构建包位于 `ui-contract/`，Shell 位于 admin 的 `shell/`；配置编辑和在线处置按[开发计划](../progress/plan.md#m2)扩展，具体线上表达见 [HTTP 契约](contracts.md#12-管理-api)。
 
 ## 1. 交付范围与组成
 

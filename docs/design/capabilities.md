@@ -20,7 +20,7 @@
 - handler 收到校验后的参数快照；后续修改调用者对象不改变已记录意图。读取调用参数引用的事件时，使用 invocation 上下文的 readEvent，按实际 caller 的权限检查，不能仅用连接器自身权限代替。
 - HTTP 未验证值使用 unknown；JSON 结构和值的限制见 [HTTP 契约](contracts.md)。
 
-采用 Draft 2020-12 的有限子集：object/properties/required/additionalProperties、array/items、有界长度与数值约束、enum/const 及受控的组合。首版不支持远程引用、自定义可执行关键词或任意插件编译代码。M0 根据实际校验器锁定受支持词汇，未支持的 schema 在注册时失败，不能静默跳过。[R5](references.md#r5)
+采用 Draft 2020-12 的有限子集：object/properties/required/additionalProperties、array/items、有界长度与数值约束、enum/const 及受控的组合。首版不支持远程引用、自定义可执行关键词或任意插件编译代码。M0 根据实际校验器锁定受支持词汇，未支持的 schema 在注册时失败，不能静默跳过。[R5](../ops/references.md#r5)
 
 当前词汇白名单为 $schema（仅 Draft 2020-12）、title、description、type、properties、required、additionalProperties、items、minItems、maxItems、uniqueItems、minLength、maxLength、minimum、maximum、exclusiveMinimum、exclusiveMaximum、multipleOf、enum、const、allOf、anyOf、oneOf、not；允许布尔 schema。其余关键词（包括 $ref、format、pattern、default）拒绝注册，不执行外部加载或静默忽略。
 
