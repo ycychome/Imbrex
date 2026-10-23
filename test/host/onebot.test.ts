@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -16,7 +16,7 @@ async function until(check: () => boolean | Promise<boolean>) {
   for (let i = 0; i < 150; i += 1) { if (await check()) return; await delay(20); }
   assert.fail('Condition did not become true');
 }
-async function fixture(t: TestContext, stringIds = false, available = true) {
+async function fixture(t: TestContext, stringIds = false, available = true, admin = false) {
   const dir = await mkdtemp(join(tmpdir(), 'imbrex-onebot-'));
   const envKey = 'IMBREX_ONEBOT_FIXTURE_TOKEN';
   const previous = process.env[envKey];
@@ -31,8 +31,12 @@ async function fixture(t: TestContext, stringIds = false, available = true) {
   object(raw.plugins.map((value) => object(value)).find((plugin) => plugin.id === 'qq-main')!.config).access_token_env = envKey;
   assert.ok(Array.isArray(raw.principals));
   raw.principals.push({ id: 'other', token_env: 'OTHER_TOKEN', permissions: ['events:read', 'capabilities:invoke', 'calls:read'], read_sources: [{ prefix: 'imbrex://other/' }], write_sources: [], invoke_capabilities: ['qq-main.reply'] });
+  if (admin) {
+    raw.principals.push({ id: 'admin', token_env: 'ADMIN_TOKEN', permissions: ['admin:inspect', 'admin:operate'], read_sources: [], write_sources: [], invoke_capabilities: [] });
+    raw.plugins.push({ id: 'admin', module: 'builtin:admin', principal_id: 'protocol', required: true, enabled: true, config: {} });
+  }
   const filename = join(dir, 'config.json');
-  const config = parseConfig(raw, filename, { IMBREX_QQ_AGENT_TOKEN: 'fixture-agent', IMBREX_OPERATOR_TOKEN: 'fixture-operator', OTHER_TOKEN: 'fixture-other' });
+  const config = parseConfig(raw, filename, { IMBREX_QQ_AGENT_TOKEN: 'fixture-agent', IMBREX_OPERATOR_TOKEN: 'fixture-operator', OTHER_TOKEN: 'fixture-other', ADMIN_TOKEN: 'fixture-admin' });
   const modules = await loadModules(config, filename);
   const app = await Host.open(config, modules);
   t.after(async () => { await app.close(); await sim.close(); await rm(dir, { recursive: true, force: true }); });
@@ -46,12 +50,26 @@ async function fixture(t: TestContext, stringIds = false, available = true) {
     return { status: response.status, value: object(await response.json()) };
   };
   const storeId = (await app.info()).storeId;
+  const adminRequest = async (path: string, data?: unknown) => {
+    const response = await fetch('http://127.0.0.1:' + app.port + path, {
+      method: data === undefined ? 'GET' : 'POST',
+      headers: { authorization: 'Bearer fixture-admin', 'content-type': 'application/json' },
+      ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+    });
+    return { status: response.status, body: object(await response.json()) };
+  };
+  const act = async (action: string, params: unknown) => {
+    const list = object((await adminRequest('/api/admin/panels')).body);
+    const summary = (list.panels as unknown[]).map((value) => object(value)).find((value) => value.instance_id === 'qq-main')!;
+    return await adminRequest('/api/admin/panels/qq-main/actions/' + action, { store_id: storeId, generation: summary.generation, params });
+  };
+  const panel = async () => object(object((await adminRequest('/api/admin/panels/qq-main')).body.data).data);
   const invoke = async (callId: string, kind = 'group', id = '-42', token?: string, namespace = 'main') => {
     return request('/v1/capabilities/qq-main.reply/invoke', { store_id: storeId, call_id: callId, params: {
       input_event_ref: { source: 'imbrex://qq/123456/' + namespace + '/' + kind + '/' + (kind === 'group' ? '987654' : '654321'), id: 'message:' + id }, text: '[CQ:at,qq=all] is literal',
     } }, token);
   };
-  return { app, sim, config, ready, invoke, request, storeId };
+  return { app, sim, config, ready, invoke, request, storeId, adminRequest, act, panel };
 }
 
 test('two independent wire fixtures map events and produce exact standard Actions without CQ injection', async (t) => {
@@ -162,4 +180,49 @@ test('missing tokens fail initialization and an unacknowledged send times out as
   await app.stopPlugin('qq-main');
   delete process.env.IMBREX_ONEBOT_FIXTURE_TOKEN;
   await assert.rejects(app.startPlugin('qq-main'), { code: 'provider_unavailable' });
+});
+
+
+test('runtime allowlists hot-apply, record intercepts and reset to the host config', async (t) => {
+  const { app, sim, act, panel, config } = await fixture(t, false, true, true);
+  sim.broadcast({ ...numericFixture, message_id: 501, group_id: 111222, message: [{ type: 'text', data: { text: 'outside' } }] });
+  await until(async () => ((object(await panel()).intercepts ?? []) as unknown[]).length === 1);
+  const before = await panel();
+  const first = object((object(before).intercepts as unknown[])[0]!);
+  assert.equal(first.conversation, '111222');
+  assert.equal(first.kind, 'group');
+  assert.equal((await app.info()).latestSeq, 0n);
+
+  const allowed = await act('allow-conversation', { kind: 'group', id: '111222' });
+  assert.equal(allowed.status, 200);
+  const after = await panel();
+  assert.equal(object(after.scope).source, 'runtime');
+  assert.ok((object(after.scope).group_ids as unknown[]).includes('111222'));
+  sim.broadcast({ ...numericFixture, message_id: 502, group_id: 111222, message: [{ type: 'text', data: { text: 'inside' } }] });
+  await until(async () => (await app.info()).latestSeq === 1n);
+  const stored = object(JSON.parse(await readFile(join(config.dataDir, 'plugins/qq-main/config.json'), 'utf8')));
+  assert.ok((object(stored.runtime_filters).group_ids as unknown[]).includes('111222'));
+
+  const reset = await act('reset-runtime-config', {});
+  assert.equal(reset.status, 200);
+  const restored = await panel();
+  assert.equal(object(restored.scope).source, 'host');
+  assert.equal((object(restored.scope).group_ids as unknown[]).includes('111222'), false);
+
+  const saved = await act('save-managed-process', { enabled: false });
+  assert.equal(saved.status, 200);
+  const managed = object(JSON.parse(await readFile(join(config.dataDir, 'plugins/qq-main/config.json'), 'utf8')));
+  assert.equal(object(managed.managed_process).enabled, false);
+  assert.equal((await act('save-managed-process', { enabled: true })).status, 400);
+});
+
+test('a corrupt private config falls back to the host allowlists without failing the plugin', async (t) => {
+  const { app, config, panel } = await fixture(t, false, true, true);
+  await app.stopPlugin('qq-main');
+  await writeFile(join(config.dataDir, 'plugins/qq-main/config.json'), 'not json', { mode: 0o600 });
+  await app.startPlugin('qq-main');
+  await until(() => app.plugins().find((plugin) => plugin.id === 'qq-main')?.available === true);
+  const data = await panel();
+  assert.equal(object(data.runtime_config).error, 'runtime_config_invalid');
+  assert.equal(object(data.scope).source, 'host');
 });
