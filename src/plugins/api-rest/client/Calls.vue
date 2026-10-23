@@ -67,6 +67,7 @@ function statusTone(value: CallStatus): Tone {
     case 'succeeded': return 'ok';
     case 'failed': return 'bad';
     case 'in_progress': return 'warn';
+    case 'unknown': return 'unknown';
     default: return 'idle';
   }
 }
