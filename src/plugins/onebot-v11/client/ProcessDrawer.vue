@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref } from 'vue';
 
 const props = defineProps<{
   saved: { enabled: boolean; command?: string; args?: string[]; cwd?: string; env_vars?: string[] };
@@ -30,7 +30,6 @@ function sync(): void {
 }
 
 sync();
-watch(() => props.saved, sync, { deep: true });
 
 const stateLabels: Record<string, string> = {
   disabled: '未启用',
