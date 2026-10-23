@@ -3,7 +3,7 @@ import { requireCapability, requirePermission } from './access.js';
 import { fail, GatewayError } from './errors.js';
 import { compileSchema } from './schema.js';
 import type { Events } from './events.js';
-import type { CallOutcome, CallRecord, GatewayStore } from './store.js';
+import type { CallOutcome, CallQuery, CallRecord, GatewayStore } from './store.js';
 import type { EventRef, JsonValue, Principal } from './types.js';
 import { callIdPattern, fields, json, limits, namespacePattern, object, string } from './validation.js';
 
@@ -57,6 +57,18 @@ export class Capabilities {
     requirePermission(principal, 'capabilities:list');
     return [...this.registrations.values()].filter((entry) => principal.invokeCapabilities.includes(entry.description.id) && this.available(entry))
       .map((entry) => structuredClone(entry.description));
+  }
+  inspect(principal: Principal) {
+    requirePermission(principal, 'admin:inspect');
+    return [...this.registrations.values()].map((entry) => ({ ...structuredClone(entry.description), available: this.available(entry) }));
+  }
+  audit(principal: Principal, storeId: string, query: CallQuery) {
+    requirePermission(principal, 'admin:inspect');
+    if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 100) fail('invalid_request');
+    if (query.status !== undefined && !['in_progress', 'succeeded', 'failed', 'unknown'].includes(query.status)) fail('invalid_request');
+    if (query.callerId !== undefined && !namespacePattern.test(query.callerId)) fail('invalid_request');
+    if (query.after && (!namespacePattern.test(query.after.callerId) || !callIdPattern.test(query.after.callId))) fail('invalid_request');
+    return this.store.listCalls(storeId, query);
   }
   private available(entry: Registration): boolean {
     return !this.stopped && entry.registered && !entry.owner.signal.aborted && entry.owner.available();

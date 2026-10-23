@@ -43,7 +43,8 @@ test('protocol and static routes are scoped, Admin restarts preserve business, a
   assert.equal((await get('/api/admin/info', 'wrong')).status, 401);
   assert.equal((await get('/api/admin/info', 'fixture-admin', 'https://foreign.example')).status, 403);
   assert.equal((await get('/api/admin/info')).status, 200);
-  assert.equal((await get('/admin/nested/route')).body, 'fixture asset');
+  assert.equal((await get('/admin')).body, 'fixture asset');
+  assert.equal((await get('/admin/nested/route')).status, 404);
   assert.equal((await get('/admin/asset.js')).body, 'fixture script');
   assert.equal((await get('/admin/outside.txt')).status, 404);
   const traversal = await new Promise<number>((resolve, reject) => {

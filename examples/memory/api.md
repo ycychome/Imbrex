@@ -153,4 +153,4 @@ TypeScript 插件还会发起私有 `kind:"images"` 操作，绑定一个 `input
 
 此请求不是第十个 Agent 能力。TypeScript material worker 先通过按 source 配置的已授权 image resolver capability 解析 locator，再用 Memory 插件自身的 reader Principal 向 Python 服务传递。resolver 缺失或失败时只失去图片材料；文本索引仍继续。公开用户 API 仍只有上述九个 Memory 能力。
 
-运维启动、模型配置、媒体限制及未知操作恢复说明见[正式 Memory 文档](../../docs/memory.md)。
+运维启动、模型配置、媒体限制及未知操作恢复说明见[正式 Memory 文档](../../src/plugins/memory/README.md)。

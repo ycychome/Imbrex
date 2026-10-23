@@ -2,8 +2,9 @@ import type { Context } from 'cordis';
 import type { Capabilities } from '../core/capabilities.js';
 import type { Events } from '../core/events.js';
 import type { GatewayStore } from '../core/store.js';
-import type { Principal } from '../core/types.js';
+import type { JsonValue, Principal } from '../core/types.js';
 import type { ErrorCode } from '../core/errors.js';
+import type { AdminRegistry } from './admin-registry.js';
 
 // Only the built-in protocol plugins receive this request-side service.
 export interface ProtocolApi {
@@ -13,6 +14,7 @@ export interface ProtocolApi {
   capabilities: Capabilities;
   plugins(): unknown[];
   report(code: string, requestId: string): void;
+  admin?: { registry: AdminRegistry; configuration(principal: Principal): JsonValue };
 }
 export interface ProtocolService {
   forPlugin(ctx: Context): ProtocolApi;

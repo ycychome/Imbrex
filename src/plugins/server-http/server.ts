@@ -100,10 +100,7 @@ export class HttpServer {
         if (path.includes('\0') || path.includes('\\') || path.split('/').some((part) => part === '..' || part === '.')) fail('not_found');
         let candidate = resolve(root, path || 'index.html');
         try { candidate = await realpath(candidate); }
-        catch {
-          if (extname(path)) fail('not_found');
-          candidate = await realpath(resolve(root, 'index.html')).catch(() => fail('not_found'));
-        }
+        catch { fail('not_found'); }
         const rel = relative(root, candidate);
         if (rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) fail('not_found');
         const info = await stat(candidate);

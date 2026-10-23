@@ -14,6 +14,10 @@ export class OneBotSocket {
   private pending = new Map<string, { resolve: (value: Record<string, unknown>) => void; reject: (error: RequestError) => void }>();
   private heartbeat: ReturnType<typeof setInterval>;
   private alive = true;
+  private lastPing?: number;
+  private receivedFrames = 0n;
+  private sentRequests = 0n;
+  private heartbeatRttMs: number | null = null;
 
   constructor(url: string, token: string | undefined, onEvent: (value: Record<string, unknown>) => void, onError: (code: string) => void) {
     this.socket = new WebSocket(url, {
@@ -30,14 +34,15 @@ export class OneBotSocket {
       for (const request of [...this.pending.values()]) request.reject(new RequestError('onebot_disconnected', true));
       resolve();
     }));
-    this.socket.on('pong', () => { this.alive = true; });
+    this.socket.on('pong', () => { this.alive = true; if (this.lastPing !== undefined) this.heartbeatRttMs = Math.max(0, performance.now() - this.lastPing); });
     this.heartbeat = setInterval(() => {
       if (this.socket.readyState !== WebSocket.OPEN) return;
       if (!this.alive) { onError('onebot_heartbeat_timeout'); this.close(); return; }
       this.alive = false;
-      this.socket.ping();
+      this.lastPing = performance.now(); this.socket.ping();
     }, 15_000);
     this.socket.on('message', (raw: RawData, binary: boolean) => {
+      this.receivedFrames += 1n;
       try {
         if (binary) throw new Error('Binary message');
         const bytes = Array.isArray(raw) ? Buffer.concat(raw) : raw instanceof ArrayBuffer ? Buffer.from(raw) : raw;
@@ -48,6 +53,7 @@ export class OneBotSocket {
     });
   }
 
+  metrics() { return { received_frames: this.receivedFrames.toString(), sent_requests: this.sentRequests.toString(), heartbeat_rtt_ms: this.heartbeatRttMs }; }
   get connected(): boolean { return this.socket.readyState === WebSocket.OPEN; }
 
   request(action: string, params: JsonObject = {}, signal?: AbortSignal): Promise<Record<string, unknown>> {
@@ -65,6 +71,7 @@ export class OneBotSocket {
       const timer = setTimeout(() => settle(new RequestError('onebot_request_timeout', true)), 5000);
       this.pending.set(echo, { resolve: (value) => settle(undefined, value), reject: (error) => settle(error) });
       signal?.addEventListener('abort', abort, { once: true });
+      this.sentRequests += 1n;
       try { this.socket.send(JSON.stringify({ action, params, echo }), (error) => { if (error) settle(new RequestError('onebot_send_unconfirmed', true)); }); }
       catch { settle(new RequestError('onebot_send_unconfirmed', true)); }
     });
