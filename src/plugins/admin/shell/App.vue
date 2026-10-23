@@ -476,7 +476,7 @@ onUnmounted(() => {
 
   .health-pop {
     /* Sit below the mobile nav so the nav stays usable while the popover is open. */
-    top: calc(100% + 46px);
+    top: calc(100% + 50px);
     max-height: calc(100vh - 120px);
     overflow-y: auto;
   }
