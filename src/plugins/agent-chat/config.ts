@@ -8,7 +8,7 @@ import { nativeId } from '../onebot-v11/protocol.js';
 export const consumerLimits = { sessions: 32, frameBytes: 32 * 1024 * 1024, stateBytes: 256 * 1024, setupTimeoutMs: 5000, pollMs: 1000 } as const;
 export interface AgentConfig { command: string; args: string[]; cwd: string; envVars: string[] }
 export interface ConsumerFilter { group_ids: string[]; private_user_ids: string[] }
-export interface PiSettings { model: string; context_window: number; system_prompt: string }
+export interface PiSettings { model: string; context_window: number; system_prompt: string; max_tokens?: number }
 export interface ManagedPi extends PiSettings { provider: string; api: string; base_url: string; api_key_env: string; pi_command: string; mcp_principal_id: string }
 export interface ConsumerConfig {
   inputId: string; sourcePrefix: string; accountId: string; identityNamespace: string;
@@ -38,8 +38,12 @@ export function parseFilter(input: unknown): ConsumerFilter {
 }
 export function parsePiSettings(input: unknown): PiSettings {
   const value = object(input);
-  fields(value, ['model', 'context_window', 'system_prompt'], ['model', 'context_window', 'system_prompt']);
-  return { model: string(value.model, 256), context_window: integer(value.context_window, 1024, 2000000), system_prompt: string(value.system_prompt, 32768, 'invalid_request', true) };
+  fields(value, ['model', 'context_window', 'system_prompt', 'max_tokens'], ['model', 'context_window', 'system_prompt']);
+  return {
+    model: string(value.model, 256), context_window: integer(value.context_window, 1024, 2000000),
+    system_prompt: string(value.system_prompt, 32768, 'invalid_request', true),
+    ...(value.max_tokens === undefined ? {} : { max_tokens: integer(value.max_tokens, 256, 262144) }),
+  };
 }
 export function parseConsumerConfig(input: unknown): ConsumerConfig {
   const value = object(json(input, limits.valueBytes, 'invalid_request'));
@@ -60,15 +64,15 @@ export function parseConsumerConfig(input: unknown): ConsumerConfig {
   let managedPi: ManagedPi | undefined;
   if (value.managed_pi !== undefined) {
     const managed = object(value.managed_pi);
-    const keys = ['model', 'context_window', 'system_prompt', 'provider', 'api', 'base_url', 'api_key_env', 'pi_command', 'mcp_principal_id'];
-    fields(managed, keys, keys);
+    const keys = ['model', 'context_window', 'system_prompt', 'max_tokens', 'provider', 'api', 'base_url', 'api_key_env', 'pi_command', 'mcp_principal_id'];
+    fields(managed, keys, keys.filter((key) => key !== 'max_tokens'));
     const endpoint = new URL(string(managed.base_url, 2048));
     if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) fail('invalid_request');
     const api = string(managed.api, 64);
     if (!['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai'].includes(api)) fail('invalid_request');
     const provider = string(managed.provider, 64), credential = string(managed.api_key_env, 128), principal = string(managed.mcp_principal_id, 64);
     if (!namespacePattern.test(provider) || !namespacePattern.test(principal) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(credential)) fail('invalid_request');
-    managedPi = { ...parsePiSettings({ model: managed.model, context_window: managed.context_window, system_prompt: managed.system_prompt }),
+    managedPi = { ...parsePiSettings({ model: managed.model, context_window: managed.context_window, system_prompt: managed.system_prompt, ...(managed.max_tokens === undefined ? {} : { max_tokens: managed.max_tokens }) }),
       provider, api, base_url: endpoint.href, api_key_env: credential, pi_command: argument(managed.pi_command), mcp_principal_id: principal };
   }
   const agent = object(value.agent);

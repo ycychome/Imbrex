@@ -86,6 +86,7 @@ class Consumer {
       management: { revision: management.revision, filter: management.filter,
         ...(management.pi ? { pi: { saved: management.pi.saved, applied: management.pi.applied, applying: management.pi.applying ?? false } } : {}),
         filter_status: isDeepStrictEqual(management.filter.saved, management.filter.applied) ? 'applied' : 'pending',
+        timeout_ms: management.turn_timeout_ms ?? this.config.turnTimeoutMs,
         pi_status: this.state.management?.pi ? (this.state.management.pi.applying ? (this.managing || this.phase === 'starting' ? 'applying' : 'failed') : this.state.management.pi.applied && isDeepStrictEqual(this.state.management.pi.saved, this.state.management.pi.applied) ? (available ? (Object.keys(this.agent?.observedModels() ?? {}).length ? 'applied' : 'awaiting_session') : 'stopped_or_error') : 'pending_restart') : 'unmanaged',
         observed_models: this.agent?.observedModels() ?? {},
         observed_usage: this.agent?.observedUsage() ?? {},
@@ -259,6 +260,19 @@ class Consumer {
     const params = object(input);
     let operationId: string | undefined;
     try {
+      if (action === 'save-runtime-settings') {
+        const timeout = params.turn_timeout_ms;
+        if (typeof timeout !== 'number' || !Number.isInteger(timeout) || timeout < 10 || timeout > 600000) fail('invalid_params');
+        await this.commit((state) => {
+          this.ensureRunning();
+          const management = managementFor(state);
+          if (params.revision !== management.revision) fail('admin_conflict');
+          return { ...state, management: { ...management, revision: randomUUID(), turn_timeout_ms: timeout } };
+        });
+        this.config.turnTimeoutMs = timeout;
+        this.ensureRunning(); this.wake();
+        return { status: 'succeeded', action, revision: managementFor(this.state).revision, timeout_ms: timeout };
+      }
       if (action === 'save-filter' || action === 'save-agent-config') {
         const filter = action === 'save-filter' ? parseFilter(params.filter) : undefined;
         const settings = action === 'save-agent-config' ? parsePiSettings(params.settings) : undefined;
@@ -419,6 +433,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
     }
     if (!isDeepStrictEqual(state.management?.pi?.base, config.managedPi)) throw new ConsumerError('consumer_binding_changed');
     if (state.selection.filter === undefined) delete config.filter; else config.filter = state.selection.filter;
+    if (state.management?.turn_timeout_ms !== undefined) config.turnTimeoutMs = state.management.turn_timeout_ms;
     snapshot = state;
     stateStatus = 'loaded';
     if (state.in_flight) {

@@ -12,6 +12,7 @@ export function consumerActions(managed: boolean, execute: (id: string, input: J
     { id: 'save-filter', title: 'Save consumer filter', properties: { revision, filter } },
     { id: 'recover-input', title: 'Resolve current unconfirmed input', properties: { seq: { type: 'string', minLength: 1, maxLength: 19 }, source: { type: 'string', minLength: 1, maxLength: 1024 }, id: text, disposition: { enum: ['processed', 'abandoned'] }, reason } },
     { id: 'reset-session', title: 'Unlink one conversation session', properties: { source: { type: 'string', minLength: 1, maxLength: 1024 }, session_id: text, reason } },
+    { id: 'save-runtime-settings', title: 'Save runtime settings', properties: { revision, turn_timeout_ms: { type: 'integer', minimum: 10, maximum: 600000 } } },
   ];
   if (managed) definitions.push(
     { id: 'save-agent-config', title: 'Save managed Agent configuration', properties: { revision, settings: pi } },

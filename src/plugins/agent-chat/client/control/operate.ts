@@ -10,6 +10,7 @@ export interface PiSettings {
   model: string;
   context_window: number;
   system_prompt: string;
+  max_tokens?: number;
 }
 
 export interface PiManagement {
@@ -20,6 +21,7 @@ export interface PiManagement {
 
 export interface Management {
   revision: string;
+  timeout_ms: number;
   filter: { saved: ConsumerFilter | null; applied: ConsumerFilter | null };
   filter_status: string;
   pi?: PiManagement;
@@ -58,7 +60,10 @@ function filterOf(value: unknown): ConsumerFilter | null {
 function settingsOf(value: unknown): PiSettings | null {
   const item = record(value);
   if (!item || typeof item.model !== 'string' || typeof item.context_window !== 'number' || typeof item.system_prompt !== 'string') return null;
-  return { model: item.model, context_window: item.context_window, system_prompt: item.system_prompt };
+  return {
+    model: item.model, context_window: item.context_window, system_prompt: item.system_prompt,
+    ...(typeof item.max_tokens === 'number' ? { max_tokens: item.max_tokens } : {}),
+  };
 }
 
 /**
@@ -76,6 +81,7 @@ export function managementOf(data: Record<string, unknown>): Management | null {
   const piSaved = pi ? settingsOf(pi.saved) : null;
   return {
     revision: value.revision,
+    timeout_ms: typeof value.timeout_ms === 'number' ? value.timeout_ms : 120000,
     filter: { saved, applied },
     filter_status: text(value.filter_status, 'unknown'),
     ...(piSaved ? { pi: { saved: piSaved, applied: pi?.applied ? settingsOf(pi.applied) : null, applying: pi?.applying === true } } : {}),

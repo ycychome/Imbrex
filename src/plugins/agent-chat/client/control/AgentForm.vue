@@ -19,6 +19,7 @@ const provider = computed(() => {
 
 const model = ref('');
 const window_ = ref('128000');
+const maxTokens = ref('2048');
 const prompt = ref('');
 const busy = ref(false);
 const notice = ref('');
@@ -30,6 +31,7 @@ function sync(): void {
   const saved = pi.value?.saved;
   model.value = saved?.model ?? '';
   window_.value = saved ? String(saved.context_window) : '128000';
+  maxTokens.value = String(saved?.max_tokens ?? (saved ? Math.min(16384, Math.floor(saved.context_window / 2)) : 2048));
   prompt.value = saved?.system_prompt ?? '';
 }
 
@@ -39,15 +41,19 @@ watch(() => management.value?.revision, sync);
 const promptBytes = computed(() => byteLength(prompt.value));
 const modelBytes = computed(() => byteLength(model.value.trim()));
 const windowValue = computed(() => (/^[1-9][0-9]*$/.test(window_.value) ? Number(window_.value) : Number.NaN));
+const maxTokensValue = computed(() => (/^[1-9][0-9]*$/.test(maxTokens.value) ? Number(maxTokens.value) : Number.NaN));
 const valid = computed(() => modelBytes.value > 0 && modelBytes.value <= 256 && Number.isInteger(windowValue.value)
-  && windowValue.value >= 1024 && windowValue.value <= 2000000 && promptBytes.value <= 32768);
+  && windowValue.value >= 1024 && windowValue.value <= 2000000 && promptBytes.value <= 32768
+  && Number.isInteger(maxTokensValue.value) && maxTokensValue.value >= 256 && maxTokensValue.value <= 262144);
 
 const saved = computed(() => pi.value?.saved ?? null);
 const applied = computed(() => pi.value?.applied ?? null);
 const dirty = computed(() => {
   const current = saved.value;
   if (!current) return true;
-  return model.value.trim() !== current.model || windowValue.value !== current.context_window || prompt.value !== current.system_prompt;
+  const tokens = current.max_tokens ?? Math.min(16384, Math.floor(current.context_window / 2));
+  return model.value.trim() !== current.model || windowValue.value !== current.context_window
+    || prompt.value !== current.system_prompt || maxTokensValue.value !== tokens;
 });
 const status = computed(() => management.value?.pi_status ?? 'unmanaged');
 const statusLabels: Record<string, string> = {
@@ -97,7 +103,7 @@ async function save(): Promise<void> {
   busy.value = true; notice.value = ''; failure.value = '';
   const outcome = await operate(props.client, props.summary, props.storeId, 'save-agent-config', {
     revision: management.value.revision,
-    settings: { model: model.value.trim(), context_window: windowValue.value, system_prompt: prompt.value },
+    settings: { model: model.value.trim(), context_window: windowValue.value, system_prompt: prompt.value, max_tokens: maxTokensValue.value },
   });
   busy.value = false;
   if (!outcome.ok) { failure.value = outcome.message; if (outcome.status === 409) emit('reload'); return; }
@@ -152,7 +158,7 @@ async function restart(): Promise<void> {
         <div class="min-w-0">
           <dt class="label">已保存</dt>
           <dd class="mono mt-0.5 break-all text-[11px]">
-            {{ saved?.model ?? '—' }} · {{ saved?.context_window?.toLocaleString('zh-CN') ?? '—' }} · 提示词 {{ saved ? byteLength(saved.system_prompt) : 0 }} B
+            {{ saved?.model ?? '—' }} · {{ saved?.context_window?.toLocaleString('zh-CN') ?? '—' }} · 输出 {{ saved?.max_tokens ?? (saved ? Math.min(16384, Math.floor(saved.context_window / 2)) : '—') }} · 提示词 {{ saved ? byteLength(saved.system_prompt) : 0 }} B
           </dd>
         </div>
         <div class="min-w-0">
@@ -163,7 +169,7 @@ async function restart(): Promise<void> {
         </div>
       </dl>
 
-      <div class="mt-3 grid gap-3 sm:grid-cols-2">
+      <div class="mt-3 grid gap-3 sm:grid-cols-3">
         <label class="flex min-w-0 flex-col gap-1">
           <span class="label">模型{{ provider ? `（${provider}）` : '' }}</span>
           <input v-model="model" class="input font-mono text-[12px]" :disabled="busy" spellcheck="false" />
@@ -171,6 +177,10 @@ async function restart(): Promise<void> {
         <label class="flex min-w-0 flex-col gap-1">
           <span class="label">上下文窗口声明（1024–2000000）</span>
           <input v-model="window_" inputmode="numeric" class="input font-mono text-[12px]" :disabled="busy" />
+        </label>
+        <label class="flex min-w-0 flex-col gap-1">
+          <span class="label">最大输出 tokens（256–262144）</span>
+          <input v-model="maxTokens" inputmode="numeric" class="input font-mono text-[12px]" :disabled="busy" />
         </label>
       </div>
       <label class="mt-3 flex flex-col gap-1">
@@ -186,14 +196,14 @@ async function restart(): Promise<void> {
           {{ busy ? '处理中…' : '保存配置' }}
         </button>
         <button type="button" class="btn btn-sm" :disabled="!canRestart" @click="beginRestart">应用并重启 Agent</button>
-        <span v-if="!valid" class="text-[11px] text-[var(--bad)]">模型、窗口或提示词不符合服务端校验。</span>
+        <span v-if="!valid" class="text-[11px] text-[var(--bad)]">模型、窗口、最大输出或提示词不符合服务端校验。</span>
         <span v-else-if="dirty" class="text-[11px] text-[var(--warn)]">有未保存的修改</span>
         <span v-else class="text-[11px] text-[var(--faint)]">{{ restartHint }}</span>
       </div>
 
       <div v-if="confirming" class="mt-2 rounded-[var(--radius)] border border-[color-mix(in_oklab,var(--bad)_35%,var(--line))] bg-[color-mix(in_oklab,var(--bad)_6%,var(--surface))] px-3 py-2">
         <p class="text-[11px] leading-relaxed">
-          将应用<b>已保存</b>的模型、窗口与提示词，只重启 pi-acp/pi 并恢复原会话；未保存的编辑不会生效。请填写原因。
+          将应用<b>已保存</b>的模型、窗口、最大输出与提示词，只重启 pi-acp/pi 并恢复原会话；未保存的编辑不会生效。请填写原因。
         </p>
         <input v-model="reason" class="input mt-2 font-mono text-[12px]" placeholder="原因（写入私有恢复记录）" aria-label="重启原因" :disabled="busy" />
         <div class="mt-2 flex gap-2">

@@ -16,7 +16,7 @@ export interface Binding {
 }
 export interface InFlight extends EventRef { seq: string; conversation: string; session_id: string }
 export interface ManagedState {
-  revision: string; base_filter: ConsumerFilter | null; filter: { saved: ConsumerFilter | null; applied: ConsumerFilter | null };
+  revision: string; base_filter: ConsumerFilter | null; filter: { saved: ConsumerFilter | null; applied: ConsumerFilter | null }; turn_timeout_ms?: number;
   pi?: { base: ManagedPi; saved: PiSettings; applied: PiSettings | null; applying?: boolean };
 }
 export interface ConsumerState extends Binding {
@@ -95,10 +95,15 @@ function validateState(raw: unknown, binding: Binding, storeId: string, latest: 
     let expected = binding;
     if (value.management !== undefined) {
       const saved = object(value.management);
-      fields(saved, ['revision', 'base_filter', 'filter', 'pi'], ['revision', 'base_filter', 'filter']);
+      fields(saved, ['revision', 'base_filter', 'filter', 'pi', 'turn_timeout_ms'], ['revision', 'base_filter', 'filter']);
       const filter = object(saved.filter); fields(filter, ['saved', 'applied'], ['saved', 'applied']);
       management = { revision: string(saved.revision, 64), base_filter: saved.base_filter === null ? null : parseFilter(saved.base_filter),
         filter: { saved: filter.saved === null ? null : parseFilter(filter.saved), applied: filter.applied === null ? null : parseFilter(filter.applied) } };
+      if (saved.turn_timeout_ms !== undefined) {
+        const timeout = saved.turn_timeout_ms;
+        if (typeof timeout !== 'number' || !Number.isInteger(timeout) || timeout < 10 || timeout > 600000) throw new ConsumerError('consumer_state_invalid');
+        management.turn_timeout_ms = timeout;
+      }
       if (!isDeepStrictEqual(management.base_filter, binding.selection.filter ?? null)) throw new ConsumerError('consumer_binding_changed');
       const selection = { ...binding.selection };
       if (management.filter.applied === null) delete selection.filter; else selection.filter = management.filter.applied;

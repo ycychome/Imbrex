@@ -24,7 +24,7 @@ export async function prepareManaged(api: PluginApi, agent: AgentConfig, managed
 }
 export async function writeManaged(api: PluginApi, directory: string, managed: ManagedPi, settings: PiSettings, previous?: PiSettings | null): Promise<void> {
   const endpoint = api.agentEndpoint(managed.mcp_principal_id);
-  const model = (value: PiSettings) => ({ id: value.model, input: ['text'], reasoning: false, contextWindow: value.context_window, maxTokens: Math.min(16384, Math.floor(value.context_window / 2)), cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
+  const model = (value: PiSettings) => ({ id: value.model, input: ['text'], reasoning: false, contextWindow: value.context_window, maxTokens: value.max_tokens ?? Math.min(16384, Math.floor(value.context_window / 2)), cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
   const models = previous && previous.model !== settings.model ? [model(previous), model(settings)] : [model(settings)];
   try {
     await atomicFile(join(directory, 'models.json'), JSON.stringify({ providers: { [managed.provider]: { api: managed.api, baseUrl: managed.base_url, apiKey: '$' + managed.api_key_env, models } } }) + '\n');
