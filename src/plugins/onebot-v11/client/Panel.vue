@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import type { ViewClient } from '@imbrex/ui-contract';
 import { Chip, EmptyState, ErrorNotice, JsonBlock, KeyValueList, PageHeader, RelativeTime, formatDateTime, formatReading, usePanels, type KeyValueEntry } from '@imbrex/ui-contract/ui';
 import { act, number, record, resultFailed, strings, text } from './actions';
@@ -17,6 +17,11 @@ function instanceFromHash(): string {
 }
 
 const selectedId = ref(instanceFromHash());
+
+onMounted(() => {
+  const instance = instanceFromHash();
+  if (instance) selectedId.value = instance;
+});
 watch(entries, (list) => {
   if (!list.length) { selectedId.value = ''; return; }
   if (!list.some((item) => item.summary.instance_id === selectedId.value)) selectedId.value = list[0]!.summary.instance_id;

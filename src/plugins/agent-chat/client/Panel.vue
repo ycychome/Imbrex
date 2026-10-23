@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import type { ViewClient } from '@imbrex/ui-contract';
 import { Chip, EmptyState, ErrorNotice, PageHeader, RelativeTime, useNarrow, usePanels } from '@imbrex/ui-contract/ui';
 import { managementOf, record, text } from './control/operate';
@@ -23,6 +23,15 @@ const selectedId = ref(initial.get('instance') ?? '');
 const tab = ref<'runtime' | 'config'>(initial.get('tab') === 'config' ? 'config' : 'runtime');
 const selectedSource = ref('');
 const sheetOpen = ref(false);
+
+// The shell normalizes the route after the first render; re-read the plugin's
+// own query once mounted so instance/tab deep links survive that navigation.
+onMounted(() => {
+  const params = hashParams();
+  if (params.get('tab') === 'config') tab.value = 'config';
+  const instance = params.get('instance');
+  if (instance) selectedId.value = instance;
+});
 
 watch(entries, (list) => {
   if (!list.length) { selectedId.value = ''; return; }
