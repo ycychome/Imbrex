@@ -709,6 +709,33 @@ test('managed configuration saves without changing the active round, then restar
   assert.equal((await f.logs('configured-prompt')).at(-1)?.model, 'fixture/fixture-b');
 });
 
+test('managed max output and runtime timeout persist and apply without a full restart', async (t) => {
+  const f = await fixture(t, 'normal', true, 5000, true, true);
+  await f.append(271); await until(async () => (await f.state()).last_seq === '1');
+  const management = object(object((await f.panel()).data).management);
+  const saved = await f.action('save-agent-config', { revision: management.revision, settings: {
+    model: 'fixture-b', context_window: 100000, system_prompt: 'Fixture output prompt.', max_tokens: 4096,
+  } });
+  assert.equal(object(saved.body.result).application_status, 'pending_restart');
+  const restarted = await f.action('restart-agent', { revision: object(saved.body.result).revision, reason: 'fixture max tokens' });
+  assert.equal(object(restarted.body.result).status, 'succeeded');
+  const pi = object(object(object((await f.panel()).data).management).pi);
+  assert.equal(object(pi.saved).max_tokens, 4096);
+  const models = object(JSON.parse(await readFile(join(f.config.dataDir, 'plugins/agent/agent/config/models.json'), 'utf8')));
+  const provider = object(object(models.providers).fixture);
+  const model = (provider.models as unknown[]).map((item) => object(item)).find((item) => item.id === 'fixture-b');
+  assert.equal(model?.maxTokens, 4096);
+
+  const timeout = await f.action('save-runtime-settings', {
+    revision: object(restarted.body.result).revision, turn_timeout_ms: 30000,
+  });
+  assert.equal(object(timeout.body.result).status, 'succeeded');
+  assert.equal(object(object((await f.panel()).data).management).timeout_ms, 30000);
+  await f.restart(); await until(() => f.status().available);
+  assert.equal(object(object((await f.panel()).data).management).timeout_ms, 30000);
+  assert.equal(object(object((await f.panel()).data).configuration).turn_timeout_ms, 30000);
+});
+
 test('failed managed restart keeps session evidence and a pending application marker until explicit correction', async (t) => {
   const f = await fixture(t, 'normal', true, 5000, true, true);
   await f.append(241); await until(async () => (await f.state()).last_seq === '1');

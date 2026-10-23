@@ -6,7 +6,7 @@ const reason = { type: 'string', minLength: 1, maxLength: 2048 };
 const revision = { type: 'string', minLength: 1, maxLength: 64 };
 const ids = { type: 'array', maxItems: 1000, items: { type: 'string', minLength: 1, maxLength: 20 } };
 const filter = { type: 'object', properties: { group_ids: ids, private_user_ids: ids }, required: ['group_ids', 'private_user_ids'], additionalProperties: false };
-const pi = { type: 'object', properties: { model: text, context_window: { type: 'integer', minimum: 1024, maximum: 2000000 }, system_prompt: { type: 'string', maxLength: 32768 } }, required: ['model', 'context_window', 'system_prompt'], additionalProperties: false };
+const pi = { type: 'object', properties: { model: text, context_window: { type: 'integer', minimum: 1024, maximum: 2000000 }, system_prompt: { type: 'string', maxLength: 32768 }, max_tokens: { type: 'integer', minimum: 256, maximum: 262144 } }, required: ['model', 'context_window', 'system_prompt'], additionalProperties: false };
 export function consumerActions(managed: boolean, execute: (id: string, input: JsonValue, principal: Principal) => Promise<JsonValue>): AdminAction[] {
   const definitions: { id: string; title: string; properties: Record<string, unknown> }[] = [
     { id: 'save-filter', title: 'Save consumer filter', properties: { revision, filter } },
