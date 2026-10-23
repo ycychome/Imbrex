@@ -36,6 +36,7 @@ const rollup = computed<{ tone: Tone; label: string }>(() => {
 // Signature of the client entries currently registered, so a plugin that
 // stops or starts later removes or adds its views without a page reload.
 let synced = '';
+let pendingSync = false;
 
 async function loadViews(): Promise<void> {
   if (loadingViews.value) return;
@@ -57,12 +58,22 @@ async function loadViews(): Promise<void> {
     }
   } finally {
     loadingViews.value = false;
+    if (pendingSync) {
+      pendingSync = false;
+      void loadViews();
+    }
   }
 }
 
 watch(() => viewSignature(health.info), (value) => {
-  if (!authenticated.value || loadingViews.value || value === synced) return;
-  synced = value;
+  if (!authenticated.value) return;
+  if (loadingViews.value) {
+    // Do not mark this signature as synced; the current run may be fetching an
+    // older plugin list. Reconcile again once it settles.
+    pendingSync = true;
+    return;
+  }
+  if (value === synced) return;
   void loadViews();
 });
 
