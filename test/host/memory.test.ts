@@ -16,6 +16,7 @@ const sourceB = 'imbrex://qq/123456/main/group/987655';
 const agentToken = 'fixture-memory-agent-token';
 const otherToken = 'fixture-memory-other-token';
 const serviceToken = 'fixture-memory-service-token';
+const adminToken = 'fixture-memory-admin-token';
 
 async function until(check: () => boolean | Promise<boolean>): Promise<void> {
   const deadline = Date.now() + 5000;
@@ -23,15 +24,17 @@ async function until(check: () => boolean | Promise<boolean>): Promise<void> {
   assert.fail('Timed out waiting for memory fixture state');
 }
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, extraInstance = false) {
   const directory = await mkdtemp(join(tmpdir(), 'imbrex-memory-'));
-  const envKeys = ['IMBREX_DEMO_AGENT_TOKEN', 'IMBREX_OPERATOR_TOKEN', 'MEMORY_AGENT_TOKEN', 'MEMORY_OTHER_TOKEN', 'MEMORY_SERVICE_TOKEN'];
+  const envKeys = ['IMBREX_DEMO_AGENT_TOKEN', 'IMBREX_OPERATOR_TOKEN', 'MEMORY_AGENT_TOKEN', 'MEMORY_OTHER_TOKEN', 'MEMORY_SERVICE_TOKEN', 'MEMORY_ADMIN_TOKEN', 'MEMORY_ABSENT_TOKEN'];
   const oldEnv = new Map(envKeys.map((key) => [key, process.env[key]]));
   process.env.IMBREX_DEMO_AGENT_TOKEN = 'fixture-demo-token';
   process.env.IMBREX_OPERATOR_TOKEN = 'fixture-operator-token';
   process.env.MEMORY_AGENT_TOKEN = agentToken;
   process.env.MEMORY_OTHER_TOKEN = otherToken;
   process.env.MEMORY_SERVICE_TOKEN = serviceToken;
+  process.env.MEMORY_ADMIN_TOKEN = adminToken;
+  delete process.env.MEMORY_ABSENT_TOKEN;
   let app: Host | undefined;
   const requests: Record<string, unknown>[] = [];
   const contractErrors: string[] = [];
@@ -126,16 +129,20 @@ async function fixture(t: TestContext) {
   object(http.config).port = 0;
   assert.ok(Array.isArray(raw.principals));
   raw.principals.push(
+    { id: 'memory-admin', token_env: 'MEMORY_ADMIN_TOKEN', permissions: ['admin:inspect'], read_sources: [], write_sources: [], invoke_capabilities: [] },
     { id: 'memory-reader', permissions: ['events:read', 'capabilities:invoke'], read_sources: [{ prefix: 'imbrex://qq/123456/main/' }], write_sources: [], invoke_capabilities: ['image-resolver.resolve_image'] },
     { id: 'memory-agent', token_env: 'MEMORY_AGENT_TOKEN', permissions: ['events:read', 'capabilities:list', 'capabilities:invoke', 'calls:read'], read_sources: [{ prefix: 'imbrex://qq/123456/main/' }], write_sources: [], invoke_capabilities: ['memory.search', 'memory.context', 'memory.get', 'memory.status', 'memory.operation', 'memory.remember', 'memory.update', 'memory.forget', 'memory.rebuild'] },
     { id: 'memory-other', token_env: 'MEMORY_OTHER_TOKEN', permissions: ['events:read', 'capabilities:list', 'capabilities:invoke'], read_sources: [{ exact: sourceB }], write_sources: [], invoke_capabilities: ['memory.search'] },
     { id: 'memory-writer', permissions: ['events:write'], read_sources: [], write_sources: [{ prefix: 'imbrex://qq/123456/main/' }], invoke_capabilities: [] },
   );
   raw.plugins.push(
+    { id: 'admin', module: 'builtin:admin', principal_id: 'protocol', required: true, enabled: false, config: {} },
     { id: 'memory', module: 'builtin:memory', principal_id: 'memory-reader', required: true, enabled: true, config: { service_url: `http://127.0.0.1:${address.port}`, service_token_env: 'MEMORY_SERVICE_TOKEN', sources: [sourceA, sourceB], image_resolvers: { 'imbrex://qq/123456/main/': 'image-resolver.resolve_image' }, request_timeout_ms: 1000, poll_ms: 100, batch_wait_ms: 100 } },
     { id: 'memory-writer', module: 'builtin:fixture', principal_id: 'memory-writer', required: true, enabled: true, config: {} },
     { id: 'image-resolver', module: 'builtin:fixture', principal_id: 'memory-reader', required: true, enabled: true, config: {} },
   );
+  if (extraInstance) raw.plugins.push({ id: 'memory-other-instance', module: 'builtin:memory', principal_id: 'memory-reader', required: true, enabled: true,
+    config: { service_url: `http://127.0.0.1:${address.port}`, service_token_env: 'MEMORY_ABSENT_TOKEN', sources: [sourceB] } });
   const filename = join(directory, 'imbrex.json');
   const config = parseConfig(raw, filename, process.env);
   const modules = await loadModules(config, filename);
@@ -168,6 +175,65 @@ async function fixture(t: TestContext) {
     loseNextOperationResponses(count: number) { loseOperationResponses = count; }, rejectNextIngests(count: number) { rejectIngests = count; },
     resolverRequests, blockResolver() { resolverWait = new Promise<void>((resolve) => { releaseResolver = resolve; }); }, releaseResolver() { releaseResolver(); resolverWait = Promise.resolve(); } };
 }
+
+test('memory admin snapshots are isolated, local, redacted and scoped to plugin lifetimes', async (t) => {
+  const f = await fixture(t, true);
+  const request = async (path: string, token = adminToken) => {
+    const response = await fetch(f.url + path, { headers: { authorization: 'Bearer ' + token } });
+    return { status: response.status, body: object(await response.json()) };
+  };
+  // Memory registers before Admin exists; enabling the UI must not restart indexing.
+  await f.app.startPlugin('admin');
+  const read = () => request('/api/admin/panels/memory');
+  const data = (body: Record<string, unknown>) => object(object(body.data).data);
+  await until(async () => data((await read()).body).service_ready === true);
+  const event = await f.append('290', sourceA, '333333', true);
+  await until(async () => data((await read()).body).indexed_seq === event.seq.toString() && data((await read()).body).pending === 0);
+  const before = await read();
+  assert.equal(f.app.plugins().find((plugin) => plugin.id === 'memory')?.client_entry, '/admin/plugins/memory/entry.js');
+  assert.equal(object(object(before.body.data).status).tone, 'ok');
+  const snapshot = data(before.body);
+  assert.equal(snapshot.state_status, 'loaded');
+  assert.equal(snapshot.indexed_seq, event.seq.toString());
+  assert.equal(object(object(snapshot.configuration).credential).name, 'MEMORY_SERVICE_TOKEN');
+  for (const secret of [serviceToken, agentToken, 'http://127.0.0.1', 'memory-state.json']) assert.ok(!JSON.stringify(before.body).includes(secret));
+  assert.equal((await request('/api/admin/panels/memory', agentToken)).status, 403);
+  assert.equal((await request('/api/admin/panels/memory', 'wrong-token')).status, 401);
+  const count = f.requests.length;
+  await read(); await read();
+  assert.equal(f.requests.length, count, 'panel reads must not query or write the Memory service');
+  const unavailable = await request('/api/admin/panels/memory-other-instance');
+  assert.equal(object(object(unavailable.body.data).status).tone, 'error');
+  assert.equal(data(unavailable.body).last_error, 'memory_token_missing');
+  assert.equal(data(unavailable.body).state_status, 'unavailable');
+  assert.deepEqual(object(data(unavailable.body).configuration).sources, [sourceB]);
+  const assets = await fetch(f.url + '/admin/plugins/memory/entry.js');
+  assert.equal(assets.status, 200);
+  await assets.arrayBuffer();
+  f.setHealthReady(false);
+  await until(async () => object(object((await read()).body.data).status).tone === 'error');
+  assert.equal(data((await read()).body).indexed_seq, event.seq.toString(), 'outages retain known local progress');
+  f.setHealthReady(true);
+  await until(async () => data((await read()).body).service_ready === true);
+  await f.app.stopPlugin('admin'); await f.app.startPlugin('admin');
+  assert.equal((await read()).body.generation, before.body.generation);
+  await f.app.stopPlugin('memory');
+  assert.equal((await read()).status, 404);
+  assert.equal((await request('/api/admin/panels/memory-other-instance')).status, 200);
+  await f.app.startPlugin('memory');
+  const restarted = await read();
+  assert.notEqual(restarted.body.generation, before.body.generation);
+  assert.equal(data(restarted.body).indexed_seq, event.seq.toString());
+  await f.app.stopPlugin('memory');
+  await writeFile(join(f.directory, 'data/plugins/memory/memory-state.json'), '{broken fixture');
+  await f.app.startPlugin('memory');
+  const broken = await read();
+  assert.equal(object(object(broken.body.data).status).tone, 'error');
+  assert.equal(data(broken.body).state_status, 'unavailable');
+  const metrics = object(broken.body.data).metrics;
+  assert.ok(Array.isArray(metrics));
+  assert.equal(object(metrics[2]).value, '未提供', 'corrupt state must not masquerade as index position zero');
+});
 
 test('memory verifies the actual caller event scope, binds writes and indexes stable QQ batches', async (t) => {
   const f = await fixture(t);
@@ -395,6 +461,12 @@ test('failed image operations are retained for status and never resubmitted', as
   const status = await f.invoke(agentToken, 'memory.status', { scope_refs: [{ source: sourceA, id: 'message:failed-image' }] });
   assert.equal(status.status, 200);
   assert.equal((object(object(status.body).result).image_failures as unknown[]).length, 1);
+  await f.app.startPlugin('admin');
+  const response = await fetch(f.url + '/api/admin/panels/memory', { headers: { authorization: 'Bearer ' + adminToken } });
+  assert.equal(response.status, 200);
+  const view = object(object(await response.json()).data);
+  assert.equal(object(view.status).tone, 'warning');
+  assert.equal(object(view.data).image_failure_count, 1);
   await delay(300);
   assert.equal(f.requests.filter((request) => object(request).kind === 'images').length, 1, 'terminal failure must not trigger periodic writes');
 });

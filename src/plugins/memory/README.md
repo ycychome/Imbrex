@@ -1,6 +1,6 @@
 # 长期记忆
 
-Memory 插件把经授权的 QQ 会话事件送入独立 Python 服务，抽取可追溯的记忆并提供检索、当前事件上下文、人工记忆维护和恢复操作。它是可选能力：agent-chat 可在提交当前轮次前调用只读 `memory.context`，并将结果作为不可信证据交给 Agent；服务不可用、未索引或超时时原事件轮次仍可继续。Memory 不会触发历史回复，也不提供 M2 管理 UI。
+Memory 插件把经授权的 QQ 会话事件送入独立 Python 服务，抽取可追溯的记忆并提供检索、当前事件上下文、人工记忆维护和恢复操作。它是可选能力：agent-chat 可在提交当前轮次前调用只读 `memory.context`，并将结果作为不可信证据交给 Agent；服务不可用、未索引或超时时原事件轮次仍可继续。Memory 不会触发历史回复。插件自带只读管理页面，管理入口可独立禁用。
 
 ```mermaid
 flowchart LR
@@ -74,6 +74,16 @@ docker compose --env-file .env up --build -d
 PYTHONPATH=src uv run --project . uvicorn imbrex_memory.app:create_app --factory --host 127.0.0.1 --port 8090
 ```
 
+## 只读管理面板
+
+在网关中按顺序启用 `builtin:server-http`、`builtin:admin`，并配置具有 `admin:inspect` 的独立 Principal 和 `token_env`；不向 Agent 授予管理权限。执行 `npm run build` 后访问 `/admin/#/memory`，登录后即可看到已启用的 Memory 实例。沿用 [Admin 契约](../../../docs/design/admin.md)的认证、Origin 校验与静态资源挂载，不新增 HTTP 接口或前端进程。
+
+Memory 后端经绑定的 `registerAdminPanel()` 登记本地只读快照；自己的 `client/` 经 `ctx.views.register()` 注册页面，并由既有扫描机制构建。页面按实例分别显示服务就绪、固定回填边界、已接手/已索引序号、文本和图片任务、暂停及失败原因、索引代次、索引会话和凭据环境变量引用。序号为十进制字符串，序号差不表示积压消息数。失败项各展示最多 8 条，并保留完整计数。
+
+管理刷新默认每 5 秒读取本地快照，不请求 Python、Graphiti 或模型；服务断开仍显示最后已知位置。凭据缺失或持久状态不可验证时显示错误及未知位置，不用零值代替未知；不向浏览器返回服务 URL、凭据值、素材地址、本地路径或记忆正文。凭据引用的 configured 只表示环境变量存在，不表示鉴权成功。
+
+Admin 晚启动或重启不改变 Memory 的消费进度；Memory 停止时宿主撤销面板与旧回调，重新启动产生新面板登记代次。页面的轮询及请求在视图拆卸时取消。未启用 Memory 时不装载此页面，禁用 Admin 时 Memory 保持工作。此页面只负责观测，记忆写入仍经授权能力，版本检查、稳定 call_id 与 accepted/applied 语义保持不变。
+
 ## Python 私有服务协议
 
 Python API 是 TypeScript 插件与服务之间的私有接口，不是 Agent API。所有请求均需 `Authorization: Bearer $MEMORY_SERVICE_TOKEN`。提供 `GET /health`、`POST /v1/query` 和 `POST /v1/operations`：
@@ -111,4 +121,4 @@ Python API 是 TypeScript 插件与服务之间的私有接口，不是 Agent AP
 
 图片 locator 由 TypeScript Memory 插件的独立 material worker 异步解析，不占用文本事件摄取轮次。只有为 source 配置了已授权的 `image_resolvers` capability 时，worker 才会以当前事件引用和 segment index 请求解析；Python 私有 API 收到 `kind:"images"`、`payload:{"input_event_ref":...,"images":[{"segment_index":0,"file":"...","url":"..."}]}` 后，会将材料绑定到此前已索引的事件和原始 file locator。该私有操作用于插件到服务的传输，不增加公开能力；公开能力仍为上表九项。图片解析没有授权或失败时，文本记忆仍可用，图片状态会标记缺失。
 
-回填只建立记忆索引，不提交历史 Agent prompt，因此不会触发历史回复。中文 QA 与 PNG 图像夹具见 [`examples/memory/qa-fixtures.json`](../../../examples/memory/qa-fixtures.json)：30 项各自有独立预期答案，5 项图像 evidence 只包含中性场景文字和图像路径。真实模型、Graphiti/Neo4j 验证与尚未覆盖的范围见 [验收记录](../../../docs/progress/memory-validation.md)，不能用 OCR 完成或单元测试通过替代质量门槛。管理 UI 尚未接入，本功能不依赖 M2。
+回填只建立记忆索引，不提交历史 Agent prompt，因此不会触发历史回复。中文 QA 与 PNG 图像夹具见 [`examples/memory/qa-fixtures.json`](../../../examples/memory/qa-fixtures.json)：30 项各自有独立预期答案，5 项图像 evidence 只包含中性场景文字和图像路径。真实模型、Graphiti/Neo4j 验证与尚未覆盖的范围见 [验收记录](../../../docs/progress/memory-validation.md)，不能用 OCR 完成或单元测试通过替代质量门槛。质量结果和管理页面验证分别记录，页面可用不代表真实模型质量门槛通过。

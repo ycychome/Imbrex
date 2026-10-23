@@ -10,6 +10,7 @@ import type { PluginApi, ReadScope } from '../../host/plugin-api.js';
 import { parseMemoryConfig, type MemoryConfig } from './config.js';
 
 export const name = 'memory';
+export const client = 'entry.js';
 export const inject = ['imbrex'];
 
 type ReadKind = 'search' | 'context' | 'get' | 'status' | 'operation';
@@ -122,6 +123,7 @@ class MemoryPlugin {
   private materialsRequested = false;
   private materialsBusy = false;
   private serviceReady = false;
+  private pauseReason: string | null = null;
   private timer?: ReturnType<typeof setInterval>;
   private unsubscribe: () => void = () => {};
   private worker: Promise<void> = Promise.resolve();
@@ -168,6 +170,11 @@ class MemoryPlugin {
       pending: this.state.pending.length + this.state.materials.length, images_pending: this.state.materials.length,
       operation_failures: this.state.pending.filter((task) => task.terminal).map((task) => ({ operation_id: task.request_id, state: task.terminal!, reason: task.terminal_reason ?? task.terminal! })),
       image_failures: this.state.materials.filter((task) => task.terminal).map((task) => ({ operation_id: task.request_id, state: task.terminal!, reason: task.terminal_reason ?? task.terminal! })), paused: this.paused };
+  }
+  adminStatus(): JsonObject {
+    return { ...this.localStatus(), service_ready: this.serviceReady, index_generation: this.state.generation,
+      processing: this.busy, images_processing: this.materialsBusy,
+      last_error: this.paused ? (this.pauseReason ?? 'memory_rebuild_pending') : this.serviceReady ? null : 'memory_service_unavailable' };
   }
   async write(kind: WriteKind, payload: JsonObject, callerId: string, sourceList: string[], requestId?: string): Promise<WriteOutcome> {
     const actualId = kind === 'ingest' || kind === 'images' ? requestId! : this.operationId(kind, callerId, requestId);
@@ -482,6 +489,7 @@ class MemoryPlugin {
   }
   private async pause(error: unknown): Promise<void> {
     this.paused = true;
+    this.pauseReason = safeReason(error);
     this.api.setAvailable(true);
     process.stderr.write(JSON.stringify({ event: 'memory_index_paused', plugin_instance_id: this.api.instanceId, code: safeReason(error) }) + '\n');
   }
@@ -495,10 +503,12 @@ class MemoryPlugin {
         } else if (typeof health.ledger_id !== 'string' || !/^[a-f0-9]{64}$/.test(health.ledger_id)) {
           this.serviceReady = false;
           this.paused = true;
+          this.pauseReason = 'memory_service_unavailable';
           this.api.setAvailable(false, { code: 'memory_service_unavailable' });
         } else if (this.state.service_ledger_id !== null && this.state.service_ledger_id !== health.ledger_id) {
           this.serviceReady = false;
           this.paused = true;
+          this.pauseReason = 'memory_binding_changed';
           this.api.setAvailable(false, { code: 'memory_binding_changed' });
         } else {
           if (this.state.service_ledger_id === null) await this.updateState((state) => ({ ...state, service_ledger_id: health.ledger_id as string }));
@@ -550,8 +560,41 @@ function stripRefs(params: JsonObject): JsonObject { const { scope_refs: _refs, 
 export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   const config = parseMemoryConfig(input);
   const api = ctx.imbrex.forPlugin(ctx);
+  let panelInstance: MemoryPlugin | undefined;
+  let startupReason = 'memory_starting';
+  api.registerAdminPanel({ title: '长期记忆', icon: 'search', read: () => {
+    const snapshot = panelInstance?.adminStatus();
+    const failures = Array.isArray(snapshot?.operation_failures) ? snapshot.operation_failures : [];
+    const imageFailures = Array.isArray(snapshot?.image_failures) ? snapshot.image_failures : [];
+    const ready = snapshot?.service_ready === true;
+    const paused = snapshot?.paused === true;
+    const pending = typeof snapshot?.pending === 'number' ? snapshot.pending : null;
+    return {
+      status: !snapshot ? { tone: 'error', label: '初始化未完成' }
+        : !ready ? { tone: 'error', label: '服务不可用' }
+        : paused ? { tone: 'warning', label: '索引已暂停' }
+        : failures.length || imageFailures.length ? { tone: 'warning', label: '有失败任务' }
+        : pending || snapshot.processing === true || snapshot.images_processing === true ? { tone: 'idle', label: '处理中' }
+        : { tone: 'ok', label: '已就绪' },
+      metrics: [
+        { label: '回填边界', value: String(snapshot?.fixed_latest_seq ?? '未提供') },
+        { label: '已接手位置', value: String(snapshot?.accepted_seq ?? '未提供') },
+        { label: '已索引位置', value: String(snapshot?.indexed_seq ?? '未提供') },
+        { label: '待完成任务', value: String(pending ?? '未提供'), hint: '包含图片与终止失败项，不代表积压消息数' },
+        { label: '图片任务', value: String(snapshot?.images_pending ?? '未提供') },
+        { label: '失败任务', value: snapshot ? String(failures.length + imageFailures.length) : '未提供' },
+      ],
+      data: {
+        ...(snapshot ?? { last_error: startupReason }), state_status: snapshot ? 'loaded' : 'unavailable',
+        operation_failures: failures.slice(0, 8), image_failures: imageFailures.slice(0, 8),
+        operation_failure_count: snapshot ? failures.length : null, image_failure_count: snapshot ? imageFailures.length : null,
+        configuration: { sources: config.sources, credential: { name: config.serviceTokenEnv, configured: process.env[config.serviceTokenEnv] !== undefined },
+          request_timeout_ms: config.requestTimeoutMs, poll_ms: config.pollMs, batch_wait_ms: config.batchWaitMs },
+      },
+    };
+  } });
   const token = process.env[config.serviceTokenEnv];
-  if (!token || !/^[\x21-\x7e]+$/.test(token)) { api.setAvailable(false, { code: 'memory_token_missing' }); return; }
+  if (!token || !/^[\x21-\x7e]+$/.test(token)) { startupReason = 'memory_token_missing'; api.setAvailable(false, { code: startupReason }); return; }
   const readScope = api.events.readScope();
   const selection = selectionFor(config, readScope);
   const statePath = join(api.dataDir, 'memory-state.json');
@@ -563,11 +606,12 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
     if (BigInt(loaded.fixed_latest_seq) > info.latestSeq || BigInt(loaded.accepted_seq) > info.latestSeq || BigInt(loaded.indexed_seq) > BigInt(loaded.accepted_seq)) throw new MemoryError('memory_cursor_invalid');
     state = loaded;
   } catch (error) {
-    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) { api.setAvailable(false, { code: safeReason(error) }); return; }
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) { startupReason = safeReason(error); api.setAvailable(false, { code: startupReason }); return; }
     state = { version: 2, store_id: info.storeId, instance_id: api.instanceId, service_url: config.serviceUrl, service_ledger_id: null, selection, fixed_latest_seq: info.latestSeq.toString(), generation: 0, accepted_seq: '0', indexed_seq: '0', pending: [], materials: [] };
     await saveState(statePath, state);
   }
   const instance = new MemoryPlugin(api, config, token, statePath, state, readScope);
+  panelInstance = instance;
   for (const kind of ['search', 'context', 'get', 'status', 'operation'] as const) {
     ctx.effect(() => api.capabilities.register<JsonObject, JsonValue>({ localName: kind, description: descriptions[kind], schemaVersion: '1', isSideEffectful: false, inputSchema: schemas[kind],
       handler: async (raw, invocation) => {
