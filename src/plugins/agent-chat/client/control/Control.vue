@@ -59,7 +59,7 @@ async function recover(): Promise<void> {
     seq: text(pending.seq), source: text(pending.source), id: text(pending.id), disposition: disposition.value, reason: value,
   });
   busy.value = false;
-  if (!outcome.ok) { failure.value = outcome.message; return; }
+  if (!outcome.ok) { failure.value = outcome.message; if (outcome.status === 409) emit('reload'); return; }
   if (outcome.result.status !== 'succeeded') { failure.value = resultMessage(outcome); return; }
   disposition.value = '';
   flash('已处置 seq ' + text(outcome.result.resolved_seq, '?') + '（' + text(outcome.result.disposition) + '）；'
@@ -85,7 +85,7 @@ async function reset(): Promise<void> {
     source: resetSource.value, session_id: resetSession.value, reason: value,
   });
   resetting.value = false;
-  if (!outcome.ok) { failure.value = outcome.message; return; }
+  if (!outcome.ok) { failure.value = outcome.message; if (outcome.status === 409) emit('reload'); return; }
   if (outcome.result.status !== 'succeeded') { failure.value = resultMessage(outcome); return; }
   resetSource.value = '';
   flash('已解除该会话映射；Agent 历史与其他会话保留。');

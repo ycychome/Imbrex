@@ -100,7 +100,7 @@ async function save(): Promise<void> {
     settings: { model: model.value.trim(), context_window: windowValue.value, system_prompt: prompt.value },
   });
   busy.value = false;
-  if (!outcome.ok) { failure.value = outcome.message; return; }
+  if (!outcome.ok) { failure.value = outcome.message; if (outcome.status === 409) emit('reload'); return; }
   if (outcome.result.status !== 'succeeded') { failure.value = resultMessage(outcome); return; }
   flash('已保存为待重启生效；当前轮继续使用旧配置。');
   emit('reload');
@@ -121,7 +121,7 @@ async function restart(): Promise<void> {
   const outcome = await operate(props.client, props.summary, props.storeId, 'restart-agent', { revision: management.value.revision, reason: value });
   busy.value = false;
   confirming.value = false;
-  if (!outcome.ok) { failure.value = outcome.message; return; }
+  if (!outcome.ok) { failure.value = outcome.message; if (outcome.status === 409) emit('reload'); return; }
   if (outcome.result.status !== 'succeeded') { failure.value = resultMessage(outcome); return; }
   const application = text(outcome.result.application_status);
   flash(application === 'applied'

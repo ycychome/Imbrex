@@ -30,6 +30,7 @@ export interface Management {
 
 export interface Outcome {
   ok: boolean;
+  status: number;
   code: string;
   message: string;
   result: Record<string, unknown>;
@@ -99,11 +100,11 @@ export async function operate(client: ViewClient, summary: PanelSummary, storeId
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ store_id: storeId, generation: summary.generation, params }),
     });
-    return { ok: true, code: '', message: '', result: record(body.result) ?? {} };
+    return { ok: true, status: 200, code: '', message: '', result: record(body.result) ?? {} };
   } catch (error) {
     const status = typeof record(error)?.status === 'number' ? record(error)!.status as number : 0;
     const code = text(record(error)?.code, 'request_failed');
-    return { ok: false, code, message: failureMessage(status, code), result: {} };
+    return { ok: false, status, code, message: failureMessage(status, code), result: {} };
   }
 }
 

@@ -58,7 +58,7 @@ async function save(): Promise<void> {
     filter: { group_ids: parsedGroups.value, private_user_ids: parsedPrivates.value },
   });
   busy.value = false;
-  if (!outcome.ok) { failure.value = outcome.message; return; }
+  if (!outcome.ok) { failure.value = outcome.message; if (outcome.status === 409) emit('reload'); return; }
   if (outcome.result.status !== 'succeeded') { failure.value = resultMessage(outcome); return; }
   flash(pending.value
     ? '已保存；已有一个待应用版本，当前轮结束并保存检查点后生效。'
