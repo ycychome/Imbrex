@@ -91,7 +91,10 @@ async function tick(): Promise<void> {
     if (status === 401) {
       stopHealth();
       expireSession();
-    } else if (status === 403 || status === 404) {
+    } else if (status === 403) {
+      stopHealth();
+      expireSession('管理凭据缺少 admin:inspect 权限，或 Origin 与网关监听地址不一致。');
+    } else if (status === 404) {
       stopHealth();
     }
   } finally {

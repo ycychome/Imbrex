@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterView } from 'vue-router';
-import { authenticated, clearToken, login, sessionMessage, setToken } from './api';
+import { authenticated, clearToken, expireSession, login, sessionMessage, setToken } from './api';
 import { ctx } from './context';
-import { loadPluginClients } from './loader';
+import { loadPluginClients, viewSignature } from './loader';
 import { gatewayHealth, health, stale, startHealth, stopHealth, togglePolling, updatedText } from './health';
 import { theme, toggleTheme } from './theme';
-import { Chip, Icon, describeFailure, shortId, type Tone } from '@imbrex/ui-contract/ui';
+import { Chip, Icon, describeFailure, failureOf, shortId, type Tone } from '@imbrex/ui-contract/ui';
 
 const input = ref('');
 const error = ref('');
@@ -33,19 +33,38 @@ const rollup = computed<{ tone: Tone; label: string }>(() => {
   return { tone: 'ok', label: '全部正常' };
 });
 
+// Signature of the client entries currently registered, so a plugin that
+// stops or starts later removes or adds its views without a page reload.
+let synced = '';
+
 async function loadViews(): Promise<void> {
+  if (loadingViews.value) return;
   loadingViews.value = true;
   loadError.value = '';
   try {
     const result = await loadPluginClients();
     failures.value = result.failures;
+    synced = viewSignature(result.info);
     startHealth();
   } catch (cause) {
-    loadError.value = describeFailure(cause);
+    const status = failureOf(cause).status;
+    if (status === 403) {
+      stopHealth();
+      synced = '';
+      expireSession('管理凭据缺少 admin:inspect 权限，或 Origin 与网关监听地址不一致。');
+    } else {
+      loadError.value = describeFailure(cause);
+    }
   } finally {
     loadingViews.value = false;
   }
 }
+
+watch(() => viewSignature(health.info), (value) => {
+  if (!authenticated.value || loadingViews.value || value === synced) return;
+  synced = value;
+  void loadViews();
+});
 
 async function submit(): Promise<void> {
   const value = input.value.trim();
