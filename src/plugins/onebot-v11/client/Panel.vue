@@ -68,7 +68,6 @@ const intercepts = computed(() => Array.isArray(data.value.intercepts) ? data.va
   return [{ time: text(item.time), kind, conversation: text(item.conversation) }];
 }) : []);
 
-const metrics = computed(() => entry.value?.view?.metrics ?? []);
 const rtt = computed(() => {
   const value = number(connection.value?.heartbeat_rtt_ms);
   return value === null ? '未提供' : formatReading(value, '毫秒');
@@ -87,7 +86,14 @@ const infoEntries = computed<KeyValueEntry[]>(() => [
   { label: '账号核验', value: data.value.account_verified === true ? '已核验' : '未核验' },
   { label: '本次启动', value: formatDateTime(text(data.value.started_at)), mono: true },
   { label: '最近错误', value: text(data.value.last_error, '无'), mono: true },
+  { label: '接收帧', value: display(connection.value?.received_frames), mono: true },
+  { label: '已发请求', value: display(connection.value?.sent_requests), mono: true },
+  { label: '采集来源', value: scope.value.source === 'runtime' ? '插件配置' : '宿主配置' },
 ]);
+
+function display(value: unknown): string {
+  return typeof value === 'number' || typeof value === 'string' ? String(value) : '未提供';
+}
 
 const busy = ref(false);
 const notice = ref('');
@@ -193,13 +199,6 @@ function selectInstance(value: string): void {
             <button type="button" class="btn btn-sm" :disabled="busy" @click="run('reconnect', {}, '已请求重新连接。')">刷新连接</button>
             <button type="button" class="btn btn-sm" :disabled="busy" @click="settingsOpen = true">进程设置</button>
             <button type="button" class="btn btn-sm" :disabled="!managed.logs.length" @click="logsOpen = true">运行日志</button>
-          </div>
-        </div>
-
-        <div class="grid gap-4 border-t border-[var(--line)] p-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div v-for="metric in metrics" :key="metric.label" class="min-w-0">
-            <p class="label">{{ metric.label }}</p>
-            <p class="mt-0.5 truncate font-mono text-[13px] font-medium" :title="metric.value">{{ metric.value }}</p>
           </div>
         </div>
 

@@ -67,7 +67,7 @@ function reset(): void {
           <h3 class="label">群聊</h3>
           <span class="text-[11px] text-[var(--faint)]">{{ scope.group_ids.length }} 个</span>
         </div>
-        <ul v-if="scope.group_ids.length" class="mt-2 flex flex-wrap gap-1.5">
+        <ul v-if="scope.group_ids.length" class="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto pr-1">
           <li v-for="id in scope.group_ids" :key="id" class="whitelist-item">
             <span class="font-mono text-[11px]">{{ id }}</span>
             <button type="button" class="whitelist-remove" :disabled="busy" :aria-label="'移除群 ' + id" @click="remove('group', id)">×</button>
@@ -87,7 +87,7 @@ function reset(): void {
           <h3 class="label">私聊</h3>
           <span class="text-[11px] text-[var(--faint)]">{{ scope.private_user_ids.length }} 个</span>
         </div>
-        <ul v-if="scope.private_user_ids.length" class="mt-2 flex flex-wrap gap-1.5">
+        <ul v-if="scope.private_user_ids.length" class="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto pr-1">
           <li v-for="id in scope.private_user_ids" :key="id" class="whitelist-item">
             <span class="font-mono text-[11px]">{{ id }}</span>
             <button type="button" class="whitelist-remove" :disabled="busy" :aria-label="'移除私聊 ' + id" @click="remove('private', id)">×</button>
