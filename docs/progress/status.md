@@ -32,7 +32,7 @@
 ## 4. 进行中
 
 - `docs/` 分层重构：设计（`design/`）与进度（`progress/`）分离，历史验收记录移出 Git。
-- 分支 `feat/graphiti-memory`（PR #22）：Graphiti 对话记忆插件，尚未评审。
+- 分支 `feat/graphiti-memory`（PR #22）：Graphiti 对话记忆插件，已同步 M2-02，加入插件自带的只读管理页面；合并与正式验收仍独立进行。历史真实模型结果见 [Memory 验证](memory-validation.md)。
 
 ## 5. 更新规则
 

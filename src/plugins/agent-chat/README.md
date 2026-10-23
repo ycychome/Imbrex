@@ -173,3 +173,10 @@ Admin 集中展示模型、上下文窗口声明、系统提示词、MCP 地址�
 所选模型、窗口和提示词必须对恢复后的实际新轮次生效；不能仅修改默认配置文件而让恢复会话继续使用旧模型。实施时以所选 pi/pi-acp 的实际能力验证配置应用，不能只凭进程重启宣称成功。可观察到的值与配置声明分开展示，填写 500K 不构成远端模型容量验收。
 
 异常未决项阻止配置应用与受控重启流程，先走在线确认/放弃。生命周期或加载失败时保留进度和证据，报告失败，禁止重放未决 prompt。现有 tini/supervisor 的进程清理责任继续有效，不因接入管理后台而移除。
+
+
+## 可选记忆上下文
+
+`memory_context` 是可选对象 `{ "capability": "<authorized-instance>.<name>", "timeout_ms": 2000, "max_bytes": 8192 }`；后两项可省略，默认值分别为 2000 ms 与 8192 字节，最大也分别为 2000 与 8192。Consumer 以只读 `api.capabilities.invoke` 传入 `{ input_event_ref: { source, id }, timeout_ms, max_bytes }`，不传历史事件、会话映射或跨会话键。配置的调用方 Principal 必须已有 `capabilities:invoke` 及该能力授权。成功的 `{ context: string, ... }` 作为独立、明确标记为不可信证据的 ACP 内容块；原始事件内容仍单独传递。超时、错误、无效结果和未索引状态附 `memory unavailable` 或 `memory stale` 标记，照常运行原事件轮次。停止信号在记忆读取后会阻止继续提交 prompt。这个配置不改变 selection/binding，也不改写或迁移现有 version=1 ConsumerState。
+
+Memory 能力与服务配置见 [Memory 插件](../memory/README.md)。

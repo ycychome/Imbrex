@@ -1,0 +1,52 @@
+{
+  "data_dir": "/data",
+  "token_env": "MEMORY_SERVICE_TOKEN",
+  "neo4j_uri": "bolt://neo4j:7687",
+  "neo4j_user": "neo4j",
+  "neo4j_password_env": "NEO4J_PASSWORD",
+  "extraction": {
+    "base_url": "https://api.example.invalid/v1",
+    "model": "replace-after-vendor-approval-extraction-model",
+    "api_key_env": "MEMORY_EXTRACTION_KEY",
+    "structured_output_mode": "json_schema",
+    "max_output_tokens": 4096,
+    "reasoning_effort": null
+  },
+  "embedding": {
+    "base_url": "https://api.example.invalid/v1",
+    "model": "replace-after-vendor-approval-embedding-model",
+    "api_key_env": "MEMORY_EMBEDDING_KEY",
+    "dimensions": 1024
+  },
+  "vision": {
+    "base_url": "https://api.example.invalid/v1",
+    "model": "replace-after-vendor-approval-vision-model",
+    "api_key_env": "MEMORY_VISION_KEY",
+    "reasoning_effort": null
+  },
+  "vision_profile": {
+    "formats": ["jpeg", "png", "webp"],
+    "max_input_bytes": 4000000,
+    "max_width": 2048,
+    "max_height": 2048,
+    "max_pixels": 4000000,
+    "max_images": 8,
+    "context_tokens": 16000,
+    "prompt_tokens": 1000,
+    "output_tokens": 2000,
+    "image_tokens_per_tile": 100
+  },
+  "media": {
+    "allowed_hosts": ["images.example.invalid"],
+    "allow_private": false,
+    "max_download_bytes": 67108864,
+    "max_decode_bytes": 67108864,
+    "max_decode_pixels": 100000000,
+    "max_temp_bytes": 268435456,
+    "max_request_bytes": 33554432,
+    "cache_bytes": 536870912,
+    "cache_ttl_seconds": 604800
+  },
+  "queue_limit": 32,
+  "request_timeout_seconds": 120
+}

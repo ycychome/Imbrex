@@ -75,7 +75,7 @@ async function handle(line: string) {
     const ref = object(input.input_event_ref);
     const saved = object(JSON.parse(readFileSync(stateFile, 'utf8')));
     const flight = object(saved.in_flight);
-    log('prompt', { session_id: params.sessionId, source: ref.source, id: ref.id, seq: input.seq,
+    log('prompt', { session_id: params.sessionId, source: ref.source, id: ref.id, seq: input.seq, prompt_blocks: params.prompt,
       disk_confirmed: flight.source === ref.source && flight.id === ref.id && flight.seq === input.seq && flight.session_id === params.sessionId });
     if ((mode === 'tree' || mode === 'orphan') && !descendant) {
       descendant = spawn(process.execPath, ['-e', 'process.on("SIGTERM",()=>{}); process.on("SIGINT",()=>{}); require("node:fs").writeFileSync(process.env.IMBREX_FAKE_AGENT_DIR+"/descendant.ready","ready"); setInterval(()=>{},1000);'], { stdio: 'ignore', detached: true });

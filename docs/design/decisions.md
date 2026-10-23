@@ -54,6 +54,8 @@
 | D26 | 管理前端的视图契约独立于 Shell：`@imbrex/ui-contract` 只导出 `ViewMount`/`ViewContext`/`ViewDescriptor`/`Views` 类型与参考原语，Shell 位于 `admin` 插件的 `shell/` | 依赖方向只能是「插件 client → ui-contract」，禁止反向；视图以 `mount(el, ctx) => teardown` 交付，Shell 不假定插件使用 Vue；树内插件的客户端产物由 `ui-contract` 构建到 `dist/plugins/<module>/entry.js` 并由 admin 挂载，第三方插件可声明 `client = { url }` 自行托管；构建入口靠扫描 `src/plugins/*/client/index.ts` 发现，新增插件不改构建配置 |
 | D27 | 文档按变更频率分四层：`docs/design/`（固化，改需决策）、`docs/ops/`（随环境变）、`docs/progress/`（随时变，状态唯一来源）、历史运行记录归档到本地私有目录不入 Git | 状态类陈述只写在 `docs/progress/status.md`，其他文档用现在时描述系统是什么，避免"已实现/待实现"在十余个文件里腐坏；验收结论留在 `validation.md`，原始记录以证据索引登记范围而不入库，既保留可追溯性又不让一次性证据成为长期维护负担 |
 
+| D28 | Memory 是可选业务插件，自带管理视图；TS 经私有 API 复用官方 Graphiti 的独立 Python 服务 | 不改网关事件和调用语义，不增加 Memory MCP Server；Python 仅用于复用官方 Graphiti 核心，避免同时承担 TS 移植维护；管理面复用 D18/D24—D26，业务配置由插件自身展示 |
+
 D13 不要求为每个实现写一套插件，也不要求预先建设通用协议框架。标准路径优先，遇到实际差异再增加小的兼容适配。
 
 D09、D14、D15 的具体边界见 [Agent 接入](../../src/plugins/agent-chat/README.md)与[应用恢复](applications.md)。正常 end_turn 表示一轮结束，动作结果仍以核心 calls 为准；稳定 call_id 不使重跑整个 prompt 安全。
