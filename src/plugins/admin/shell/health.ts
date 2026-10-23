@@ -1,7 +1,7 @@
 import { computed, reactive } from 'vue';
 import type { AdminInfo } from '../types';
 import { expireSession, fetchInfo, request } from './api';
-import { describeFailure, failureOf, formatRelative, isAbort, now, toneOf, type PanelDetail, type PanelSummary, type Tone } from '@imbrex/ui-contract/ui';
+import { describeFailure, failureOf, formatRelative, isAbort, isBusy, now, toneOf, type PanelDetail, type PanelSummary, type Tone } from '@imbrex/ui-contract/ui';
 
 export interface PanelHealth {
   instanceId: string;
@@ -39,17 +39,35 @@ function panelView(data: unknown): { tone: Tone; label: string } | null {
   return { tone: toneOf(status.tone), label: status.label };
 }
 
+async function readPanel(summary: PanelSummary): Promise<PanelDetail> {
+  const path = '/api/admin/panels/' + encodeURIComponent(summary.instance_id);
+  try {
+    return await request<PanelDetail>(path);
+  } catch (error) {
+    // A page view may hold the instance read lock at the same time.
+    if (!isBusy(error)) throw error;
+    await new Promise((resolve) => window.setTimeout(resolve, 160));
+    return await request<PanelDetail>(path);
+  }
+}
+
 async function loadPanels(): Promise<PanelHealth[]> {
   const list = await request<{ panels: PanelSummary[] }>('/api/admin/panels');
   return await Promise.all(list.panels.map(async (summary): Promise<PanelHealth> => {
     const base = { instanceId: summary.instance_id, module: summary.module, title: summary.title, icon: summary.icon };
     try {
-      const detail = await request<PanelDetail>('/api/admin/panels/' + encodeURIComponent(summary.instance_id));
+      const detail = await readPanel(summary);
       if (detail.error) return { ...base, tone: 'warn', label: '读取失败', detail: detail.error.message ?? detail.error.code };
       const view = panelView(detail.data);
       return view ? { ...base, ...view } : { ...base, tone: 'unknown', label: '无状态' };
     } catch (error) {
       if (isAbort(error)) throw error;
+      if (isBusy(error)) {
+        // Still contended after one retry: keep the last known projection
+        // instead of claiming the panel failed.
+        return state.panels.find((panel) => panel.instanceId === summary.instance_id)
+          ?? { ...base, tone: 'unknown', label: '读取中' };
+      }
       return { ...base, tone: 'warn', label: '读取失败', detail: describeFailure(error) };
     }
   }));
