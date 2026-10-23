@@ -41,6 +41,10 @@
 
 单条处置的实际命令见[配置与运维 §6.1](../ops/operations.md#61-单条人工处置consumerrecover)，在线处置的宿主协调流程见[agent-chat §7](../../src/plugins/agent-chat/README.md#m2-recovery)。
 
+托管配置与在线处置复用同一份 version=1 消费状态，`management` 是可选扩展：保存 revision、`base_filter`、`filter.saved/applied`，以及托管 pi 的 base/saved/applied/applying。`base_filter` 保留配置文件原绑定，`selection.filter` 始终是已应用规则；配置保存与检查点共用串行状态写入，避免保存覆盖正在完成的输入。旧状态不需要清空或重建，普通重启继续接受原配置文件与已应用规则。
+
+在线处置的备份写入 `data_dir/plugins/<instance>/recovery/<operation_id>.json`（文件 0600、目录 0700），包含操作者主体、原因、动作与 before 状态。目录同步、备份和状态替换都完成后才返回实际结果；失败时要求重新核验，不自动重试。`reset-session` 精确匹配 source/session_id，只解除持久映射与本进程 loaded/model/usage 关联，不删除 Agent 历史，也不停止其他会话的当前轮。
+
 ## 4. 历史、积压与循环
 
 消费者只对连接器映射的允许入站消息触发。自己发送的回流、派生分析和诊断事件可作为下文，认不触发；不能仅靠 prompt 要求模型不要循环。

@@ -14,7 +14,7 @@
 | M1 OneBot / MCP / ACP / 离线恢复 | 已交付 | 模拟路径与人工恢复已验证；真实 QQ 闭环通过一次 |
 | M2-01 全插件化与管理骨架 | 已交付 | 协议迁入 `plugins/`，`acp-consumer` 更名 `agent-chat`，删除 `observer` |
 | M2-02 观测、配置展示与插件自携视图 | 已交付 | 宿主常驻 AdminRegistry；视图所有权归插件；`ui-contract` 独立于 Shell |
-| M2-03 在线控制与配置应用 | 已实现，未合入 | 代码在 `codex/m2-03-admin-control`，其基座 `codex/m2-02-admin-observation` 已被放弃，需重定基后重开 PR |
+| M2-03 在线控制与配置应用 | 已实现，未合入 | 后端与 Agent 控制页在 PR #18，已重定基到 `ui-contract` 的声明式面板契约；待独立审核与合入 |
 | M2-04 打包、部署与验收 | 已实现，未合入 | 同上，叠在 M2-03 之上 |
 | 第一版交付 | 未开始 | 需 M2-03/M2-04 合入并通过 T08 全部检查 |
 

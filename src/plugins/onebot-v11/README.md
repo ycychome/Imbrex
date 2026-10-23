@@ -162,6 +162,26 @@ Consumer 保存输入位置、会话关联和 prompt 提交前的 in_flight；�
 
 OneBot 与 Agent 分别提供实例绑定的管理面板，Admin 启停不打断消息链路。后台 filter 只调整 Consumer 触发范围，不扩大本插件的采集名单或主体授权。
 
+### 7.1 插件私有运行时配置
+
+`imbrex.json` 只作为初始装配。控制台对采集名单的修改写入 `data/plugins/<instance>/config.json`（0600，原子写），不重写宿主配置：
+
+```json
+{
+  "version": 1,
+  "runtime_filters": {"group_ids": ["987654"], "private_user_ids": ["654321"]},
+  "managed_process": {"enabled": false}
+}
+```
+
+私有文件存在时，`runtime_filters` 覆盖宿主的 `allow_*`；`reset-runtime-config` 删除该字段（保留伴生进程设置），立即回到宿主值。文件损坏时回退宿主配置，并在面板 `runtime_config.error` 报告，不阻塞插件启动。名单增删立即更新内存，不需要重连；移除后，已接纳消息的 reply 也会被当前名单拒绝。空数组表示该类型不采集。
+
+### 7.2 伴生进程
+
+`managed_process` 支持 `enabled`、`command`、`args`、`cwd`、`env_vars`；`env_vars` 只写变量名，值从宿主环境继承。启动时若 `ws_url` 端口已被占用，视为外部进程（attach），不 spawn；否则用 `tini -s` 启动并以 TCP 探测端口，最多等 10 秒。进程崩溃不自动重启，只保留状态与日志；操作者显式 start/stop/restart。
+
+面板保留最近 80 行 stdout/stderr。登录 URL 与二维码内容原样保留，只对 Authorization 与令牌类环境变量的值做脱敏。管理动作：`save-runtime-filters`、`allow-conversation`、`reset-runtime-config`、`save-managed-process`、`start-managed-process`、`stop-managed-process`、`restart-managed-process`、`reconnect`。面板 data 暴露 `scope`、`runtime_config`、`managed_process`（saved/active）与最近 10 条 `intercepts`。
+
 ## 8. 兼性怎样记录
 
 | 对象 | 当前证据 | 运行兼容状态 |

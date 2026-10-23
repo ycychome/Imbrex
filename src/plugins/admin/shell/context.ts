@@ -6,7 +6,7 @@ import { router } from './router';
 import { hostView } from './host-view';
 
 function hashId(): string {
-  const match = /^#\/([a-z][a-z0-9_-]{0,63})$/.exec(location.hash);
+  const match = /^#\/([a-z][a-z0-9_-]{0,63})(?:\?.*)?$/.exec(location.hash);
   return match?.[1] ?? '';
 }
 
@@ -18,6 +18,10 @@ class Registry implements Views {
   private entries = shallowRef<ViewDescriptor[]>([]);
   private activeId = shallowRef('');
   private requested = hashId();
+  // Plugin query (instance/tab) belongs to the deep link, not to the route, and
+  // must survive the first-view fallback that happens before the target view
+  // registers.
+  private requestedQuery = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '';
   private userSelected = false;
   private syncing = false;
 
@@ -45,7 +49,7 @@ class Registry implements Views {
     if (this.requested === entry.id) {
       this.userSelected = true;
       this.activeId.value = entry.id;
-      this.navigate(entry.id, true);
+      this.navigate(entry.id + this.requestedQuery, true);
     } else if (!this.activeId.value) {
       const first = this.entries.value[0]!;
       this.activeId.value = first.id;

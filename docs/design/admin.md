@@ -1,6 +1,6 @@
 # M2 管理控制台契约
 
-本文规定 M2 的管理行为。当前 admin 插件提供基础 info API、只读观测面板、实例面板、配置查询与默认 UI 静态挂载，视图契约与构建包位于 `ui-contract/`，Shell 位于 admin 的 `shell/`；配置编辑和在线处置按[开发计划](../progress/plan.md#m2)扩展，具体线上表达见 [HTTP 契约](contracts.md#12-管理-api)。
+本文规定 M2 的管理行为。admin 插件提供 info API、观测面板、实例面板、配置查询、已登记动作派发与默认 UI 静态挂载，视图契约与构建包位于 `ui-contract/`，Shell 位于 admin 的 `shell/`；具体线上表达见 [HTTP 契约](contracts.md#12-管理-api)。
 
 ## 1. 交付范围与组成
 
@@ -36,13 +36,15 @@ admin 插件配置为 {} 或 {"assets_dir":"/absolute/path/to/external/build"}�
 
 ## 3. 插件管理描述
 
-插件通过绑定 API 的 registerAdminPanel 登记后端管理描述，通过 client 前端入口登记视图。registerAdminPanel 当前接受 title、icon 和 read()，每个实例登记一份描述；read() 返回声明式视图 `{status:{tone,label},metrics:[{label,value,hint?}],data:{...}}`，其中 tone 为 ok/warning/error/idle/unknown。列表与详情同时返回 module 作为元数据；Shell 不据此分支，插件客户端用自身模块定位面板；未知或不符合声明式格式的数据回退展示原始 JSON。新增插件只要登记面板即可自动呈现，无需修改前端。动作入口随在线控制功能增加。实例身份由 api.instanceId 注入，不能由描述中的任意字符串冒充其他实例。
+插件通过绑定 API 的 registerAdminPanel 登记后端管理描述，通过 client 前端入口登记视图。registerAdminPanel 接受 title、icon、read() 和可选 actions，每个实例登记一份描述；read() 返回声明式视图 `{status:{tone,label},metrics:[{label,value,hint?}],data:{...}}`，其中 tone 为 ok/warning/error/idle/unknown。列表与详情同时返回 module 作为元数据；Shell 不据此分支，插件客户端用自身模块定位面板；未知或不符合声明式格式的数据回退展示原始 JSON。新增插件只要登记面板即可自动呈现，无需修改前端。动作随登记出现，由插件自己的 client 视图渲染，Shell 不识别具体动作语义。实例身份由 api.instanceId 注入，不能由描述中的任意字符串冒充其他实例。
 
-状态灯、指标与详情使用可序列化的有界数据：最多 32 个指标，单项值最多 512 字节，详情最多 64 KiB；序号继续为十进制字符串。前端只做通用渲染，不识别具体插件类型。一次读取失败显示该实例读取错误，不影响其他面板或改变业务事务结果。仅展示已采集到的指标；例如未取得心跳延迟就显示未提供，不用 0 伪装正常。
+状态灯、指标与详情使用可序列化的有界数据：最多 32 个指标，单项值最多 512 字节，详情最多 256 KiB；序号继续为十进制字符串。前端只做通用渲染，不识别具体插件类型。一次读取失败显示该实例读取错误，不影响其他面板或改变业务事务结果。仅展示已采集到的指标；例如未取得心跳延迟就显示未提供，不用 0 伪装正常。
 
 动作包含实例内 ID、名称、输入 schema、可选的确认提示以及执行入口。服务端先鉴权、校验参数并核对当前状态，再派发给实际所有者；danger/confirmText 只是界面提示。登记应返回注销函数并绑定实例生命周期；卸载后不留旧回调，多个同类插件独立登记。
 
 停止、重启、恢复等需要跨越目标插件生命周期的动作，由宿主协调。不能在插件已卸载后继续调用其旧闭包，也不能让 Admin 直接修改插件状态文件或 SQLite。
+
+运行时可变参数写插件私有数据目录，不重写宿主配置。OneBot 的采集名单与伴生进程设置保存在 `data/plugins/<instance>/config.json`；私有文件存在时覆盖宿主同名项，损坏时回退宿主并在面板报告。Agent 的单轮超时保存在消费状态。管理动作仍需先鉴权、校验参数并核对当前生命周期。
 
 ## 4. 观测页面与事实语义
 
@@ -70,23 +72,25 @@ Consumer 状态投影如下，不另建消费状态机：
 
 ### 4.1 实例数据字段
 
-OneBot data：connected 表示当前连接已核验且在线；account_verified 是当前连接账号校验结果；account_id、identity_namespace、binding 为配置及实际核验身份；started_at 为本次插件开始时间；last_error 为公共原因码或 null。accepted_events、duplicate_events 是本次插件运行内的十进制计数；queued_events 是当前待入库队列长度。connection_metrics 为当前连接的 received_frames、sent_requests 十进制计数及 heartbeat_rtt_ms，无连接时为 null。未测量 RTT 时返回 null，帧/请求计数含协议握手，不表示消息条数。
+OneBot data：connected 表示当前连接已核验且在线；account_verified 是当前连接账号校验结果；account_id、identity_namespace、binding 为配置及实际核验身份；started_at 为本次插件开始时间；last_error 为公共原因码或 null。accepted_events、duplicate_events 是本次插件运行内的十进制计数；queued_events 是当前待入库队列长度。connection_metrics 为当前连接的 received_frames、sent_requests 十进制计数及 heartbeat_rtt_ms，无连接时为 null。未测量 RTT 时返回 null，帧/请求计数含协议握手，不表示消息条数。scope 为当前生效的 group_ids、private_user_ids 与 source（host/runtime）；runtime_config.error 表示私有配置不可读并已回退；managed_process.saved 为私有设置，active 为实际进程状态与最近 80 行日志；intercepts 为最近 10 条因不在名单而被丢弃的会话记录。
 
 Agent data：status、available、phase、last_error 描述处理投影；input_id、store_id、last_seq、in_flight、sessions、agent_info 对应消费状态。turn_started_at 为实际 prompt 开始时间，elapsed_ms 从其计算；无计时依据时为 null。phase 为 starting/idle/session/prompt/checkpoint/error/stopping；model_stage 当前为 null，不猜测模型细节。正常 end_turn 且检查点成功后回到 idle。
 
 state_status 为 loaded/missing/unavailable。启动所需环境或绑定检查失败时，仍展示与当前存储身份及序号相符、按原绑定验证过的持久事实；不据此恢复消费。无法验证状态时为 unavailable，并省略 last_seq、in_flight、sessions、agent_info，这些字段此时未知；不能把缺失解释为没有未决项。missing 表示已确认状态文件不存在。
 
-Agent configuration 包含 filter（未配置为 null）、source_prefix、max_event_age_seconds、turn_timeout_ms、reader、agent_environment 和 pi。reader 是 Consumer 读取授权；agent_environment 只返回变量名和是否存在。pi 只检查显式传入的绝对 PI_CODING_AGENT_DIR，不读取默认用户 HOME；status 为 unmanaged/configured_unverified/unavailable。saved 为 {provider,model,context_window,system_prompt,mcp} 或 null，applied/observed 当前为 null。缺少声明时返回 null，不推断 provider 默认值。MCP 只返回无嵌入凭据的地址及环境引用，不回传 headers、密钥或 shell 命令。单个配置文件最大 64 KiB，损坏/超限返回 unavailable。
+Agent configuration 包含 filter（未配置为 null）、source_prefix、max_event_age_seconds、turn_timeout_ms、reader、agent_environment 和 pi。reader 是 Consumer 读取授权；agent_environment 只返回变量名和是否存在。pi 仅检查显式 PI_CODING_AGENT_DIR 或本实例托管目录，不读取默认用户 HOME；status 为 unmanaged/configured_unverified/unavailable。saved 为从磁盘读取的 {provider,model,context_window,system_prompt,max_tokens,mcp} 或 null，文件检查本身不证明运行时应用，applied/observed 为 null。缺少声明时返回 null，不推断 provider 默认值。MCP 只返回无嵌入凭据的地址及环境引用，不回传 headers、密钥或 shell 命令。单个配置文件最大 64 KiB，损坏/超限返回 unavailable。
 
 文件以非阻塞方式打开，仅允许普通文件；读取过程仍限制实际字节数，拒绝 FIFO、符号链接和超限内容。面板派发前和结束后都核对登记身份，已注销实例不会接到尚未开始的读取。
 
+Agent data.management 是实际配置责任状态：revision 为保存时更新的不透明版本；filter 为 saved/applied，filter_status 为 pending/applied；托管 pi 为 saved/applied/applying，pi_status 为 unmanaged/pending_restart/applying/failed/stopped_or_error/awaiting_session/applied。awaiting_session 表示文件与进程就绪，但尚无实际会话确认；applied 要求进程可用且已有 session/set_config_option 返回匹配模型。applied 值记录上次成功加载配置，不能单独当作进程仍在运行的证明。management 另含 timeout_ms（当前生效的单轮超时）；托管 pi 的 saved/applied 含 max_tokens。observed_models 按 session ID 返回本进程已确认的模型；observed_usage 为本进程接到的已知会话 usage_update 中有界数字 {used,size}，未观察到时无该项。这些值来自本地 Agent，不证明远端模型真实容量。详情上限为 256 KiB，以容纳保存值与已应用值及会话事实。
+
 ## 5. 配置查看、编辑和应用
 
-M2-02 提供只读配置全景，M2-03 增加编辑和受控应用。首版可编辑项包括 Consumer filter，以及托管 pi 的模型选择、上下文窗口和系统提示词。本文不扩展为任意宿主参数或任意 Agent 的无损热更新。
+可编辑项为 Consumer filter、单轮超时，以及托管 pi 的模型选择、上下文窗口、最大输出和系统提示词；不扩展为任意宿主参数或任意 Agent 的无损热更新。单轮超时保存后立即用于之后开始的轮次，不要求重启 Agent。动作路径、输入 schema、并发版本和失败信封见 HTTP 契约；动作返回成功后仍按 application_status 区分保存与应用。
 
 filter 的完整规则以[应用消费](../../src/plugins/agent-chat/README.md#m2-config)为准：当前轮使用旧配置，完成并持久保存进度后应用新规则，已完成或跳过的历史不回放；异常未决先处置。filter 不扩大 OneBot 采集范围或 Principal 授权，页面必须分开展示这些范围。
 
-模型、窗口与提示词保存后显示“待重启生效”。应用时仅受控重启 pi-acp/pi；宿主、HTTP、OneBot 和其他插件保持运行。会话关联与证据保留，恢复能力不足时报告并使用明确的会话重置入口。具体规则见[Agent 接入](../../src/plugins/agent-chat/README.md#m2-managed-agent)。
+模型、窗口、最大输出与提示词保存后显示“待重启生效”。应用时仅受控重启 pi-acp/pi；宿主、HTTP、OneBot 和其他插件保持运行。会话关联与证据保留，恢复能力不足时报告并使用明确的会话重置入口。具体规则见[Agent 接入](../../src/plugins/agent-chat/README.md#m2-managed-agent)。
 
 UI 分开呈现已保存配置、已应用配置和运行时观察值。声明 500K 上下文只代表本地设置，不能伪报已经验证远端容量。保存成功但应用未完成、失败或受未决状态阻止，都不能显示“已生效”。
 

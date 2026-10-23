@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Context, type Fiber } from 'cordis';
 import { Capabilities } from '../core/capabilities.js';
 import { Events } from '../core/events.js';
-import { requirePermission } from '../core/access.js';
+import { matchesSource, requirePermission } from '../core/access.js';
 import { fail, GatewayError, publicError, type ErrorCode } from '../core/errors.js';
 import { limits, namespacePattern, readOptions } from '../core/validation.js';
 import { SqliteStore } from '../storage/store.js';
@@ -14,12 +14,12 @@ import { inspectConfig } from './admin-config.js';
 import type { HostConfig, PluginConfig } from './config.js';
 import { protocolModules, serverHttpModule, type PluginModule } from './modules.js';
 import type { PluginApi } from './plugin-api.js';
-import type { JsonObject, Principal } from '../core/types.js';
+import type { JsonObject, JsonValue, Principal } from '../core/types.js';
 
 type State = 'waiting' | 'loading' | 'active' | 'failed' | 'stopping' | 'stopped';
 interface Runtime {
   config: PluginConfig; module?: PluginModule; state: State; available: boolean; controller?: AbortController; fiber?: Fiber;
-  cleanup: Set<() => void>; errors: number; stopFailed: boolean; lastError?: { code: string; message: string };
+  operation?: Promise<JsonValue>; cleanup: Set<() => void>; errors: number; stopFailed: boolean; lastError?: { code: string; message: string };
 }
 interface HostOptions {
   report?: (code: string, fields?: Record<string, string | number | boolean>) => void;
@@ -69,7 +69,7 @@ export class Host {
         authenticate: (authorization) => { if (!this.accepting || api.signal.aborted || this.closing) fail('provider_unavailable'); return this.config.authenticate(authorization); },
         store: { info: () => this.store.info() }, events: this.events, capabilities: this.capabilities,
         plugins: () => this.plugins(), report: (code, requestId) => this.report(code, { request_id: requestId }),
-        ...(runtime.config.module === 'builtin:admin' ? { admin: { registry: this.admin, configuration: (principal: Principal) => inspectConfig(this.config, principal, this.root.get('http')?.origin ?? null) } } : {}),
+        ...(runtime.config.module === 'builtin:admin' ? { admin: { registry: this.admin, operate: (principal: Principal, instance: string, generation: string, action: string, input: unknown) => this.operate(principal, instance, generation, action, input), configuration: (principal: Principal) => inspectConfig(this.config, principal, this.root.get('http')?.origin ?? null) } } : {}),
       };
     }, reportRequest: (ctx: Context, code: ErrorCode, requestId: string) => {
       if (this.runtimeFor(ctx.fiber)?.config.module !== serverHttpModule) fail('forbidden');
@@ -173,6 +173,20 @@ export class Host {
       storeId, instanceId: runtime.config.id, dataDir: join(this.config.dataDir, 'plugins', runtime.config.id), signal: controller.signal,
       whenReady: async () => { ensure(); await this.ready.promise; ensure(); },
       registerAdminPanel: (panel) => { ensure(); return track(this.admin.register(runtime.config.id, this.moduleName(runtime), controller.signal, panel)); },
+      agentEndpoint: (principalId) => {
+        ensure();
+        if (runtime.config.module !== 'builtin:agent-chat' || !this.root.get('mcp')) fail('forbidden');
+        const caller = this.config.principals.find((entry) => entry.id === principalId) ?? fail('invalid_request');
+        requirePermission(caller, 'events:read');
+        if (caller.permissions.some((permission) => permission.startsWith('admin:'))) fail('forbidden');
+        for (const scope of principal.readSources) {
+          const covered = 'exact' in scope ? matchesSource(caller.readSources, scope.exact) : caller.readSources.some((rule) => 'prefix' in rule && scope.prefix.startsWith(rule.prefix));
+          if (!covered) fail('forbidden');
+        }
+        const tokenEnv = this.config.credentialReferences[principalId] ?? fail('invalid_request');
+        const origin = this.root.get('http')?.origin ?? fail('provider_unavailable');
+        return { url: origin + '/v1/mcp', tokenEnv };
+      },
       events: {
         readScope: () => { ensure(); requirePermission(principal, 'events:read'); return { principalId: principal.id, sources: structuredClone(principal.readSources) }; },
         info: async () => { ensure(); const info = await this.store.info(); return { storeId: info.storeId, latestSeq: info.latestSeq }; },
@@ -197,6 +211,15 @@ export class Host {
     };
     this.bindings.set(ctx.fiber, api);
     return api;
+  }
+  private async operate(principal: Principal, id: string, generation: string, action: string, input: unknown): Promise<JsonValue> {
+    requirePermission(principal, 'admin:operate');
+    const runtime = this.runtimes.get(id) ?? fail('not_found');
+    if (this.closing || runtime.state !== 'active' || runtime.controller?.signal.aborted) fail('provider_unavailable');
+    if (runtime.operation) fail('busy');
+    const operation = this.admin.execute(principal, id, generation, action, input);
+    runtime.operation = operation;
+    try { return await operation; } finally { runtime.operation = undefined; }
   }
   async startPlugin(id: string): Promise<void> {
     if (this.closing) fail('provider_unavailable');
@@ -244,6 +267,7 @@ export class Host {
     runtime.controller?.abort();
     const errors = runtime.errors;
     try {
+      if (runtime.operation) await this.bounded(runtime.operation.catch(() => {}));
       for (const dispose of runtime.cleanup) dispose();
       await this.bounded(this.capabilities.drain(id));
       if (runtime.fiber) await this.bounded(runtime.fiber.dispose());

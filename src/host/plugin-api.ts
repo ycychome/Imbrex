@@ -12,6 +12,7 @@ export interface PluginApi {
   readonly signal: AbortSignal;
   whenReady(): Promise<void>;
   registerAdminPanel(panel: AdminPanel): () => void;
+  agentEndpoint(principalId: string): { url: string; tokenEnv: string };
   events: {
     info(): Promise<{ storeId: string; latestSeq: bigint }>;
     readScope(): ReadScope;
