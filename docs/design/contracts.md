@@ -315,10 +315,22 @@ agent-chat 登记以下动作；表中 params 的字段均必填，禁止额外�
 | save-filter | {revision,filter:{group_ids,private_user_ids}} | {status,action,revision,application_status:"pending"}；名单规范化，当前轮结束后应用；未决状态仅保存、不应用 |
 | recover-input | {seq,source,id,disposition,reason} | disposition 为 processed/abandoned，seq 为十进制字符串；仅处置暂停中的精确未决引用。返回 resolved_seq、disposition、operation_id、resumed |
 | reset-session | {source,session_id,reason} | 匹配完整 source 和当前会话 ID；该会话活跃或有未决项时拒绝。返回 source、session_id、operation_id、resumed |
-| save-agent-config | {revision,settings:{model,context_window,system_prompt}} | 仅托管实例登记；返回 revision、application_status:"pending_restart" |
+| save-agent-config | {revision,settings:{model,context_window,system_prompt,max_tokens?}} | 仅托管实例登记；返回 revision、application_status:"pending_restart" |
+| save-runtime-settings | {revision,turn_timeout_ms} | 保存后立即用于之后开始的轮次；返回 revision 与 timeout_ms |
 | restart-agent | {revision,reason} | 仅托管实例登记；无活跃或未决输入时应用保存值。返回 revision、operation_id、application_status（applied/awaiting_session） |
 
-filter 两个数组各最多 1000 个规范原生 ID，空数组不放行该类型；不提供 null 恢复为无限制的在线动作。model 最多 256 字节，context_window 为 1024—2000000 的整数，system_prompt 可为空、最多 32768 UTF-8 字节；其他业务校验错误为 400 invalid_request。管理过程和结果不会回传真实凭据、原始 ACP 异常或原因正文。
+filter 两个数组各最多 1000 个规范原生 ID，空数组不放行该类型；不提供 null 恢复为无限制的在线动作。model 最多 256 字节，context_window 为 1024—2000000 的整数，max_tokens 为 256—262144 的整数（缺省按 min(16384, context_window/2)），system_prompt 可为空、最多 32768 UTF-8 字节；turn_timeout_ms 为 10—600000 的整数。其他业务校验错误为 400 invalid_request。
+
+onebot-v11 登记以下动作；名单、伴生进程与日志都留在插件私有数据目录，不重写宿主配置。名单修改即时更新内存映射，不需要重连；移除后已接纳消息的 reply 也按当前名单拒绝。
+
+| action | params | 成功结果与边界 |
+| --- | --- | --- |
+| save-runtime-filters | {group_ids,private_user_ids} | 覆盖插件私有名单并即时生效；每类最多 1024 个 |
+| allow-conversation | {kind:"group"\|"private",id} | 追加一个会话并持久化；用于拦截记录的一键放行 |
+| reset-runtime-config | {} | 删除私有名单，恢复宿主 allow_* |
+| save-managed-process | {enabled,command?,args?,cwd?,env_vars?} | 写私有设置，不改变正在运行的进程；启动/重启后生效 |
+| start/stop/restart-managed-process | {} | 控制伴生进程；端口已占用时视为外部进程，不 spawn |
+| reconnect | {} | 关闭当前 WebSocket，由重连循环恢复 |管理过程和结果不会回传真实凭据、原始 ACP 异常或原因正文。
 
 调用审计按 (caller_id,call_id) 的 SQLite BINARY 字典序分页，两项 after 参数必须同时出现，从 next 原样填入；不是时间排序。status 仅允许 in_progress/succeeded/failed/unknown。各页为新的查询视图，状态可改变，新调用可插入旧位置之前；刷新从头查询可观察新变化，不承诺跨页快照。普通 /v1/calls/{call_id} 仍只能由所属主体查询。
 

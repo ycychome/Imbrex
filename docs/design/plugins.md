@@ -168,4 +168,6 @@ Admin 只读取注册表并提供认证后的页面/API；业务插件不依赖 
 
 动作数组最多 16 项，每项包含 id、title、inputSchema、可选 confirmText 与 execute(input, principal)。宿主编译 schema，不做默认值填充或类型强转；输入须为 JSON。执行前核对 admin:operate、实例 generation 和可用生命周期，同实例最多一个操作。宿主停止时先中止实例信号并等待操作；业务所有者同时负责依赖卸载时等待自己的操作和状态写入，不在注销后启动新工作。Admin 卸载不撤销已经受理的其他实例动作。
 
+允许在线调整的插件参数写入插件私有数据目录，宿主配置文件保持只读：OneBot 的采集名单与伴生进程在 `data/plugins/<instance>/config.json`，Agent 的单轮超时在消费状态。私有配置损坏时回退宿主并在面板报告，不阻塞插件启动。
+
 api.agentEndpoint(principalId) 是内置 agent-chat 专用的托管配置入口，仅在 MCP 已登记时返回实际 /v1/mcp URL 与 token_env 名称。它验证目标主体拥有 events:read、没有 admin 权限，且 Consumer 的全部读取范围被该主体覆盖；不返回秘密，也不允许普通插件任意 impersonation。
