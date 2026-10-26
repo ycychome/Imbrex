@@ -68,6 +68,9 @@ watch(identity, (_value, previous) => {
   closeSheet(); selectedSource.value = '';
   if (previous && entry.value) identityNotice.value = '实例、代次或存储已改变；旧编辑与确认已清除，请核对当前面板后再操作。';
 });
+watch([narrow, tab, selectedSource], () => {
+  if (!narrow.value || tab.value !== 'runtime' || !selectedSource.value) closeSheet();
+}, { flush: 'sync' });
 watch([narrow, sheetOpen, selectedSource, entry], () => {
   if (narrow.value && sheetOpen.value && selectedSource.value && entry.value) {
     if (sheet.value && !sheet.value.open) sheet.value.showModal();
@@ -212,7 +215,7 @@ function onInstance(event: Event): void {
     </template>
 
     <Teleport to="body">
-      <template v-if="narrow && sheetOpen && selectedSource && entry">
+      <template v-if="narrow && tab === 'runtime' && sheetOpen && selectedSource && entry">
         <dialog ref="sheet" class="sheet" aria-label="会话详情" @cancel.prevent="closeSheet" @close="closeSheet" @click="($event.target === sheet) && closeSheet()">
           <SessionInspector
             :key="sessionKey"

@@ -101,12 +101,16 @@ export function actionOf(summary: PanelSummary, id: string): boolean {
 export async function operate(client: ViewClient, summary: PanelSummary, storeId: string, action: string, params: unknown): Promise<Outcome> {
   const path = '/api/admin/panels/' + encodeURIComponent(summary.instance_id) + '/actions/' + encodeURIComponent(action);
   try {
-    const body = await client.request<{ result?: unknown }>(path, {
+    const body = record(await client.request<unknown>(path, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ store_id: storeId, generation: summary.generation, params }),
-    });
-    return { ok: true, status: 200, code: '', message: '', result: record(body.result) ?? {} };
+    }));
+    const result = record(body?.result);
+    if (body?.store_id !== storeId || body.instance_id !== summary.instance_id || !result || !['succeeded', 'failed'].includes(text(result.status))) {
+      return { ok: false, status: 0, code: 'invalid_response', message: '管理 API 响应身份或结果无效；操作结果未知，请重新读取面板后再决定。', result: {} };
+    }
+    return { ok: true, status: 200, code: '', message: '', result };
   } catch (error) {
     const status = typeof record(error)?.status === 'number' ? record(error)!.status as number : 0;
     const code = text(record(error)?.code, 'request_failed');
