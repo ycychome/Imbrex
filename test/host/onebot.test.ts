@@ -310,3 +310,20 @@ test('post-rename sync failure suspends ingress and later writes until persisted
   assert.deepEqual(object((await panel()).scope).group_ids, []);
   assert.equal(object((await panel()).runtime_config).error, null);
 });
+
+test('known companion startup failures never return a succeeded management result', async (t) => {
+  const { app, sim, act, panel, config } = await fixture(t, false, true, true);
+  await sim.close();
+  sim.close = async () => {};
+  for (const descriptor of [
+    { enabled: true, command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], cwd: config.dataDir, env_vars: ['IMBREX_COMPANION_MISSING_TEST_SECRET'] },
+    { enabled: true, command: join(config.dataDir, 'missing-executable'), args: [], cwd: config.dataDir, env_vars: [] },
+  ]) {
+    assert.equal((await act('save-managed-process', descriptor)).status, 200);
+    const result = await act('start-managed-process', {});
+    assert.equal(result.status, 200); assert.equal(object(result.body.result).status, 'failed');
+    assert.equal(object(result.body.result).inspect_required, true);
+    assert.equal(object(object((await panel()).managed_process).active).state, 'exited');
+  }
+  await app.stopPlugin('qq-main');
+});

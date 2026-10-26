@@ -184,6 +184,8 @@ OneBot 与 Agent 分别提供实例绑定的管理面板，Admin 启停不打断
 
 面板保留最近 80 行 stdout/stderr。登录 URL 与二维码内容原样保留，只对 Authorization 与令牌类环境变量的值做脱敏。管理动作：`save-runtime-filters`、`allow-conversation`、`reset-runtime-config`、`save-managed-process`、`start-managed-process`、`stop-managed-process`、`restart-managed-process`、`reconnect`。面板 data 暴露 `scope`、`runtime_config`、`managed_process`（saved/active）与最近 10 条 `intercepts`。
 
+启动动作等待监督进程确认实际创建子进程后才返回；这不表示 WebSocket 身份已核验或端口已就绪，后续以面板状态为准。缺少环境、可执行文件或启动确认失败返回 failed 结果及 inspect_required，不以 succeeded 掩盖已知的 exited 状态。
+
 ## 8. 兼性怎样记录
 
 | 对象 | 当前证据 | 运行兼容状态 |

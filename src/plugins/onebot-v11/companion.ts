@@ -115,14 +115,14 @@ export class Companion {
       this.state = 'exited';
       this.error = 'managed_process_incomplete';
       this.push('managed process needs command and cwd');
-      return;
+      throw new Error(this.error);
     }
     const env = Object.create(null) as Record<string, string>;
     for (const key of [...INHERITED, ...(this.config.env_vars ?? [])]) {
       const value = process.env[key];
       if (value === undefined) {
         if ((this.config.env_vars ?? []).includes(key)) {
-          this.state = 'exited'; this.error = 'managed_process_env_missing'; this.push(`missing environment variable ${key}`); return;
+          this.state = 'exited'; this.error = 'managed_process_env_missing'; this.push(`missing environment variable ${key}`); throw new Error(this.error);
         }
         continue;
       }
@@ -136,7 +136,9 @@ export class Companion {
     this.signal = null;
     this.error = undefined;
     this.state = 'starting';
+    let startupTimer: ReturnType<typeof setTimeout> | undefined;
     try {
+      const started = Promise.withResolvers<void>();
       const child = spawn('tini', ['-s', '--', process.execPath, fileURLToPath(new URL('./companion-supervisor.js', import.meta.url))], {
         stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       });
@@ -161,13 +163,14 @@ export class Companion {
       }
       child.once('error', (cause) => {
         this.cleanupOk = true; this.error = 'managed_process_spawn_failed';
+        started.reject(new Error(this.error));
         this.push(`spawn failed: ${redact(cause.message, this.secrets)}`);
       });
       child.on('message', (raw: unknown) => {
         if (this.child !== child || !raw || typeof raw !== 'object') return;
         const value = raw as Record<string, unknown>;
-        if (value.type === 'started' && typeof value.pid === 'number') this.pid = value.pid;
-        if (value.type === 'error') this.error = 'managed_process_spawn_failed';
+        if (value.type === 'started' && typeof value.pid === 'number' && Number.isSafeInteger(value.pid) && value.pid > 1) { this.pid = value.pid; started.resolve(); }
+        if (value.type === 'error') { this.error = 'managed_process_spawn_failed'; started.reject(new Error(this.error)); }
         if (value.type === 'stopped') {
           this.cleanupOk = value.cleanup_ok === true;
           this.exitCode = typeof value.exit_code === 'number' ? value.exit_code : null;
@@ -179,23 +182,30 @@ export class Companion {
         this.cleanupOk = this.cleanupOk && (code === 0 || this.error === 'managed_process_spawn_failed');
         if (this.child === child) { this.child = undefined; this.pid = undefined; }
         if (!this.cleanupOk) this.error = 'managed_process_cleanup_failed';
+        started.reject(new Error(this.error ?? 'managed_process_exited'));
         this.state = this.stopping && this.cleanupOk ? 'stopped' : 'exited';
         this.push(`process exited code=${this.exitCode ?? 'null'} signal=${this.signal ?? 'null'}`);
         resolve();
       }));
       child.send({ type: 'start', command, args: this.active.args ?? [], cwd, env }, (error) => {
-        if (error) { this.error = 'managed_process_spawn_failed'; child.kill('SIGTERM'); }
+        if (error) { this.error = 'managed_process_spawn_failed'; started.reject(new Error(this.error)); child.kill('SIGTERM'); }
       });
+      await Promise.race([started.promise, new Promise<never>((_, reject) => {
+        startupTimer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error('managed_process_start_timeout')); }, 5000);
+      })]);
+      if (generation !== this.generation || this.stopping) return;
       this.readyController = new AbortController();
       this.readiness = this.waitReady(child, this.readyController.signal).catch(() => {
         if (this.child === child && !this.stopping) { this.state = 'unready'; this.error = 'managed_process_not_listening'; }
       });
     } catch (cause) {
-      this.state = 'exited';
-      this.error = 'managed_process_spawn_failed';
+      const child = this.child;
+      if (child) { child.kill('SIGTERM'); await this.closed; }
+      if (generation !== this.generation || this.stopping) return;
+      this.state = 'exited'; this.error ??= 'managed_process_spawn_failed';
       this.push('spawn failed: managed_process_spawn_failed');
-      return;
-    }
+      throw cause;
+    } finally { clearTimeout(startupTimer); }
   }
 
   private async waitReady(child: ChildProcess, signal: AbortSignal): Promise<void> {
