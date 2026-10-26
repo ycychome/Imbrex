@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { ViewClient } from '@imbrex/ui-contract';
 import type { PanelSummary } from '@imbrex/ui-contract/ui';
 import { Chip, CopyButton } from '@imbrex/ui-contract/ui';
@@ -13,9 +13,9 @@ const sessions = computed(() => record(props.data.sessions) ?? {});
 const session = computed(() => text(sessions.value[props.source]));
 const inFlight = computed(() => record(props.data.in_flight));
 const active = computed(() => inFlight.value?.source === props.source);
-const model = computed(() => text(record(management.value?.observed_models)?.[props.source], '未提供'));
+const model = computed(() => text(record(management.value?.observed_models)?.[session.value], '未提供'));
 const usage = computed(() => {
-  const value = record(management.value?.observed_usage)?.[props.source];
+  const value = record(management.value?.observed_usage)?.[session.value];
   const item = record(value);
   return item && typeof item.used === 'number' && typeof item.size === 'number' ? { used: item.used, size: item.size } : null;
 });
@@ -24,9 +24,10 @@ const reason = ref('');
 const busy = ref(false);
 const notice = ref('');
 const failure = ref('');
+watch(() => JSON.stringify([props.summary.instance_id, props.summary.generation, props.storeId, props.source, session.value, active.value]), () => { reason.value = ''; notice.value = ''; failure.value = ''; });
 
 async function reset(): Promise<void> {
-  if (!session.value || busy.value) return;
+  if (!session.value || busy.value || active.value) return;
   const value = reason.value.trim();
   if (!value || byteLength(value) > 2048) { failure.value = '原因必填，最多 2048 字节。'; return; }
   busy.value = true; failure.value = ''; notice.value = '';

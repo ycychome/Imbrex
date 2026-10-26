@@ -79,6 +79,7 @@ export function usePanels(client: ViewClient, module: string, intervalMs = 5000)
   let timer: number | undefined;
   let busy = false;
   let disposed = false;
+  let reading: Promise<void> | undefined;
 
   async function detail(summary: PanelSummary): Promise<PanelDetail> {
     const path = '/api/admin/panels/' + encodeURIComponent(summary.instance_id);
@@ -94,7 +95,13 @@ export function usePanels(client: ViewClient, module: string, intervalMs = 5000)
   }
 
   async function load(): Promise<void> {
-    if (busy || disposed || paused.value) return;
+    if (reading) { await reading; return await load(); }
+    if (disposed) return;
+    reading = read();
+    try { await reading; } finally { reading = undefined; }
+  }
+
+  async function read(): Promise<void> {
     busy = true;
     loading.value = true;
     try {
@@ -102,6 +109,7 @@ export function usePanels(client: ViewClient, module: string, intervalMs = 5000)
       const next = await Promise.all(list.panels.filter((summary) => summary.module === module).map(async (summary): Promise<PanelEntry> => {
         try {
           const value = await detail(summary);
+          if (value.instance_id !== summary.instance_id || value.generation !== summary.generation) throw new Error('Panel identity changed; refresh before operating.');
           return { summary, detail: value, failure: null, view: value.error ? null : asPanelView(value.data) };
         } catch (failure) {
           if (isAbort(failure)) throw failure;
@@ -130,7 +138,7 @@ export function usePanels(client: ViewClient, module: string, intervalMs = 5000)
     stop();
     if (disposed) return;
     void load();
-    timer = window.setInterval(() => { void load(); }, intervalMs);
+    timer = window.setInterval(() => { if (!paused.value && !busy) void load(); }, intervalMs);
   }
 
   function toggle(): void {

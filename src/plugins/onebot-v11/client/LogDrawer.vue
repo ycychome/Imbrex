@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { CopyButton } from '@imbrex/ui-contract/ui';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 
 defineProps<{ logs: string[] }>();
 const emit = defineEmits<{ close: [] }>();
+const dialog = ref<HTMLDialogElement | null>(null);
+onMounted(() => dialog.value?.showModal());
+onBeforeUnmount(() => dialog.value?.close());
 </script>
 
 <template>
   <Teleport to="body">
-    <button type="button" class="log-scrim" aria-label="关闭日志" @click="emit('close')" />
-    <aside class="log-drawer" role="dialog" aria-modal="true" aria-labelledby="log-title">
+    <dialog ref="dialog" class="log-drawer" aria-labelledby="log-title" @cancel.prevent="emit('close')" @close="emit('close')" @click="($event.target === dialog) && emit('close')">
       <header class="flex items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
         <div class="min-w-0">
           <h2 id="log-title" class="text-sm font-semibold">伴生服务日志</h2>
@@ -23,18 +26,13 @@ const emit = defineEmits<{ close: [] }>();
         <pre v-if="logs.length" class="log-lines">{{ logs.join('\n') }}</pre>
         <p v-else class="px-2 py-8 text-center text-xs text-[var(--muted)]">暂无日志。启用伴生进程并启动后，这里会显示输出。</p>
       </div>
-    </aside>
+    </dialog>
   </Teleport>
 </template>
 
 <style scoped>
-.log-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  border: 0;
+.log-drawer::backdrop {
   background: rgb(18 17 16 / 48%);
-  cursor: pointer;
 }
 
 .log-drawer {
@@ -43,12 +41,22 @@ const emit = defineEmits<{ close: [] }>();
   right: 0;
   bottom: 0;
   z-index: 51;
-  display: flex;
-  flex-direction: column;
+  margin: 0 0 0 auto;
+  padding: 0;
+  height: 100dvh;
+  max-height: none;
+  max-width: none;
+  border: 0;
+  color: var(--text);
   width: min(620px, 100vw);
   border-left: 1px solid var(--line);
   background: var(--surface);
   box-shadow: 0 12px 40px rgb(0 0 0 / 28%);
+}
+
+.log-drawer[open] {
+  display: flex;
+  flex-direction: column;
 }
 
 .log-lines {

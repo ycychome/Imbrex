@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { Chip } from '@imbrex/ui-contract/ui';
 
 const props = defineProps<{
@@ -12,8 +12,10 @@ const groupInput = ref('');
 const privateInput = ref('');
 const error = ref('');
 const resetConfirm = ref(false);
+watch(() => JSON.stringify(props.scope), () => { resetConfirm.value = false; });
 
 function add(kind: 'group' | 'private'): void {
+  if (props.busy) return;
   const input = kind === 'group' ? groupInput : privateInput;
   const id = input.value.trim();
   error.value = '';
@@ -28,6 +30,7 @@ function add(kind: 'group' | 'private'): void {
 }
 
 function remove(kind: 'group' | 'private', id: string): void {
+  if (props.busy) return;
   emit('save', {
     group_ids: kind === 'group' ? props.scope.group_ids.filter((item) => item !== id) : [...props.scope.group_ids],
     private_user_ids: kind === 'private' ? props.scope.private_user_ids.filter((item) => item !== id) : [...props.scope.private_user_ids],
@@ -35,6 +38,7 @@ function remove(kind: 'group' | 'private', id: string): void {
 }
 
 function reset(): void {
+  if (props.busy) return;
   resetConfirm.value = false;
   emit('reset');
 }

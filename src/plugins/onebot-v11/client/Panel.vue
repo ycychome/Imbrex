@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { ViewClient } from '@imbrex/ui-contract';
 import { Chip, EmptyState, ErrorNotice, JsonBlock, KeyValueList, PageHeader, RelativeTime, formatDateTime, formatReading, usePanels, type KeyValueEntry } from '@imbrex/ui-contract/ui';
 import { act, number, record, resultFailed, strings, text } from './actions';
@@ -18,22 +18,30 @@ function instanceFromHash(): string {
 
 const selectedId = ref(instanceFromHash());
 
-onMounted(() => {
+function readHash(): void {
+  if (location.hash.split('?')[0] !== '#/onebot') return;
   const instance = instanceFromHash();
-  if (instance) selectedId.value = instance;
+  selectedId.value = instance || entries.value[0]?.summary.instance_id || '';
+}
+onMounted(() => {
+  readHash();
+  window.addEventListener('hashchange', readHash);
 });
+onUnmounted(() => window.removeEventListener('hashchange', readHash));
 watch(entries, (list) => {
   if (!list.length) { selectedId.value = ''; return; }
   if (!list.some((item) => item.summary.instance_id === selectedId.value)) selectedId.value = list[0]!.summary.instance_id;
 }, { immediate: true });
 watch(selectedId, (id) => {
   const base = location.hash.split('?')[0] || '#/onebot';
+  if (base !== '#/onebot') return;
   history.replaceState(null, '', id ? `${base}?instance=${id}` : base);
 });
 
 const entry = computed(() => entries.value.find((item) => item.summary.instance_id === selectedId.value) ?? entries.value[0] ?? null);
 const data = computed(() => record(entry.value?.view?.data) ?? {});
 const storeId = computed(() => text(data.value.store_id));
+const identity = computed(() => JSON.stringify([entry.value?.summary.instance_id, entry.value?.summary.generation, storeId.value]));
 const binding = computed(() => record(data.value.binding) ?? {});
 const connection = computed(() => record(data.value.connection_metrics));
 const runtimeError = computed(() => text(record(data.value.runtime_config)?.error));
@@ -105,24 +113,41 @@ const notice = ref('');
 const failure = ref('');
 const settingsOpen = ref(false);
 const logsOpen = ref(false);
+const needsRefresh = ref(false);
+const controlsBusy = computed(() => busy.value || loading.value || needsRefresh.value || !entry.value?.view);
+watch(identity, (_value, previous) => {
+  settingsOpen.value = false; logsOpen.value = false; failure.value = ''; needsRefresh.value = false;
+  notice.value = previous && entry.value ? '实例、代次或存储已改变；旧编辑与确认已清除，请核对当前面板后再操作。' : '';
+});
+watch(updatedAt, () => { if (entry.value?.view) needsRefresh.value = false; });
 
 async function run(action: string, params: unknown, success: string): Promise<void> {
   const current = entry.value;
-  if (!current || busy.value) return;
+  if (!current?.view || controlsBusy.value) return;
+  const target = identity.value;
   busy.value = true;
   notice.value = '';
   failure.value = '';
   const outcome = await act(props.client, current.summary, storeId.value, action, params);
-  busy.value = false;
-  if (!outcome.ok) {
-    failure.value = outcome.message;
-    if (outcome.status === 409) void load();
-    return;
+  if (target === identity.value) {
+    if (!outcome.ok) failure.value = outcome.message;
+    else {
+      const failed = resultFailed(outcome.result);
+      if (failed) failure.value = failed;
+      else {
+        notice.value = success;
+        const savedScope = record(outcome.result.scope);
+        if (savedScope && Array.isArray(savedScope.group_ids) && savedScope.group_ids.every((id) => typeof id === 'string')
+          && Array.isArray(savedScope.private_user_ids) && savedScope.private_user_ids.every((id) => typeof id === 'string')) {
+          entries.value = entries.value.map((item) => item.summary.instance_id === current.summary.instance_id
+            && item.summary.generation === current.summary.generation && text(item.view?.data.store_id) === storeId.value && item.view
+            ? { ...item, view: { ...item.view, data: { ...item.view.data, scope: savedScope } } } : item);
+        }
+      }
+    }
+    needsRefresh.value = true;
   }
-  const failed = resultFailed(outcome.result);
-  if (failed) { failure.value = failed; return; }
-  notice.value = success;
-  void load();
+  try { await load(); } finally { busy.value = false; }
 }
 
 function saveScope(next: { group_ids: string[]; private_user_ids: string[] }): void {
@@ -197,21 +222,21 @@ function selectInstance(value: string): void {
           <div>
             <p class="label">已接纳 / 重复 / 排队</p>
             <p class="mt-0.5 font-mono text-lg font-semibold tabular-nums">
-              {{ text(data.accepted_events, '0') }} / {{ text(data.duplicate_events, '0') }} / {{ text(data.queued_events, '0') }}
+              {{ display(data.accepted_events) }} / {{ display(data.duplicate_events) }} / {{ display(data.queued_events) }}
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2 lg:justify-end">
-            <button type="button" class="btn btn-sm" :disabled="busy" @click="run('reconnect', {}, '已请求重新连接。')">刷新连接</button>
-            <button type="button" class="btn btn-sm" :disabled="busy" @click="settingsOpen = true">进程设置</button>
+            <button type="button" class="btn btn-sm" :disabled="controlsBusy" @click="run('reconnect', {}, '已请求重新连接。')">刷新连接</button>
+            <button type="button" class="btn btn-sm" :disabled="controlsBusy" @click="settingsOpen = true">进程设置</button>
             <button type="button" class="btn btn-sm" :disabled="!managed.logs.length" @click="logsOpen = true">运行日志</button>
           </div>
         </div>
 
         <div v-if="managed.saved.enabled" class="flex flex-wrap items-center gap-2 border-t border-[var(--line)] px-4 py-3">
           <span class="text-[11px] text-[var(--muted)]">伴生进程</span>
-          <button type="button" class="btn btn-sm" :disabled="busy || managed.active.state === 'running' || managed.active.state === 'external'" @click="run('start-managed-process', {}, '已请求启动伴生进程。')">启动</button>
-          <button type="button" class="btn btn-sm" :disabled="busy || !['running', 'starting', 'unready'].includes(managed.active.state)" @click="run('stop-managed-process', {}, '已请求停止伴生进程。')">停止</button>
-          <button type="button" class="btn btn-sm" :disabled="busy || managed.active.state === 'external'" @click="run('restart-managed-process', {}, '已请求重启伴生进程。')">重启</button>
+          <button type="button" class="btn btn-sm" :disabled="controlsBusy || managed.active.state === 'running' || managed.active.state === 'external'" @click="run('start-managed-process', {}, '已请求启动伴生进程。')">启动</button>
+          <button type="button" class="btn btn-sm" :disabled="controlsBusy || !['running', 'starting', 'unready'].includes(managed.active.state)" @click="run('stop-managed-process', {}, '已请求停止伴生进程。')">停止</button>
+          <button type="button" class="btn btn-sm" :disabled="controlsBusy || managed.active.state === 'external'" @click="run('restart-managed-process', {}, '已请求重启伴生进程。')">重启</button>
           <span v-if="managed.active.state === 'external'" class="text-[11px] text-[var(--muted)]">端口已有进程，当前为 attach 模式，不托管。</span>
           <span v-else-if="managed.active.state === 'exited' && managed.active.error" class="break-all font-mono text-[11px] text-[var(--bad)]">{{ managed.active.error }}</span>
         </div>
@@ -222,14 +247,20 @@ function selectInstance(value: string): void {
       </section>
 
       <p v-if="runtimeError" class="notice-warn">
-        插件私有配置无法读取（{{ runtimeError }}），已回退到宿主配置；保存一次即可覆盖损坏文件。
+        <template v-if="runtimeError === 'runtime_config_write_failed'">
+          插件私有配置写入失败（{{ runtimeError }}），该实例已暂停采集；请先核验私有配置，再重启实例。
+        </template>
+        <template v-else>
+          插件私有配置无法读取（{{ runtimeError }}），已回退到宿主配置；保存一次即可覆盖损坏文件。
+        </template>
       </p>
 
-      <ScopeEditor :scope="scope" :busy="busy" @save="saveScope" @reset="resetScope" />
-      <InterceptList :items="intercepts" :busy="busy" @allow="allow" />
+      <ScopeEditor :key="identity" :scope="scope" :busy="controlsBusy" @save="saveScope" @reset="resetScope" />
+      <InterceptList :items="intercepts" :busy="controlsBusy" @allow="allow" />
 
-      <p v-if="notice" class="notice-warn">{{ notice }}</p>
-      <p v-if="failure" class="notice-bad">{{ failure }}</p>
+      <p v-if="notice" role="status" class="notice-warn">{{ notice }}</p>
+      <p v-if="failure" role="alert" class="notice-bad">{{ failure }}</p>
+      <p v-if="needsRefresh && !busy" class="notice-warn">请刷新并核对最新面板后再操作。</p>
 
       <details class="panel p-4">
         <summary class="cursor-pointer text-xs font-medium text-[var(--muted)]">原始面板数据</summary>
@@ -241,16 +272,21 @@ function selectInstance(value: string): void {
 
     <ProcessDrawer
       v-if="settingsOpen && entry"
+      :key="identity"
       :saved="managed.saved"
       :active="managed.active"
-      :busy="busy"
+      :busy="controlsBusy"
+      :notice="notice"
+      :failure="failure"
+      :needs-refresh="needsRefresh && !busy"
+      @refresh="load"
       @close="settingsOpen = false"
       @save="saveManaged"
       @start="run('start-managed-process', {}, '已请求启动伴生进程。')"
       @stop="run('stop-managed-process', {}, '已请求停止伴生进程。')"
       @restart="run('restart-managed-process', {}, '已请求重启伴生进程。')"
     />
-    <LogDrawer v-if="logsOpen && entry" :logs="managed.logs" @close="logsOpen = false" />
+    <LogDrawer v-if="logsOpen && entry" :key="identity" :logs="managed.logs" @close="logsOpen = false" />
   </main>
 </template>
 

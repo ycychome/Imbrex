@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 
 const props = defineProps<{
   saved: { enabled: boolean; command?: string; args?: string[]; cwd?: string; env_vars?: string[] };
   active: { state: string; pid?: number; exit_code?: number | null; error?: string };
   busy: boolean;
+  notice: string;
+  failure: string;
+  needsRefresh: boolean;
 }>();
 const emit = defineEmits<{
   close: [];
@@ -12,6 +15,7 @@ const emit = defineEmits<{
   start: [];
   stop: [];
   restart: [];
+  refresh: [];
 }>();
 
 const enabled = ref(false);
@@ -20,6 +24,9 @@ const argsText = ref('');
 const cwd = ref('');
 const envText = ref('');
 const localError = ref('');
+const dialog = ref<HTMLDialogElement | null>(null);
+onMounted(() => dialog.value?.showModal());
+onBeforeUnmount(() => dialog.value?.close());
 
 function sync(): void {
   enabled.value = props.saved.enabled;
@@ -42,13 +49,14 @@ const stateLabels: Record<string, string> = {
 };
 
 function save(): void {
+  if (props.busy) return;
   localError.value = '';
   if (enabled.value && !command.value.trim()) { localError.value = '启用托管时必须填写 command。'; return; }
   if (enabled.value && !cwd.value.trim()) { localError.value = '启用托管时必须填写 cwd。'; return; }
   emit('save', {
     enabled: enabled.value,
     ...(command.value.trim() ? { command: command.value.trim() } : {}),
-    args: argsText.value.split('\n').map((line) => line.trim()).filter(Boolean),
+    args: argsText.value === (props.saved.args ?? []).join('\n') ? [...(props.saved.args ?? [])] : argsText.value === '' ? [] : argsText.value.split('\n'),
     ...(cwd.value.trim() ? { cwd: cwd.value.trim() } : {}),
     env_vars: envText.value.split(/[\s,]+/).filter(Boolean),
   });
@@ -57,8 +65,7 @@ function save(): void {
 
 <template>
   <Teleport to="body">
-    <button type="button" class="drawer-scrim" aria-label="关闭设置" @click="emit('close')" />
-    <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="process-title">
+    <dialog ref="dialog" class="drawer" aria-labelledby="process-title" @cancel.prevent="emit('close')" @close="emit('close')" @click="($event.target === dialog) && emit('close')">
       <header class="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
         <div>
           <h2 id="process-title" class="text-sm font-semibold">伴生进程</h2>
@@ -107,7 +114,9 @@ function save(): void {
           <p class="mt-1 text-[11px] leading-relaxed text-[var(--faint)]">只传递宿主环境中的变量名，不在这里保存值。</p>
         </details>
 
-        <p v-if="localError" class="mt-2 text-[11px] text-[var(--bad)]">{{ localError }}</p>
+        <p v-if="localError || failure" role="alert" class="mt-2 text-[11px] text-[var(--bad)]">{{ localError || failure }}</p>
+        <p v-if="notice" role="status" class="mt-2 text-[11px] text-[var(--muted)]">{{ notice }}</p>
+        <button v-if="needsRefresh" type="button" class="btn btn-sm mt-2" @click="emit('refresh')">刷新并核对面板</button>
       </div>
 
       <footer class="flex flex-wrap items-center gap-2 border-t border-[var(--line)] px-4 py-3">
@@ -116,18 +125,13 @@ function save(): void {
         <button type="button" class="btn btn-sm" :disabled="busy || !['running', 'starting', 'unready'].includes(active.state)" @click="emit('stop')">停止</button>
         <button type="button" class="btn btn-sm" :disabled="busy || !saved.enabled || active.state === 'external'" @click="emit('restart')">重启</button>
       </footer>
-    </aside>
+    </dialog>
   </Teleport>
 </template>
 
 <style scoped>
-.drawer-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  border: 0;
+.drawer::backdrop {
   background: rgb(18 17 16 / 48%);
-  cursor: pointer;
 }
 
 .drawer {
@@ -136,11 +140,21 @@ function save(): void {
   right: 0;
   bottom: 0;
   z-index: 51;
-  display: flex;
-  flex-direction: column;
+  margin: 0 0 0 auto;
+  padding: 0;
+  height: 100dvh;
+  max-height: none;
+  max-width: none;
+  border: 0;
+  color: var(--text);
   width: min(440px, 100vw);
   border-left: 1px solid var(--line);
   background: var(--surface);
   box-shadow: 0 12px 40px rgb(0 0 0 / 28%);
+}
+
+.drawer[open] {
+  display: flex;
+  flex-direction: column;
 }
 </style>

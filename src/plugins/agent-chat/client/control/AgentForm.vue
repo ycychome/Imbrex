@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import type { ViewClient } from '@imbrex/ui-contract';
 import type { PanelSummary } from '@imbrex/ui-contract/ui';
 import { Chip } from '@imbrex/ui-contract/ui';
@@ -26,6 +26,10 @@ const notice = ref('');
 const failure = ref('');
 const confirming = ref(false);
 const reason = ref('');
+const conflict = ref(false);
+const restartRevision = ref('');
+let noticeTimer: number | undefined;
+onUnmounted(() => window.clearTimeout(noticeTimer));
 
 function sync(): void {
   const saved = pi.value?.saved;
@@ -33,10 +37,10 @@ function sync(): void {
   window_.value = saved ? String(saved.context_window) : '128000';
   maxTokens.value = String(saved?.max_tokens ?? (saved ? Math.min(16384, Math.floor(saved.context_window / 2)) : 2048));
   prompt.value = saved?.system_prompt ?? '';
+  conflict.value = false;
 }
 
 sync();
-watch(() => management.value?.revision, sync);
 
 const promptBytes = computed(() => byteLength(prompt.value));
 const modelBytes = computed(() => byteLength(model.value.trim()));
@@ -54,6 +58,15 @@ const dirty = computed(() => {
   const tokens = current.max_tokens ?? Math.min(16384, Math.floor(current.context_window / 2));
   return model.value.trim() !== current.model || windowValue.value !== current.context_window
     || prompt.value !== current.system_prompt || maxTokensValue.value !== tokens;
+});
+const savedKey = computed(() => {
+  const current = saved.value;
+  return current ? JSON.stringify({ model: current.model, context_window: current.context_window, system_prompt: current.system_prompt, max_tokens: current.max_tokens ?? Math.min(16384, Math.floor(current.context_window / 2)) }) : '';
+});
+const draftKey = computed(() => JSON.stringify({ model: model.value.trim(), context_window: windowValue.value, system_prompt: prompt.value, max_tokens: maxTokensValue.value }));
+watch(savedKey, (value, previous) => {
+  if (draftKey.value !== previous && draftKey.value !== value) conflict.value = true;
+  else sync();
 });
 const status = computed(() => management.value?.pi_status ?? 'unmanaged');
 const statusLabels: Record<string, string> = {
@@ -85,6 +98,7 @@ const restartHint = computed(() => {
   if (status.value === 'applying') return '上一次应用尚未完成。';
   return '只重启 pi-acp/pi；宿主、HTTP、OneBot 与其他插件保持运行。';
 });
+watch(() => JSON.stringify([management.value?.revision, inFlight.value, status.value]), () => { confirming.value = false; reason.value = ''; restartRevision.value = ''; });
 
 const observedModels = computed(() => Object.entries(management.value?.observed_models ?? {}));
 const observedUsage = computed(() => Object.entries(management.value?.observed_usage ?? {}));
@@ -95,7 +109,8 @@ function short(value: string): string {
 
 function flash(value: string): void {
   notice.value = value;
-  window.setTimeout(() => { if (notice.value === value) notice.value = ''; }, 12000);
+  window.clearTimeout(noticeTimer);
+  noticeTimer = window.setTimeout(() => { if (notice.value === value) notice.value = ''; }, 12000);
 }
 
 async function save(): Promise<void> {
@@ -108,11 +123,14 @@ async function save(): Promise<void> {
   busy.value = false;
   if (!outcome.ok) { failure.value = outcome.message; if (outcome.status === 409) emit('reload'); return; }
   if (outcome.result.status !== 'succeeded') { failure.value = resultMessage(outcome); return; }
+  conflict.value = false;
   flash('已保存为待重启生效；当前轮继续使用旧配置。');
   emit('reload');
 }
 
 function beginRestart(): void {
+  if (!canRestart.value || !management.value) return;
+  restartRevision.value = management.value.revision;
   confirming.value = true;
   reason.value = '';
   notice.value = '';
@@ -120,11 +138,11 @@ function beginRestart(): void {
 }
 
 async function restart(): Promise<void> {
-  if (!management.value || busy.value) return;
+  if (!management.value || busy.value || !canRestart.value || !confirming.value || restartRevision.value !== management.value.revision) return;
   const value = reason.value.trim();
   if (!value || byteLength(value) > 2048) { failure.value = '原因必填，最多 2048 字节。'; return; }
   busy.value = true; failure.value = ''; notice.value = '';
-  const outcome = await operate(props.client, props.summary, props.storeId, 'restart-agent', { revision: management.value.revision, reason: value });
+  const outcome = await operate(props.client, props.summary, props.storeId, 'restart-agent', { revision: restartRevision.value, reason: value });
   busy.value = false;
   confirming.value = false;
   if (!outcome.ok) { failure.value = outcome.message; if (outcome.status === 409) emit('reload'); return; }
@@ -193,13 +211,18 @@ async function restart(): Promise<void> {
 
       <div class="mt-2 flex flex-wrap items-center gap-2">
         <button type="button" class="btn btn-sm btn-primary" :disabled="busy || !valid || !dirty" @click="save">
-          {{ busy ? '处理中…' : '保存配置' }}
+          {{ busy ? '处理中…' : conflict ? '确认覆盖保存' : '保存配置' }}
         </button>
         <button type="button" class="btn btn-sm" :disabled="!canRestart" @click="beginRestart">应用并重启 Agent</button>
         <span v-if="!valid" class="text-[11px] text-[var(--bad)]">模型、窗口、最大输出或提示词不符合服务端校验。</span>
         <span v-else-if="dirty" class="text-[11px] text-[var(--warn)]">有未保存的修改</span>
         <span v-else class="text-[11px] text-[var(--faint)]">{{ restartHint }}</span>
       </div>
+
+      <p v-if="conflict" role="alert" class="mt-2 text-[11px] text-[var(--warn)]">
+        已保存配置被其他操作修改，编辑已保留；确认覆盖保存将替换最新值。
+        <button type="button" class="btn btn-sm btn-quiet" :disabled="busy" @click="sync">采用已保存值</button>
+      </p>
 
       <div v-if="confirming" class="mt-2 rounded-[var(--radius)] border border-[color-mix(in_oklab,var(--bad)_35%,var(--line))] bg-[color-mix(in_oklab,var(--bad)_6%,var(--surface))] px-3 py-2">
         <p class="text-[11px] leading-relaxed">

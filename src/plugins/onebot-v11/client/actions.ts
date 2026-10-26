@@ -56,7 +56,7 @@ export function failureMessage(status: number, code: string): string {
 
 export function resultFailed(result: Record<string, unknown>): string | null {
   const status = text(result.status);
-  if (status === 'succeeded' || status === '') return null;
+  if (status === 'succeeded') return null;
   const reason = record(result.reason);
   return '执行未完成：' + text(reason?.code, 'unknown');
 }

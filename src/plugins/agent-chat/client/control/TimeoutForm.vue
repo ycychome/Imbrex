@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import type { ViewClient } from '@imbrex/ui-contract';
 import type { PanelSummary } from '@imbrex/ui-contract/ui';
 import { managementOf, operate, resultMessage } from './operate';
@@ -12,20 +12,28 @@ const value = ref('120000');
 const busy = ref(false);
 const notice = ref('');
 const failure = ref('');
+const conflict = ref(false);
+let noticeTimer: number | undefined;
+onUnmounted(() => window.clearTimeout(noticeTimer));
 
 function sync(): void {
   value.value = String(management.value?.timeout_ms ?? 120000);
+  conflict.value = false;
 }
 
 sync();
-watch(() => management.value?.revision, sync);
+watch(() => management.value?.timeout_ms, (next, previous) => {
+  if (Number(value.value) !== (previous ?? 120000) && Number(value.value) !== next) conflict.value = true;
+  else sync();
+});
 
 const valid = computed(() => /^[1-9][0-9]*$/.test(value.value) && Number(value.value) >= 10 && Number(value.value) <= 600000);
 const dirty = computed(() => Number(value.value) !== (management.value?.timeout_ms ?? 120000));
 
 function flash(text: string): void {
   notice.value = text;
-  window.setTimeout(() => { if (notice.value === text) notice.value = ''; }, 12000);
+  window.clearTimeout(noticeTimer);
+  noticeTimer = window.setTimeout(() => { if (notice.value === text) notice.value = ''; }, 12000);
 }
 
 async function save(): Promise<void> {
@@ -38,6 +46,7 @@ async function save(): Promise<void> {
   busy.value = false;
   if (!outcome.ok) { failure.value = outcome.message; if (outcome.status === 409) emit('reload'); return; }
   if (outcome.result.status !== 'succeeded') { failure.value = resultMessage(outcome); return; }
+  conflict.value = false;
   flash('已保存并即时生效；只影响之后开始的轮次。');
   emit('reload');
 }
@@ -60,11 +69,16 @@ async function save(): Promise<void> {
         <input v-model="value" inputmode="numeric" class="input w-40 font-mono text-[12px]" :disabled="busy" />
       </label>
       <button type="button" class="btn btn-sm btn-primary" :disabled="busy || !valid || !dirty" @click="save">
-        {{ busy ? '保存中…' : '保存超时' }}
+        {{ busy ? '保存中…' : conflict ? '确认覆盖保存' : '保存超时' }}
       </button>
       <span v-if="!valid" class="text-[11px] text-[var(--bad)]">超时必须是 10–600000 的整数。</span>
       <span v-else-if="dirty" class="text-[11px] text-[var(--warn)]">有未保存的修改</span>
     </div>
+
+    <p v-if="conflict" role="alert" class="mt-2 text-[11px] text-[var(--warn)]">
+      已保存超时被其他操作修改，编辑已保留；确认覆盖保存将替换最新值。
+      <button type="button" class="btn btn-sm btn-quiet" :disabled="busy" @click="sync">采用已保存值</button>
+    </p>
 
     <p v-if="notice" class="mt-2 rounded-[var(--radius)] border border-[color-mix(in_oklab,var(--warn)_35%,var(--line))] bg-[color-mix(in_oklab,var(--warn)_8%,var(--surface))] px-3 py-2 text-[11px] leading-relaxed">{{ notice }}</p>
     <p v-if="failure" class="mt-2 rounded-[var(--radius)] border border-[color-mix(in_oklab,var(--bad)_38%,var(--line))] bg-[color-mix(in_oklab,var(--bad)_8%,var(--surface))] px-3 py-2 text-[11px] leading-relaxed text-[var(--bad)]">{{ failure }}</p>

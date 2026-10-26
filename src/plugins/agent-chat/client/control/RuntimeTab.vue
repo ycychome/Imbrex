@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import type { ViewClient } from '@imbrex/ui-contract';
 import type { PanelEntry } from '@imbrex/ui-contract/ui';
 import { Chip } from '@imbrex/ui-contract/ui';
-import { actionOf, byteLength, operate, record, resultMessage, text } from './operate';
+import { byteLength, operate, record, resultMessage, text } from './operate';
 
 const props = defineProps<{ client: ViewClient; entry: PanelEntry; selected: string }>();
 const emit = defineEmits<{ reload: []; select: [source: string] }>();
@@ -22,13 +22,21 @@ const reason = ref('');
 const busy = ref(false);
 const notice = ref('');
 const failure = ref('');
+let noticeTimer: number | undefined;
+onUnmounted(() => window.clearTimeout(noticeTimer));
+const confirmedInput = ref<{ seq: string; source: string; id: string; session: string } | null>(null);
+const inputKey = computed(() => JSON.stringify([inFlight.value?.seq, inFlight.value?.source, inFlight.value?.id, inFlight.value?.session_id, suspended.value]));
+watch(inputKey, () => { disposition.value = ''; reason.value = ''; confirmedInput.value = null; });
 
 function flash(value: string): void {
   notice.value = value;
-  window.setTimeout(() => { if (notice.value === value) notice.value = ''; }, 12000);
+  window.clearTimeout(noticeTimer);
+  noticeTimer = window.setTimeout(() => { if (notice.value === value) notice.value = ''; }, 12000);
 }
 
 function begin(value: 'processed' | 'abandoned'): void {
+  if (!inFlight.value || !suspended.value) return;
+  confirmedInput.value = { seq: text(inFlight.value.seq), source: text(inFlight.value.source), id: text(inFlight.value.id), session: text(inFlight.value.session_id) };
   disposition.value = value;
   reason.value = '';
   notice.value = '';
@@ -36,8 +44,9 @@ function begin(value: 'processed' | 'abandoned'): void {
 }
 
 async function recover(): Promise<void> {
-  const pending = inFlight.value;
-  if (!pending || !disposition.value || busy.value) return;
+  const pending = confirmedInput.value;
+  if (!pending || !disposition.value || busy.value || !suspended.value) return;
+  if (pending.seq !== text(inFlight.value?.seq) || pending.source !== text(inFlight.value?.source) || pending.id !== text(inFlight.value?.id) || pending.session !== text(inFlight.value?.session_id)) return;
   const value = reason.value.trim();
   if (!value || byteLength(value) > 2048) { failure.value = '原因必填，最多 2048 字节。'; return; }
   busy.value = true; failure.value = ''; notice.value = '';
