@@ -175,7 +175,8 @@ export class Host {
       registerAdminPanel: (panel) => { ensure(); return track(this.admin.register(runtime.config.id, this.moduleName(runtime), controller.signal, panel)); },
       agentEndpoint: (principalId) => {
         ensure();
-        if (runtime.config.module !== 'builtin:agent-chat' || !this.root.get('mcp')) fail('forbidden');
+        requirePermission(principal, 'events:read');
+        if (!this.root.get('mcp')) fail('provider_unavailable');
         const caller = this.config.principals.find((entry) => entry.id === principalId) ?? fail('invalid_request');
         requirePermission(caller, 'events:read');
         if (caller.permissions.some((permission) => permission.startsWith('admin:'))) fail('forbidden');

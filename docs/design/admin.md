@@ -72,7 +72,7 @@ Consumer 状态投影如下，不另建消费状态机：
 
 ### 4.1 实例数据字段
 
-OneBot data：connected 表示当前连接已核验且在线；account_verified 是当前连接账号校验结果；account_id、identity_namespace、binding 为配置及实际核验身份；started_at 为本次插件开始时间；last_error 为公共原因码或 null。accepted_events、duplicate_events 是本次插件运行内的十进制计数；queued_events 是当前待入库队列长度。connection_metrics 为当前连接的 received_frames、sent_requests 十进制计数及 heartbeat_rtt_ms，无连接时为 null。未测量 RTT 时返回 null，帧/请求计数含协议握手，不表示消息条数。scope 为当前生效的 group_ids、private_user_ids 与 source（host/runtime）；runtime_config.error 表示私有配置不可读并已回退；managed_process.saved 为私有设置，active 为实际进程状态与最近 80 行日志；intercepts 为最近 10 条因不在名单而被丢弃的会话记录。
+OneBot data：connected 表示当前连接已核验且在线；account_verified 是当前连接账号校验结果；account_id、identity_namespace、binding 为配置及实际核验身份；started_at 为本次插件开始时间；last_error 为公共原因码或 null。accepted_events、duplicate_events 是本次插件运行内的十进制计数；queued_events 是当前待入库队列长度。connection_metrics 为当前连接的 received_frames、sent_requests 十进制计数及 heartbeat_rtt_ms，无连接时为 null。未测量 RTT 时返回 null，帧/请求计数含协议握手，不表示消息条数。scope 为当前生效的 group_ids、private_user_ids 与 source（host/runtime）；runtime_config.error 为 runtime_config_invalid 时表示读取失败并已回退宿主，为 runtime_config_write_failed 时表示写入结果需核验、该实例停止采集且拒绝后续配置写入；managed_process.saved 为私有设置，active 为实际进程状态与最近 80 行日志；intercepts 为最近 10 条因不在名单而被丢弃的会话记录。
 
 Agent data：status、available、phase、last_error 描述处理投影；input_id、store_id、last_seq、in_flight、sessions、agent_info 对应消费状态。turn_started_at 为实际 prompt 开始时间，elapsed_ms 从其计算；无计时依据时为 null。phase 为 starting/idle/session/prompt/checkpoint/error/stopping；model_stage 当前为 null，不猜测模型细节。正常 end_turn 且检查点成功后回到 idle。
 

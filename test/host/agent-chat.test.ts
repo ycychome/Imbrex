@@ -595,6 +595,57 @@ test('Admin observes OneBot and distinguishes idle, active input and unresolved 
   assert.equal(Object.hasOwn(unreadable, 'sessions'), false);
 });
 
+test('management rejects a starting Consumer before initialize completes without delayed writes', async (t) => {
+  const f = await fixture(t, 'wait-initialize', false, 5000, true);
+  await f.setControl({ release: false });
+  await f.host().startPlugin('agent');
+  await until(async () => (await f.logs('request')).some((request) => request.method === 'initialize'));
+  const panel = object((await f.panel()).data), before = await f.state();
+  assert.equal(panel.phase, 'starting'); assert.equal(panel.available, false);
+  const request = f.action('save-filter', { revision: object(panel.management).revision, filter: { group_ids: [], private_user_ids: [] } });
+  let immediate: Awaited<typeof request> | undefined;
+  try { immediate = await Promise.race([request, delay(1000).then(() => undefined)]); }
+  finally { await f.setControl({ release: true, mode: 'normal' }); }
+  const response = await request;
+  assert.equal(immediate?.status, 503, 'reject before initialize is released');
+  assert.equal(response.status, 503); assert.equal(object(response.body.error).code, 'provider_unavailable');
+  await until(() => f.status().available);
+  assert.deepEqual({ ...await f.state(), agent_info: before.agent_info }, before);
+});
+
+test('managed bootstrap preserves the configured maximum output before any online edit', async (t) => {
+  const f = await fixture(t, 'normal', false, 5000, true, true);
+  object(f.config.plugins.find((item) => item.id === 'agent')!.config.managed_pi).max_tokens = 4096;
+  await f.host().startPlugin('agent'); await until(() => f.status().available);
+  const saved = object(object((await f.state()).management).pi);
+  assert.equal(object(saved.saved).max_tokens, 4096);
+  assert.equal(object(saved.applied).max_tokens, 4096);
+  const models = object(JSON.parse(await readFile(join(f.config.dataDir, 'plugins/agent/agent/config/models.json'), 'utf8')));
+  const provider = object(object(models.providers).fixture);
+  assert.equal(object((provider.models as unknown[])[0]).maxTokens, 4096);
+  await f.host().stopPlugin('agent');
+  await f.host().startPlugin('agent'); await until(() => f.status().available);
+  assert.equal(object(object(object((await f.state()).management).pi).applied).max_tokens, 4096);
+});
+
+test('managed endpoint authorization follows the bound principal rather than the builtin module name', async (t) => {
+  const f = await fixture(t, 'normal', false, 5000, true, true);
+  f.config.plugins.find((item) => item.id === 'agent')!.module = 'external-agent-module';
+  const caller = f.config.principals.find((item) => item.id === 'qq-agent')!;
+  const originalScope = caller.readSources;
+  caller.readSources = [{ exact: 'imbrex://qq/123456/main/group/987654' }];
+  await f.host().startPlugin('agent');
+  assert.equal(f.status().available, false); assert.equal((await f.logs('boot')).length, 0);
+  await f.host().stopPlugin('agent');
+  caller.readSources = originalScope; caller.permissions.push('admin:inspect');
+  await f.host().startPlugin('agent');
+  assert.equal(f.status().available, false); assert.equal((await f.logs('boot')).length, 0);
+  await f.host().stopPlugin('agent');
+  caller.permissions = caller.permissions.filter((item) => item !== 'admin:inspect');
+  await f.host().startPlugin('agent'); await until(() => f.status().available);
+  assert.equal((await f.logs('boot')).length, 1);
+});
+
 test('management applies a saved filter after the current checkpoint, including prefetched records, without replaying skipped history', async (t) => {
   const f = await fixture(t, 'normal', true, 5000, true);
   await f.append(201); await until(async () => (await f.state()).last_seq === '1');

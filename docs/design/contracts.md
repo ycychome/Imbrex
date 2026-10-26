@@ -332,9 +332,11 @@ onebot-v11 登记以下动作；名单、伴生进程与日志都留在插件私
 | start/stop/restart-managed-process | {} | 控制伴生进程；端口已占用时视为外部进程，不 spawn |
 | reconnect | {} | 关闭当前 WebSocket，由重连循环恢复 |管理过程和结果不会回传真实凭据、原始 ACP 异常或原因正文。
 
+OneBot 私有配置文件或目录同步失败时，返回 HTTP 200 的 failed 结果，reason.code 为 runtime_config_write_failed、operation_id 为 null、resumed 为 false、inspect_required 为 true。该实例停止采集并拒绝后续配置写入；先核验磁盘私有配置，再重新启动插件读取，不能基于旧缓存盲目重试。输入校验拒绝仍使用 HTTP 4xx。
+
 调用审计按 (caller_id,call_id) 的 SQLite BINARY 字典序分页，两项 after 参数必须同时出现，从 next 原样填入；不是时间排序。status 仅允许 in_progress/succeeded/failed/unknown。各页为新的查询视图，状态可改变，新调用可插入旧位置之前；刷新从头查询可观察新变化，不承诺跨页快照。普通 /v1/calls/{call_id} 仍只能由所属主体查询。
 
-configuration 的 principals 包含 id、permissions、read_sources、write_sources、invoke_capabilities、credential；credential 为 {name,configured} 或 null，只说明 token_env 引用及是否已加载。plugins 包含 instance_id、module、principal_id、enabled、required、configuration；外部模块名统一为 external，不回显任意参数。OneBot configuration 提供采集范围和凭据引用；Agent 提供触发范围，独立 pi 配置在对应面板内查询。mcp_url 为 HTTP origin 的 /v1/mcp 地址，不承诺该协议插件当前可用。
+configuration 的 principals 包含 id、permissions、read_sources、write_sources、invoke_capabilities、credential；credential 为 {name,configured} 或 null，只说明 token_env 引用及是否已加载。plugins 包含 instance_id、module、principal_id、enabled、required、configuration；外部模块名统一为 external，不回显任意参数。OneBot configuration 提供采集范围和凭据引用；Agent 提供宿主启动配置的触发范围基准，在线保存/应用值以对应面板 management.filter 为准，独立 pi 配置也在面板内查询。mcp_url 为 HTTP origin 的 /v1/mcp 地址，不承诺该协议插件当前可用。
 
 其他管理交互遵守以下已定稿边界：
 

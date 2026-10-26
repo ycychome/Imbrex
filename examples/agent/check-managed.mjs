@@ -39,7 +39,7 @@ try{
  app=await Host.open(config,modules);
  const state=async()=>JSON.parse(await readFile(join(directory,'data/plugins/agent/consumer-state.json'),'utf8'));
  const headers={authorization:'Bearer '+process.env.IMBREX_FIXTURE_ADMIN,'content-type':'application/json'};
- const panel=async()=>{const r=await fetch('http://127.0.0.1:'+app.port+'/api/admin/panels/agent',{headers});return r.json();};
+ const panel=async()=>{const r=await fetch('http://127.0.0.1:'+app.port+'/api/admin/panels/agent',{headers});const body=await r.json();assert.equal(r.status,200,JSON.stringify(body));return {...body,data:body.data.data};};
  const action=async(name,params)=>{const p=await panel();const r=await fetch('http://127.0.0.1:'+app.port+'/api/admin/panels/agent/actions/'+name,{method:'POST',headers,body:JSON.stringify({store_id:p.store_id,generation:p.generation,params})});const body=await r.json();assert.equal(r.status,200,JSON.stringify(body));assert.equal(body.result.status,'succeeded',JSON.stringify(body));return body;};
  const append=async(id)=>writer.events.append({event:{specversion:'1.0',datacontenttype:'application/json',source:'imbrex://qq/123456/main/group/987654',id:'message:'+id,type:'qq.message.group',time:new Date().toISOString(),data:{direction:'inbound',conversation_type:'group',account_id:'123456',identity_namespace:'main',conversation_id:'987654',sender_id:'654321',native_message_id:String(id),text:'Controlled input.'}}});
  await until(()=>app.plugins().find(p=>p.id==='agent').available,'available');

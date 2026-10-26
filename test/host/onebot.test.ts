@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -225,4 +229,84 @@ test('a corrupt private config falls back to the host allowlists without failing
   const data = await panel();
   assert.equal(object(data.runtime_config).error, 'runtime_config_invalid');
   assert.equal(object(data.scope).source, 'host');
+});
+
+test('adding a conversation at the runtime allowlist limit preserves readable saved configuration', async (t) => {
+  const { app, act, panel, config } = await fixture(t, false, true, true);
+  const groups = Array.from({ length: 1024 }, (_, index) => String(100000 + index));
+  assert.equal((await act('save-runtime-filters', { group_ids: groups, private_user_ids: [] })).status, 200);
+  const path = join(config.dataDir, 'plugins/qq-main/config.json'), before = await readFile(path, 'utf8');
+  assert.equal((await act('allow-conversation', { kind: 'group', id: '999999' })).status, 400);
+  assert.equal(await readFile(path, 'utf8'), before);
+  await app.stopPlugin('qq-main'); await app.startPlugin('qq-main');
+  await until(() => app.plugins().find((plugin) => plugin.id === 'qq-main')?.available === true);
+  const data = await panel();
+  assert.deepEqual(object(data.scope).group_ids, groups);
+  assert.equal(object(data.runtime_config).error, null);
+});
+
+test('private configuration rejects FIFO and redirected reads while keeping the host usable', async (t) => {
+  const { app, panel, config } = await fixture(t, false, true, true);
+  const path = join(config.dataDir, 'plugins/qq-main/config.json');
+  const external = join(config.dataDir, 'external.json');
+  await writeFile(external, JSON.stringify({ version: 1, runtime_filters: { group_ids: [], private_user_ids: [] } }));
+  for (const kind of ['fifo', 'link', 'oversize'] as const) {
+    await app.stopPlugin('qq-main'); await rm(path, { force: true });
+    if (kind === 'fifo') execFileSync('mkfifo', [path]);
+    else if (kind === 'link') await symlink(external, path);
+    else await writeFile(path, 'x'.repeat(65537));
+    const starting = app.startPlugin('qq-main');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const completed = await Promise.race([starting.then(() => true), new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), 1000); })]);
+      if (!completed && kind === 'fifo') { const writer = await open(path, constants.O_RDWR | constants.O_NONBLOCK); await writer.close(); }
+      assert.equal(completed, true, 'invalid private config must not wait for FIFO writers');
+    } finally { clearTimeout(timer); }
+    await until(() => app.plugins().find((plugin) => plugin.id === 'qq-main')?.available === true);
+    const data = await panel();
+    assert.equal(object(data.runtime_config).error, 'runtime_config_invalid');
+    assert.equal(object(data.scope).source, 'host');
+  }
+});
+
+test('runtime saves leave a preexisting FIFO temporary path untouched and do not block unload', async (t) => {
+  const { app, act, panel, config } = await fixture(t, false, true, true);
+  const path = join(config.dataDir, 'plugins/qq-main/config.json.tmp');
+  execFileSync('mkfifo', [path]);
+  const result = await act('save-runtime-filters', { group_ids: [], private_user_ids: [] });
+  assert.equal(result.status, 200); assert.equal(object(result.body.result).status, 'succeeded');
+  assert.deepEqual(object((await panel()).scope).group_ids, []);
+  await app.stopPlugin('qq-main');
+  assert.equal(app.plugins().find((plugin) => plugin.id === 'qq-main')?.state, 'stopped');
+});
+
+test('post-rename sync failure suspends ingress and later writes until persisted config is reread', async (t) => {
+  const { app, sim, act, panel, config, ready } = await fixture(t, false, true, true);
+  const directory = join(config.dataDir, 'plugins/qq-main');
+  const originalOpen = fsPromises.open;
+  let injected = false;
+  fsPromises.open = (async (...args: Parameters<typeof open>) => {
+    const file = await originalOpen(...args);
+    if (!injected && args[0] === directory && args[1] === 'r') {
+      injected = true; file.sync = async () => { throw new Error('fixture directory sync failure'); };
+    }
+    return file;
+  }) as typeof open;
+  syncBuiltinESMExports();
+  let result: Awaited<ReturnType<typeof act>>;
+  try { result = await act('save-runtime-filters', { group_ids: [], private_user_ids: [] }); }
+  finally { fsPromises.open = originalOpen; syncBuiltinESMExports(); }
+  assert.equal(injected, true); assert.equal(result.status, 200);
+  assert.equal(object(result.body.result).status, 'failed');
+  assert.equal(object(result.body.result).inspect_required, true);
+  const path = join(directory, 'config.json'), evidence = await readFile(path, 'utf8');
+  assert.deepEqual(object(object(JSON.parse(evidence)).runtime_filters).group_ids, []);
+  assert.equal(ready(), false);
+  assert.equal(object((await panel()).runtime_config).error, 'runtime_config_write_failed');
+  assert.equal((await act('save-managed-process', { enabled: false })).status, 503);
+  assert.equal(await readFile(path, 'utf8'), evidence);
+  sim.broadcast(numericFixture); await delay(50); assert.equal((await app.info()).latestSeq, 0n);
+  await app.stopPlugin('qq-main'); await app.startPlugin('qq-main'); await until(ready);
+  assert.deepEqual(object((await panel()).scope).group_ids, []);
+  assert.equal(object((await panel()).runtime_config).error, null);
 });

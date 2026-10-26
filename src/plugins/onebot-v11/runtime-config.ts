@@ -1,4 +1,6 @@
-import { open, readFile, rename, mkdir } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { open, rename, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fail } from '../../core/errors.js';
 import { fields, json, object, string } from '../../core/validation.js';
@@ -24,6 +26,9 @@ export interface RuntimeConfig {
   version: 1;
   runtime_filters?: RuntimeFilters;
   managed_process?: ManagedProcessConfig;
+}
+export class RuntimeConfigWriteError extends Error {
+  constructor() { super('runtime_config_write_failed'); }
 }
 
 function ids(value: unknown): string[] {
@@ -75,8 +80,19 @@ export function parseRuntimeConfig(raw: unknown): RuntimeConfig {
 /** A corrupt private config falls back to the host config instead of blocking the plugin. */
 export async function readRuntimeConfig(dataDir: string): Promise<{ config?: RuntimeConfig; error?: string }> {
   try {
-    const text = await readFile(join(dataDir, RUNTIME_CONFIG), 'utf8');
-    return { config: parseRuntimeConfig(JSON.parse(text)) };
+    const file = await open(join(dataDir, RUNTIME_CONFIG), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const info = await file.stat();
+      if (!info.isFile() || info.size > MAX_BYTES) throw new Error('Invalid runtime config file');
+      const buffer = Buffer.alloc(MAX_BYTES + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+        if (!bytesRead) return { config: parseRuntimeConfig(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length)))) };
+        length += bytesRead;
+      }
+      throw new Error('Runtime config too large');
+    } finally { await file.close(); }
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return {};
     return { error: 'runtime_config_invalid' };
@@ -84,18 +100,22 @@ export async function readRuntimeConfig(dataDir: string): Promise<{ config?: Run
 }
 
 export async function writeRuntimeConfig(dataDir: string, config: RuntimeConfig): Promise<void> {
-  await mkdir(dataDir, { recursive: true, mode: 0o700 });
+  config = parseRuntimeConfig(config);
   const target = join(dataDir, RUNTIME_CONFIG);
-  const file = await open(target + '.tmp', 'w', 0o600);
+  const temporary = target + '.' + randomUUID() + '.tmp';
+  let created = false;
   try {
-    await file.writeFile(JSON.stringify(config) + '\n');
-    await file.sync();
-  } finally {
-    await file.close();
+    await mkdir(dataDir, { recursive: true, mode: 0o700 });
+    const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    created = true;
+    try { await file.writeFile(JSON.stringify(config) + '\n'); await file.sync(); } finally { await file.close(); }
+    await rename(temporary, target);
+    const directory = await open(dataDir, 'r');
+    try { await directory.sync(); } finally { await directory.close(); }
+  } catch { throw new RuntimeConfigWriteError(); }
+  finally {
+    if (created) await rm(temporary, { force: true }).catch(() => {});
   }
-  await rename(target + '.tmp', target);
-  const directory = await open(dataDir, 'r');
-  try { await directory.sync(); } finally { await directory.close(); }
 }
 
 /** Persist only the fields the console can edit; unknown fields are not invented. */

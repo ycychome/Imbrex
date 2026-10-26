@@ -2,7 +2,7 @@ import { open, readFile, rename } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Context } from 'cordis';
-import { fail, publicError } from '../../core/errors.js';
+import { fail, GatewayError, publicError } from '../../core/errors.js';
 import { fields, json, limits, object, string } from '../../core/validation.js';
 import type { EventInput, EventRef, JsonObject, JsonValue } from '../../core/types.js';
 import type { CallOutcome } from '../../core/store.js';
@@ -12,6 +12,7 @@ import { OneBotSocket, RequestError } from './socket.js';
 import { Companion } from './companion.js';
 import {
   mergeRuntime, parseManagedProcess, parseRuntimeFilters, readRuntimeConfig, writeRuntimeConfig,
+  RuntimeConfigWriteError,
   type ManagedProcessConfig, type RuntimeConfig, type RuntimeFilters,
 } from './runtime-config.js';
 
@@ -99,14 +100,38 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   const intercepts: Intercept[] = [];
   const unavailable = (code: string) => { lastCode = code; ready = false; api.setAvailable(false, { code }); };
   unavailable(lastCode);
+  let persistenceFailed = false;
 
   const scope = (): { group_ids: string[]; private_user_ids: string[]; source: 'host' | 'runtime' } => ({
     group_ids: [...config.groupIds], private_user_ids: [...config.privateIds], source: scopeSource,
   });
 
+  async function persist(next: RuntimeConfig): Promise<void> {
+    if (api.signal.aborted || persistenceFailed) fail('provider_unavailable');
+    try { await writeRuntimeConfig(api.dataDir, next); }
+    catch (error) {
+      if (!(error instanceof RuntimeConfigWriteError)) throw error;
+      persistenceFailed = true; runtimeError = 'runtime_config_write_failed';
+      unavailable(runtimeError); queue = []; connection?.close();
+      await worker;
+      throw error;
+    }
+    if (api.signal.aborted) throw new RuntimeConfigWriteError();
+  }
+
+  async function control(execute: () => Promise<JsonValue>): Promise<JsonValue> {
+    if (api.signal.aborted || persistenceFailed) fail('provider_unavailable');
+    try { return await execute(); }
+    catch (error) {
+      if (error instanceof GatewayError) throw error;
+      return { status: 'failed', reason: { code: error instanceof RuntimeConfigWriteError ? 'runtime_config_write_failed' : 'managed_process_failed' }, operation_id: null, resumed: false, inspect_required: true };
+    }
+  }
+
   async function persistFilters(next: RuntimeFilters): Promise<void> {
+    next = parseRuntimeFilters(next);
     const merged = mergeRuntime(runtimeConfig, { filters: next });
-    await writeRuntimeConfig(api.dataDir, merged);
+    await persist(merged);
     runtimeConfig = merged;
     runtimeError = undefined;
     config.groupIds = [...next.group_ids];
@@ -165,7 +190,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
       version: 1,
       ...(runtimeConfig?.managed_process === undefined ? {} : { managed_process: runtimeConfig.managed_process }),
     };
-    await writeRuntimeConfig(api.dataDir, merged);
+    await persist(merged);
     runtimeConfig = merged;
     runtimeError = undefined;
     config.groupIds = [...hostConfig.groupIds];
@@ -182,7 +207,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
     }
     for (const name of managed.env_vars ?? []) if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) fail('invalid_request', 'Invalid environment name');
     const merged = mergeRuntime(runtimeConfig, { managed });
-    await writeRuntimeConfig(api.dataDir, merged);
+    await persist(merged);
     runtimeConfig = merged;
     runtimeError = undefined;
     managedConfig = managed;
@@ -194,29 +219,29 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
     title: 'OneBot v11', icon: 'onebot',
     actions: [
       { id: 'save-runtime-filters', title: 'Replace runtime allowlists', inputSchema: filterSchema,
-        execute: async (value) => await saveFilters(value) },
+        execute: async (value) => control(() => saveFilters(value)) },
       { id: 'allow-conversation', title: 'Allow one conversation', inputSchema: allowSchema,
-        execute: async (value) => await allowConversation(value) },
+        execute: async (value) => control(() => allowConversation(value)) },
       { id: 'reset-runtime-config', title: 'Restore host allowlists', inputSchema: emptySchema,
-        execute: async () => await resetRuntime() },
+        execute: async () => control(resetRuntime) },
       { id: 'save-managed-process', title: 'Save companion process settings', inputSchema: managedSchema,
-        execute: async (value) => await saveManaged(value) },
+        execute: async (value) => control(() => saveManaged(value)) },
       { id: 'start-managed-process', title: 'Start companion process', inputSchema: emptySchema,
-        execute: async () => {
+        execute: async () => control(async () => {
           if (!managedConfig.enabled) fail('feature_unavailable', 'Companion process is disabled');
           await companion.start();
           return { status: 'succeeded', process: json(companion.status(), limits.httpBytes) };
-        } },
+        }) },
       { id: 'stop-managed-process', title: 'Stop companion process', inputSchema: emptySchema,
-        execute: async () => { await companion.stop(); return { status: 'succeeded', process: json(companion.status(), limits.httpBytes) }; } },
+        execute: async () => control(async () => { await companion.stop(); return { status: 'succeeded', process: json(companion.status(), limits.httpBytes) }; }) },
       { id: 'restart-managed-process', title: 'Restart companion process', inputSchema: emptySchema,
-        execute: async () => {
+        execute: async () => control(async () => {
           if (!managedConfig.enabled) fail('feature_unavailable', 'Companion process is disabled');
           await companion.restart();
           return { status: 'succeeded', process: json(companion.status(), limits.httpBytes) };
-        } },
+        }) },
       { id: 'reconnect', title: 'Reconnect WebSocket', inputSchema: emptySchema,
-        execute: async () => { connection?.close(); return { status: 'succeeded', reconnecting: true }; } },
+        execute: async () => control(async () => { connection?.close(); return { status: 'succeeded', reconnecting: true }; }) },
     ],
     read: () => {
       const connected = ready && Boolean(connection?.connected);
@@ -298,7 +323,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   }));
 
   const run = async () => {
-    while (!api.signal.aborted) {
+    while (!api.signal.aborted && !persistenceFailed) {
       let active: OneBotSocket | undefined;
       try {
         active = new OneBotSocket(config.wsUrl, token, (value) => {
@@ -314,6 +339,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
         }, unavailable);
         connection = active;
         await active.opened;
+        if (api.signal.aborted || persistenceFailed) break;
         const [version, login] = await Promise.all([
           active.request('get_version_info', {}, api.signal).then(responseData),
           active.request('get_login_info', {}, api.signal).then(responseData),
@@ -331,7 +357,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
         const directory = await open(api.dataDir, 'r');
         try { await directory.sync(); } finally { await directory.close(); }
         binding = next;
-        if (active.connected && !api.signal.aborted) {
+        if (active.connected && !api.signal.aborted && !persistenceFailed) {
           ready = true; api.setAvailable(true); drain();
           await active.closed;
           if (ready) unavailable('onebot_disconnected');
@@ -342,16 +368,16 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
         active?.close(); await active?.closed; await worker;
         connection = undefined;
       }
-      if (!api.signal.aborted) await delay(1000, undefined, { signal: api.signal }).catch(() => {});
+      if (!api.signal.aborted && !persistenceFailed) await delay(1000, undefined, { signal: api.signal }).catch(() => {});
     }
   };
   const abort = () => { ready = false; queue = []; connection?.close(); };
   api.signal.addEventListener('abort', abort, { once: true });
-  if (managedConfig.enabled) void companion.start();
+  const starting = managedConfig.enabled ? companion.start().catch(() => unavailable('managed_process_failed')) : Promise.resolve();
   const running = run().catch(() => unavailable('onebot_connection_failed'));
   ctx.effect(() => async () => {
     abort(); api.signal.removeEventListener('abort', abort);
-    await running; await worker;
+    await starting; await running; await worker;
     await companion.stop();
   });
 }

@@ -71,6 +71,7 @@ class Consumer {
   private timer?: ReturnType<typeof setInterval>;
   private unsubscribe: () => void = () => {};
   private startup: Promise<void> = Promise.resolve();
+  private startupSettled = false;
   private worker: Promise<void> = Promise.resolve();
 
   constructor(private api: PluginApi, private config: ConsumerConfig, private env: Record<string, string>, private path: string, private state: ConsumerState, private managedDir?: string) {}
@@ -93,7 +94,7 @@ class Consumer {
       },
     };
   }
-  start(): void { this.startup = this.initialize().catch((error: unknown) => this.fail(error)); }
+  start(): void { this.startup = this.initialize().catch((error: unknown) => this.fail(error)).finally(() => { this.startupSettled = true; }); }
   private async initialize(): Promise<void> {
     if (this.state.in_flight) {
       this.paused = true; this.lastError = 'consumer_in_flight_unconfirmed'; this.phase = 'error';
@@ -247,6 +248,7 @@ class Consumer {
     catch { this.cleanupFailed = true; report(this.api, this.config.inputId, 'consumer_agent_cleanup_failed'); }
   }
   operate(action: string, input: JsonValue, principal: Principal): Promise<JsonValue> {
+    if (!this.startupSettled) return Promise.reject(new GatewayError('provider_unavailable'));
     if (this.operation) return Promise.reject(new GatewayError('busy'));
     const operation = this.control(action, input, principal);
     this.operation = operation;
@@ -255,7 +257,6 @@ class Consumer {
   }
   private ensureRunning(): void { if (this.stopped || this.api.signal.aborted) fail('provider_unavailable'); }
   private async control(action: string, input: JsonValue, principal: Principal): Promise<JsonValue> {
-    await this.startup;
     if (this.stopped || this.api.signal.aborted || this.persistenceFailed || this.cleanupFailed) fail('provider_unavailable');
     const params = object(input);
     let operationId: string | undefined;
@@ -426,8 +427,8 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
     if (!state) {
       state = { ...binding, version: 1, store_id: info.storeId, last_seq: info.latestSeq.toString(), agent_info: null, sessions: {}, in_flight: null };
       if (config.managedPi) {
-        const { model, context_window, system_prompt } = config.managedPi;
-        state.management = { ...managementFor(state), revision: randomUUID(), pi: { base: config.managedPi, saved: { model, context_window, system_prompt }, applied: null } };
+        const { model, context_window, system_prompt, max_tokens } = config.managedPi;
+        state.management = { ...managementFor(state), revision: randomUUID(), pi: { base: config.managedPi, saved: { model, context_window, system_prompt, ...(max_tokens === undefined ? {} : { max_tokens }) }, applied: null } };
       }
       await saveState(path, state);
     }
