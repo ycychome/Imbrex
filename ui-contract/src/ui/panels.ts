@@ -1,6 +1,6 @@
 import { onMounted, onUnmounted, ref, shallowRef } from 'vue';
 import type { ViewClient } from '../contract.js';
-import { isAbort, toneOf, type Tone } from './errors';
+import { isAbort, isBusy, toneOf, type Tone } from './errors';
 
 export interface PanelMetric {
   label: string;
@@ -14,12 +14,20 @@ export interface PanelView {
   data: Record<string, unknown>;
 }
 
+export interface PanelAction {
+  id: string;
+  title: string;
+  input_schema: unknown;
+  confirm_text?: string;
+}
+
 export interface PanelSummary {
   instance_id: string;
   module: string;
   generation: string;
   title: string;
   icon: string;
+  actions?: PanelAction[];
 }
 
 export interface PanelDetail {
@@ -71,17 +79,38 @@ export function usePanels(client: ViewClient, module: string, intervalMs = 5000)
   let timer: number | undefined;
   let busy = false;
   let disposed = false;
+  let reading: Promise<void> | undefined;
+
+  async function detail(summary: PanelSummary): Promise<PanelDetail> {
+    const path = '/api/admin/panels/' + encodeURIComponent(summary.instance_id);
+    try {
+      return await client.request<PanelDetail>(path, { signal: controller.signal });
+    } catch (failure) {
+      // The registry holds one read per instance; the health band may be reading
+      // the same panel. Retry once instead of flashing a failure.
+      if (isAbort(failure) || !isBusy(failure)) throw failure;
+      await new Promise((resolve) => window.setTimeout(resolve, 160));
+      return await client.request<PanelDetail>(path, { signal: controller.signal });
+    }
+  }
 
   async function load(): Promise<void> {
-    if (busy || disposed || paused.value) return;
+    if (reading) { await reading; return await load(); }
+    if (disposed) return;
+    reading = read();
+    try { await reading; } finally { reading = undefined; }
+  }
+
+  async function read(): Promise<void> {
     busy = true;
     loading.value = true;
     try {
       const list = await client.request<{ panels: PanelSummary[] }>('/api/admin/panels', { signal: controller.signal });
       const next = await Promise.all(list.panels.filter((summary) => summary.module === module).map(async (summary): Promise<PanelEntry> => {
         try {
-          const detail = await client.request<PanelDetail>('/api/admin/panels/' + encodeURIComponent(summary.instance_id), { signal: controller.signal });
-          return { summary, detail, failure: null, view: detail.error ? null : asPanelView(detail.data) };
+          const value = await detail(summary);
+          if (value.instance_id !== summary.instance_id || value.generation !== summary.generation) throw new Error('Panel identity changed; refresh before operating.');
+          return { summary, detail: value, failure: null, view: value.error ? null : asPanelView(value.data) };
         } catch (failure) {
           if (isAbort(failure)) throw failure;
           return { summary, detail: null, failure, view: null };
@@ -109,7 +138,7 @@ export function usePanels(client: ViewClient, module: string, intervalMs = 5000)
     stop();
     if (disposed) return;
     void load();
-    timer = window.setInterval(() => { void load(); }, intervalMs);
+    timer = window.setInterval(() => { if (!paused.value && !busy) void load(); }, intervalMs);
   }
 
   function toggle(): void {

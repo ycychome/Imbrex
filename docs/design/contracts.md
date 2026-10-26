@@ -270,7 +270,7 @@ call_id 是不透明标识，路径段百分号解码一次后保留原值，点
 
 ## 12. 管理 API
 
-管理 API 位于 /api/admin/*，静态资产配置见 [Admin 契约](admin.md)。以下只读资源已提供；操作资源随对应功能补齐，不为未实现操作返回占位成功。
+管理 API 位于 /api/admin/*，静态资产配置见 [Admin 契约](admin.md)。查询资源要求 admin:inspect；已登记动作经第 12 节的动作入口执行，要求 admin:operate，不为未实现操作返回占位成功。
 
 GET /api/admin/info 不接受 query 或业务 body。每次请求须有 Bearer 凭据及 admin:inspect；Origin 存在时须等于实际监听 origin，不使用 Cookie 或 loopback 免密。200 响应：
 
@@ -285,18 +285,58 @@ store_id 为数据库身份；latest_seq 沿用规范十进制字符串；versio
 | GET 资源 | 参数 | 200 响应 |
 | --- | --- | --- |
 | /api/admin/info | 无 | store_id、latest_seq、version、plugins；plugins 与 /v1/plugins 的状态字段相同（含 enabled、可选 client_entry） |
-| /api/admin/panels | 无 | {store_id, panels:[{instance_id,module,generation,title,icon}]} |
+| /api/admin/panels | 无 | {store_id, panels:[{instance_id,module,generation,title,icon,actions}]}；actions 为已登记动作描述 |
 | /api/admin/panels/:instance | 无 | {store_id,instance_id,module,generation,data:{status:{tone,label},metrics:[{label,value,hint?}],data:{...}}}；读取失败时以 error:{code,message} 替代 data |
 | /api/admin/events | store_id、after_seq 必填；limit、source_prefix、type 可选 | 与 /v1/events 相同的记录和分页字段，管理权限可读本网关全局事件 |
 | /api/admin/capabilities | 无 | {store_id,capabilities:[...]}；既有能力描述加 available，包含仍登记但不可用的能力 |
 | /api/admin/calls | store_id 必填；limit 默认 50、最大 100；caller_id、status、after_caller_id、after_call_id 可选 | {store_id,calls:[...],next}；每条 call 添加 caller_id，next 为 {caller_id,call_id} 或 null |
 | /api/admin/configuration | 无 | {config_version,external_writes_enabled,mcp_url,principals,plugins} |
 
-面板列表最多 128 项，单实例 data 最多 64 KiB、读取截止 5 秒；status.tone 仅允许 ok/warning/error/idle/unknown，metrics 最多 32 项，label/value 为非空字符串，hint 可选，data 为 JSON 对象。读取失败只返回该实例的 admin_panel_read_failed，不返回原始异常。相同实例已有读取未结束时返回 429 busy。generation 是本次登记的不透明标识，Admin 重启不变，业务实例重新登记后改变；不替代实例 ID 或 store_id。Shell 不按 module 或实例类型分支；各插件视图只消费自身面板的 status/metrics/data，module 用于插件定位自己的面板。不符合声明式格式的数据回退为原始 JSON。未登记或已卸载实例返回 404。
+面板列表最多 128 项，单实例 data 最多 256 KiB、读取截止 5 秒；status.tone 仅允许 ok/warning/error/idle/unknown，metrics 最多 32 项，label/value 为非空字符串，hint 可选，data 为 JSON 对象。读取失败只返回该实例的 admin_panel_read_failed，不返回原始异常。相同实例已有读取未结束时返回 429 busy。generation 是本次登记的不透明标识，Admin 重启不变，业务实例重新登记后改变；不替代实例 ID 或 store_id。Shell 不按 module 或实例类型分支；各插件视图只消费自身面板的 status/metrics/data，module 用于插件定位自己的面板。不符合声明式格式的数据回退为原始 JSON。未登记或已卸载实例返回 404。
+
+actions 为至多 16 项的数组，每项为 {id,title,input_schema,confirm_text?}，来自实际插件登记。POST /api/admin/panels/:instance/actions/:action 执行已登记动作，要求 admin:operate、Bearer 与同源 Origin（若提供），不要求同时拥有 admin:inspect；发现面板另需读取权限。不接受 query。请求体严格为：
+
+```json
+{
+  "store_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "generation": "opaque-current-panel-generation",
+  "params": {"revision": "initial", "filter": {"group_ids": ["987654"], "private_user_ids": []}}
+}
+```
+
+instance 与 action 路径须分别使用当前实例 ID 与登记 ID；store_id 不匹配为 409 store_mismatch，generation/配置 revision/当前输入已改变为 409 admin_conflict；参数 schema 不符为 400 invalid_params，尚未就绪或停止中的实例为 503 provider_unavailable，未登记目标为 404 not_found。同实例同时只接受一个动作，冲突返回 429 busy。所有响应使用 no-store。
+
+200 信封为 {store_id,instance_id,result}。必须检查 result.status：succeeded 表示动作已完成，配置保存并不表示应用；执行中的持久化、备份、ACP 或重启失败返回 status=failed、reason:{code}、operation_id（未写备份为 null）、resumed:false、inspect_required:true。前置条件拒绝使用上述 HTTP 4xx/5xx 错误信封。管理动作不修改 calls，也不属于外部发送的 call_id 幂等协议。连接断开或响应丢失后重新读取面板和持久证据，不能推断操作失败或自动重复。
+
+agent-chat 登记以下动作；表中 params 的字段均必填，禁止额外字段。revision 是当前面板 management.revision，保存成功返回新的 revision，共用于 filter 和 pi 配置并发控制。reason 为非空原因（最多 2048 UTF-8 字节），仅保存到私有恢复记录；权限身份来自 Bearer。
+
+| action | params | 成功结果与边界 |
+| --- | --- | --- |
+| save-filter | {revision,filter:{group_ids,private_user_ids}} | {status,action,revision,application_status:"pending"}；名单规范化，当前轮结束后应用；未决状态仅保存、不应用 |
+| recover-input | {seq,source,id,disposition,reason} | disposition 为 processed/abandoned，seq 为十进制字符串；仅处置暂停中的精确未决引用。返回 resolved_seq、disposition、operation_id、resumed |
+| reset-session | {source,session_id,reason} | 匹配完整 source 和当前会话 ID；该会话活跃或有未决项时拒绝。返回 source、session_id、operation_id、resumed |
+| save-agent-config | {revision,settings:{model,context_window,system_prompt,max_tokens?}} | 仅托管实例登记；返回 revision、application_status:"pending_restart" |
+| save-runtime-settings | {revision,turn_timeout_ms} | 保存后立即用于之后开始的轮次；返回 revision 与 timeout_ms |
+| restart-agent | {revision,reason} | 仅托管实例登记；无活跃或未决输入时应用保存值。返回 revision、operation_id、application_status（applied/awaiting_session） |
+
+filter 两个数组各最多 1000 个规范原生 ID，空数组不放行该类型；不提供 null 恢复为无限制的在线动作。model 最多 256 字节，context_window 为 1024—2000000 的整数，max_tokens 为 256—262144 的整数（缺省按 min(16384, context_window/2)），system_prompt 可为空、最多 32768 UTF-8 字节；turn_timeout_ms 为 10—600000 的整数。其他业务校验错误为 400 invalid_request。
+
+onebot-v11 登记以下动作；名单、伴生进程与日志都留在插件私有数据目录，不重写宿主配置。名单修改即时更新内存映射，不需要重连；移除后已接纳消息的 reply 也按当前名单拒绝。
+
+| action | params | 成功结果与边界 |
+| --- | --- | --- |
+| save-runtime-filters | {group_ids,private_user_ids} | 覆盖插件私有名单并即时生效；每类最多 1024 个 |
+| allow-conversation | {kind:"group"\|"private",id} | 追加一个会话并持久化；用于拦截记录的一键放行 |
+| reset-runtime-config | {} | 删除私有名单，恢复宿主 allow_* |
+| save-managed-process | {enabled,command?,args?,cwd?,env_vars?} | 写私有设置，不改变正在运行的进程；启动/重启后生效 |
+| start/stop/restart-managed-process | {} | 控制伴生进程；端口已占用时视为外部进程，不 spawn |
+| reconnect | {} | 关闭当前 WebSocket，由重连循环恢复 |管理过程和结果不会回传真实凭据、原始 ACP 异常或原因正文。
+
+OneBot 私有配置文件或目录同步失败时，返回 HTTP 200 的 failed 结果，reason.code 为 runtime_config_write_failed、operation_id 为 null、resumed 为 false、inspect_required 为 true。该实例停止采集并拒绝后续配置写入；先核验磁盘私有配置，再重新启动插件读取，不能基于旧缓存盲目重试。输入校验拒绝仍使用 HTTP 4xx。
 
 调用审计按 (caller_id,call_id) 的 SQLite BINARY 字典序分页，两项 after 参数必须同时出现，从 next 原样填入；不是时间排序。status 仅允许 in_progress/succeeded/failed/unknown。各页为新的查询视图，状态可改变，新调用可插入旧位置之前；刷新从头查询可观察新变化，不承诺跨页快照。普通 /v1/calls/{call_id} 仍只能由所属主体查询。
 
-configuration 的 principals 包含 id、permissions、read_sources、write_sources、invoke_capabilities、credential；credential 为 {name,configured} 或 null，只说明 token_env 引用及是否已加载。plugins 包含 instance_id、module、principal_id、enabled、required、configuration；外部模块名统一为 external，不回显任意参数。OneBot configuration 提供采集范围和凭据引用；Agent 提供触发范围，独立 pi 配置在对应面板内查询。mcp_url 为 HTTP origin 的 /v1/mcp 地址，不承诺该协议插件当前可用。
+configuration 的 principals 包含 id、permissions、read_sources、write_sources、invoke_capabilities、credential；credential 为 {name,configured} 或 null，只说明 token_env 引用及是否已加载。plugins 包含 instance_id、module、principal_id、enabled、required、configuration；外部模块名统一为 external，不回显任意参数。OneBot configuration 提供采集范围和凭据引用；Agent 提供宿主启动配置的触发范围基准，在线保存/应用值以对应面板 management.filter 为准，独立 pi 配置也在面板内查询。mcp_url 为 HTTP origin 的 /v1/mcp 地址，不承诺该协议插件当前可用。
 
 其他管理交互遵守以下已定稿边界：
 

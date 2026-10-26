@@ -42,9 +42,11 @@ async function savedBinding(path: string): Promise<Binding> {
     if (!info.isFile() || info.size > consumerLimits.stateBytes) throw new RecoveryError('recovery_state_invalid');
     const value = object(json(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await file.readFile())), consumerLimits.stateBytes));
     const selection = object(value.selection);
+    const management = value.management === undefined ? undefined : object(value.management);
+    const baseFilter = management ? management.base_filter : selection.filter;
     const config = parseConsumerConfig({ input_id: value.input_id, source_prefix: selection.source_prefix,
       max_event_age_seconds: selection.max_event_age_seconds, agent: value.agent,
-      ...(selection.filter === undefined ? {} : { filter: selection.filter }) });
+      ...(baseFilter === undefined || baseFilter === null ? {} : { filter: baseFilter }) });
     const reader = object(value.reader);
     fields(reader, ['principal_id', 'sources'], ['principal_id', 'sources']);
     const principalId = string(reader.principal_id, 64);

@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { EventRef, SourceRule } from '../../core/types.js';
 import { eventRef, fields, json, namespacePattern, object, position, string, uri } from '../../core/validation.js';
 import type { ReadScope } from '../../host/plugin-api.js';
-import { ConsumerError, consumerLimits, parseConsumerConfig, type ConsumerConfig, type ConsumerFilter } from './config.js';
+import { ConsumerError, consumerLimits, parseConsumerConfig, parseFilter, parsePiSettings, type ConsumerConfig, type ConsumerFilter, type ManagedPi, type PiSettings } from './config.js';
 import { nativeId } from '../onebot-v11/protocol.js';
 
 export interface Binding {
@@ -15,10 +15,18 @@ export interface Binding {
   agent: { command: string; args: string[]; cwd: string; env_vars: string[] };
 }
 export interface InFlight extends EventRef { seq: string; conversation: string; session_id: string }
+export interface ManagedState {
+  revision: string; base_filter: ConsumerFilter | null; filter: { saved: ConsumerFilter | null; applied: ConsumerFilter | null }; turn_timeout_ms?: number;
+  pi?: { base: ManagedPi; saved: PiSettings; applied: PiSettings | null; applying?: boolean };
+}
 export interface ConsumerState extends Binding {
   version: 1; store_id: string; last_seq: string;
   agent_info: { name: string; version: string } | null;
   sessions: Record<string, string>; in_flight: InFlight | null;
+  management?: ManagedState;
+}
+export function managementFor(state: ConsumerState): ManagedState {
+  return state.management ?? { revision: 'initial', base_filter: state.selection.filter ?? null, filter: { saved: state.selection.filter ?? null, applied: state.selection.filter ?? null } };
 }
 export function bindingFor(config: ConsumerConfig, scope: ReadScope): Binding {
   const sources = structuredClone(scope.sources).sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0);
@@ -62,7 +70,8 @@ export async function inspectState(path: string, storeId: string, latest: bigint
   const value = object(raw), selection = object(value.selection), reader = object(value.reader);
   const config = parseConsumerConfig({ input_id: value.input_id, source_prefix: selection.source_prefix,
     max_event_age_seconds: selection.max_event_age_seconds, agent: value.agent,
-    ...(selection.filter === undefined ? {} : { filter: selection.filter }) });
+    ...(value.management !== undefined ? (object(value.management).base_filter === null ? {} : { filter: object(value.management).base_filter }) :
+      selection.filter === undefined ? {} : { filter: selection.filter }) });
   fields(reader, ['principal_id', 'sources'], ['principal_id', 'sources']);
   const principalId = string(reader.principal_id, 64);
   if (!namespacePattern.test(principalId) || !Array.isArray(reader.sources)) throw new ConsumerError('consumer_state_invalid');
@@ -79,11 +88,35 @@ function validateState(raw: unknown, binding: Binding, storeId: string, latest: 
   try {
     const value = object(json(raw, consumerLimits.stateBytes));
     const keys = ['version', 'input_id', 'store_id', 'selection', 'reader', 'agent', 'agent_info', 'last_seq', 'sessions', 'in_flight'];
-    fields(value, keys, keys);
+    fields(value, [...keys, 'management'], keys);
     if (value.version !== 1) throw new ConsumerError('consumer_state_invalid');
     if (value.store_id !== storeId) throw new ConsumerError('consumer_store_mismatch');
+    let management: ManagedState | undefined;
+    let expected = binding;
+    if (value.management !== undefined) {
+      const saved = object(value.management);
+      fields(saved, ['revision', 'base_filter', 'filter', 'pi', 'turn_timeout_ms'], ['revision', 'base_filter', 'filter']);
+      const filter = object(saved.filter); fields(filter, ['saved', 'applied'], ['saved', 'applied']);
+      management = { revision: string(saved.revision, 64), base_filter: saved.base_filter === null ? null : parseFilter(saved.base_filter),
+        filter: { saved: filter.saved === null ? null : parseFilter(filter.saved), applied: filter.applied === null ? null : parseFilter(filter.applied) } };
+      if (saved.turn_timeout_ms !== undefined) {
+        const timeout = saved.turn_timeout_ms;
+        if (typeof timeout !== 'number' || !Number.isInteger(timeout) || timeout < 10 || timeout > 600000) throw new ConsumerError('consumer_state_invalid');
+        management.turn_timeout_ms = timeout;
+      }
+      if (!isDeepStrictEqual(management.base_filter, binding.selection.filter ?? null)) throw new ConsumerError('consumer_binding_changed');
+      const selection = { ...binding.selection };
+      if (management.filter.applied === null) delete selection.filter; else selection.filter = management.filter.applied;
+      expected = { ...binding, selection };
+      if (saved.pi !== undefined) {
+        const pi = object(saved.pi); fields(pi, ['base', 'saved', 'applied', 'applying'], ['base', 'saved', 'applied']);
+        if (pi.applying !== undefined && typeof pi.applying !== 'boolean') throw new ConsumerError('consumer_state_invalid');
+        const base = parseConsumerConfig({ input_id: binding.input_id, source_prefix: binding.selection.source_prefix, max_event_age_seconds: binding.selection.max_event_age_seconds, agent: binding.agent, managed_pi: pi.base }).managedPi!;
+        management.pi = { base, saved: parsePiSettings(pi.saved), applied: pi.applied === null ? null : parsePiSettings(pi.applied), ...(pi.applying === undefined ? {} : { applying: pi.applying as boolean }) };
+      }
+    }
     for (const key of ['input_id', 'selection', 'reader', 'agent'] as const) {
-      if (!isDeepStrictEqual(value[key], binding[key])) throw new ConsumerError('consumer_binding_changed');
+      if (!isDeepStrictEqual(value[key], expected[key])) throw new ConsumerError('consumer_binding_changed');
     }
     const lastSeq = position(value.last_seq);
     if (lastSeq > latest) throw new ConsumerError('consumer_position_ahead');
@@ -113,7 +146,7 @@ function validateState(raw: unknown, binding: Binding, storeId: string, latest: 
       if (seq <= lastSeq || seq > latest || current.conversation !== ref.source || sessions[ref.source] !== current.session_id) throw new ConsumerError('consumer_state_invalid');
       inFlight = { ...ref, seq: seq.toString(), conversation: ref.source, session_id: string(current.session_id, 256) };
     }
-    return { ...binding, version: 1, store_id: storeId, last_seq: lastSeq.toString(), sessions, agent_info: agentInfo, in_flight: inFlight };
+    return { ...expected, version: 1, store_id: storeId, last_seq: lastSeq.toString(), sessions, agent_info: agentInfo, in_flight: inFlight, ...(management ? { management } : {}) };
   } catch (error) {
     throw error instanceof ConsumerError ? error : new ConsumerError('consumer_state_invalid');
   }

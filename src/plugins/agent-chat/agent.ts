@@ -8,7 +8,7 @@ import type { StartAgent } from './supervisor.js';
 
 // The consumer only needs requests and final responses. SDK 1.9 logs raw malformed
 // notifications and unknown response IDs, so none of those reach its dispatcher.
-function guardedStream(stream: Stream): Stream {
+function guardedStream(stream: Stream, onUsage: (session: string, usage: { used: number; size: number }) => void): Stream {
   const pending = new Set<string | number>();
   const writer = stream.writable.getWriter();
   return {
@@ -26,7 +26,18 @@ function guardedStream(stream: Stream): Stream {
         if (value.jsonrpc !== '2.0') throw new ConsumerError('consumer_protocol_invalid');
         if ('method' in value) {
           if (typeof value.method !== 'string') throw new ConsumerError('consumer_protocol_invalid');
-          if (!('id' in value)) return;
+          if (!('id' in value)) {
+            if (value.method === 'session/update' && value.params && typeof value.params === 'object') {
+              const params = value.params as Record<string, unknown>;
+              const update = params.update && typeof params.update === 'object' ? params.update as Record<string, unknown> : undefined;
+              if (typeof params.sessionId === 'string' && params.sessionId.length <= 256 && update?.sessionUpdate === 'usage_update' &&
+                  typeof update.used === 'number' && Number.isSafeInteger(update.used) && update.used >= 0 &&
+                  typeof update.size === 'number' && Number.isSafeInteger(update.size) && update.size > 0) {
+                onUsage(params.sessionId, { used: update.used, size: update.size });
+              }
+            }
+            return;
+          }
         }
         if (typeof value.id !== 'string' && (typeof value.id !== 'number' || !Number.isSafeInteger(value.id))) throw new ConsumerError('consumer_protocol_invalid');
         if (!('method' in value) && !pending.delete(value.id)) throw new ConsumerError('consumer_protocol_invalid');
@@ -46,6 +57,9 @@ export class AcpAgent {
   private agentPid?: number;
   private watchdog?: ReturnType<typeof setTimeout>;
   private initialization!: InitializeResponse;
+  private modelBySession = new Map<string, string>();
+  private knownSessions = new Set<string>();
+  private usageBySession = new Map<string, { used: number; size: number }>();
   readonly closed = this.ended.promise;
 
   private constructor(private config: AgentConfig, env: Record<string, string>, signal: AbortSignal) {
@@ -84,7 +98,9 @@ export class AcpAgent {
       const output = Readable.toWeb(agent.child.stdout!) as unknown as ReadableStream<Uint8Array>;
       agent.connection = client({ name: 'imbrex-agent-chat' })
         .onRequest('session/request_permission', () => { onPermissionDenied(); return { outcome: { outcome: 'cancelled' } }; })
-        .connect(guardedStream(ndJsonStream(Writable.toWeb(agent.child.stdin!), output, { maxMessageBytes: consumerLimits.frameBytes })));
+        .connect(guardedStream(ndJsonStream(Writable.toWeb(agent.child.stdin!), output, { maxMessageBytes: consumerLimits.frameBytes }), (session, usage) => {
+          if (agent.knownSessions.has(session)) agent.usageBySession.set(session, usage);
+        }));
       agent.connection.closed.then(() => {
         if (!agent.stopping) { agent.stop(); onClosed(); }
       }).catch(() => agent.stop());
@@ -116,14 +132,27 @@ export class AcpAgent {
   async newSession(): Promise<string> {
     try {
       const response = await this.deadline(this.context.request('session/new', { cwd: this.config.cwd, mcpServers: [] }), consumerLimits.setupTimeoutMs);
-      return string(response.sessionId, 256);
+      const session = string(response.sessionId, 256);
+      this.knownSessions.add(session);
+      return session;
     } catch (error) { throw error instanceof ConsumerError ? error : new ConsumerError('consumer_session_start_failed'); }
   }
   async loadSession(sessionId: string): Promise<void> {
     if (this.info.agentCapabilities?.loadSession !== true) throw new ConsumerError('consumer_session_restore_unsupported');
-    try { await this.deadline(this.context.request('session/load', { sessionId, cwd: this.config.cwd, mcpServers: [] }), consumerLimits.setupTimeoutMs); }
+    try { await this.deadline(this.context.request('session/load', { sessionId, cwd: this.config.cwd, mcpServers: [] }), consumerLimits.setupTimeoutMs); this.knownSessions.add(sessionId); }
     catch { throw new ConsumerError('consumer_session_restore_failed'); }
   }
+  async selectModel(sessionId: string, model: string): Promise<void> {
+    try {
+      const response = await this.deadline(this.context.request('session/set_config_option', { sessionId, configId: 'model', value: model }), consumerLimits.setupTimeoutMs);
+      const selected = response.configOptions.find((option) => option.id === 'model');
+      if (!selected || selected.currentValue !== model) throw new ConsumerError('consumer_model_unconfirmed');
+      this.modelBySession.set(sessionId, model);
+    } catch (error) { throw error instanceof ConsumerError ? error : new ConsumerError('consumer_model_unconfirmed'); }
+  }
+  forgetSession(sessionId: string): void { this.modelBySession.delete(sessionId); this.knownSessions.delete(sessionId); this.usageBySession.delete(sessionId); }
+  observedModels(): Record<string, string> { return Object.fromEntries(this.modelBySession); }
+  observedUsage(): Record<string, { used: number; size: number }> { return Object.fromEntries(this.usageBySession); }
   prompt(sessionId: string, prompt: ContentBlock[], timeoutMs: number): Promise<PromptResponse> {
     return this.deadline(this.context.request('session/prompt', { sessionId, prompt }), timeoutMs);
   }

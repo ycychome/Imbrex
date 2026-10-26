@@ -48,6 +48,11 @@ export function requestIdOf(error: unknown): string | undefined {
   return failureOf(error).requestId;
 }
 
+/** 429 means another read already holds the panel; it is transient, not a failure. */
+export function isBusy(error: unknown): boolean {
+  return failureOf(error).status === 429;
+}
+
 export function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }

@@ -162,6 +162,30 @@ Consumer 保存输入位置、会话关联和 prompt 提交前的 in_flight；�
 
 OneBot 与 Agent 分别提供实例绑定的管理面板，Admin 启停不打断消息链路。后台 filter 只调整 Consumer 触发范围，不扩大本插件的采集名单或主体授权。
 
+### 7.1 插件私有运行时配置
+
+`imbrex.json` 只作为初始装配。控制台对采集名单的修改写入 `data/plugins/<instance>/config.json`（0600，原子写），不重写宿主配置：
+
+```json
+{
+  "version": 1,
+  "runtime_filters": {"group_ids": ["987654"], "private_user_ids": ["654321"]},
+  "managed_process": {"enabled": false}
+}
+```
+
+私有文件存在时，`runtime_filters` 覆盖宿主的 `allow_*`；`reset-runtime-config` 删除该字段（保留伴生进程设置），立即回到宿主值。文件损坏时回退宿主配置，并在面板 `runtime_config.error` 报告，不阻塞插件启动。名单增删立即更新内存，不需要重连；移除后，已接纳消息的 reply 也会被当前名单拒绝。空数组表示该类型不采集。
+
+配置读取只接受不重定向的普通文件，以非阻塞方式打开并限制实际字节数为 64 KiB；FIFO、符号链接和超限文件按损坏配置降级。写入使用自身新建的临时普通文件；任何写入或同步失败报告 `runtime_config_write_failed`，停止该实例采集并拒绝后续配置写入，防止基于旧缓存覆盖可能已替换的磁盘内容。动作返回 `status=failed`、`inspect_required=true`，必须核验私有文件后重新启动插件读取事实，不能自动回滚或把 HTTP 200 当作保存成功。
+
+### 7.2 伴生进程
+
+`managed_process` 支持 `enabled`、`command`、`args`、`cwd`、`env_vars`；`env_vars` 只写变量名，值从宿主环境继承。启动时若 `ws_url` 端口已被占用，视为外部进程（attach），不 spawn；否则用 `tini -s` 下的插件专属监督进程启动并以 TCP 探测端口，最多等 10 秒。停止、父进程退出或宿主 IPC 断开时先清理全部后代（含脱离进程组的子进程），确认回收后才报告 stopped/exited；清理失败报告错误并拒绝新启动。启动前端口检查可被停止取消。进程崩溃不自动重启，只保留状态与日志；操作者显式 start/stop/restart。
+
+面板保留最近 80 行 stdout/stderr。登录 URL 与二维码内容原样保留，只对 Authorization 与令牌类环境变量的值做脱敏。管理动作：`save-runtime-filters`、`allow-conversation`、`reset-runtime-config`、`save-managed-process`、`start-managed-process`、`stop-managed-process`、`restart-managed-process`、`reconnect`。面板 data 暴露 `scope`、`runtime_config`、`managed_process`（saved/active）与最近 10 条 `intercepts`。
+
+启动动作等待监督进程确认实际创建子进程后才返回；这不表示 WebSocket 身份已核验或端口已就绪，后续以面板状态为准。缺少环境、可执行文件或启动确认失败返回 failed 结果及 inspect_required，不以 succeeded 掩盖已知的 exited 状态。
+
 ## 8. 兼性怎样记录
 
 | 对象 | 当前证据 | 运行兼容状态 |
