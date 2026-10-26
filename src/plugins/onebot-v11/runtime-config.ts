@@ -101,6 +101,8 @@ export async function readRuntimeConfig(dataDir: string): Promise<{ config?: Run
 
 export async function writeRuntimeConfig(dataDir: string, config: RuntimeConfig): Promise<void> {
   config = parseRuntimeConfig(config);
+  const content = JSON.stringify(config) + '\n';
+  if (Buffer.byteLength(content) > MAX_BYTES) fail('payload_too_large');
   const target = join(dataDir, RUNTIME_CONFIG);
   const temporary = target + '.' + randomUUID() + '.tmp';
   let created = false;
@@ -108,7 +110,7 @@ export async function writeRuntimeConfig(dataDir: string, config: RuntimeConfig)
     await mkdir(dataDir, { recursive: true, mode: 0o700 });
     const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     created = true;
-    try { await file.writeFile(JSON.stringify(config) + '\n'); await file.sync(); } finally { await file.close(); }
+    try { await file.writeFile(content); await file.sync(); } finally { await file.close(); }
     await rename(temporary, target);
     const directory = await open(dataDir, 'r');
     try { await directory.sync(); } finally { await directory.close(); }

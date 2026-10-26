@@ -327,3 +327,23 @@ test('known companion startup failures never return a succeeded management resul
   }
   await app.stopPlugin('qq-main');
 });
+
+test('runtime file size limit includes the persisted newline and preserves the previous readable config', async (t) => {
+  const { app, act, panel, config } = await fixture(t, false, true, true);
+  assert.equal((await act('save-managed-process', { enabled: false })).status, 200);
+  const args = Array.from({ length: 16 }, (_, index) => index < 15 ? 'x'.repeat(4096) : '');
+  const next = { version: 1, managed_process: { enabled: false, args } };
+  args[15] = 'x'.repeat(65536 - Buffer.byteLength(JSON.stringify(next)));
+  assert.equal(Buffer.byteLength(JSON.stringify(next)), 65536);
+  const path = join(config.dataDir, 'plugins/qq-main/config.json'), before = await readFile(path, 'utf8');
+  assert.equal((await act('save-managed-process', next.managed_process)).status, 413);
+  assert.equal(await readFile(path, 'utf8'), before);
+  args[15] = args[15]!.slice(1);
+  assert.equal((await act('save-managed-process', next.managed_process)).status, 200);
+  assert.equal(Buffer.byteLength(await readFile(path, 'utf8')), 65536);
+  await app.stopPlugin('qq-main'); await app.startPlugin('qq-main');
+  await until(() => app.plugins().find((plugin) => plugin.id === 'qq-main')?.available === true);
+  const data = await panel();
+  assert.equal(object(data.runtime_config).error, null);
+  assert.deepEqual(object(object(data.managed_process).saved).args, args);
+});
