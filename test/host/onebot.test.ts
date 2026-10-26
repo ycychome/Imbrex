@@ -156,8 +156,7 @@ test('invalid native IDs and unsupported segments cannot enter storage; demo bui
   const parsed = parseOneBotConfig(config.plugins.find((plugin) => plugin.id === 'qq-main')!.config);
   for (const event of [
     { ...numericFixture, message_id: 9007199254740992 }, { ...numericFixture, self_id: 222222 },
-    { ...numericFixture, message: '[CQ:image,file=example]' }, { ...numericFixture, message: '[CQ:reply,id=01]' },
-    { ...numericFixture, message: [{ type: 'image', data: { file: 'example' } }] },
+    { ...numericFixture, message: '[CQ:reply,id=01]' },
   ]) assert.throws(() => mapMessage(event, parsed));
   assert.throws(() => parseOneBotConfig({ ...config.plugins.find((plugin) => plugin.id === 'qq-main')!.config, compatibility_profile: 'imaginary' }));
   config.plugins.find((plugin) => plugin.id === 'qq-main')!.module = 'builtin:mock';

@@ -14,7 +14,13 @@ export interface ProtocolApi {
   capabilities: Capabilities;
   plugins(): unknown[];
   report(code: string, requestId: string): void;
-  admin?: { registry: AdminRegistry; configuration(principal: Principal): JsonValue; operate(principal: Principal, instance: string, generation: string, action: string, input: unknown): Promise<JsonValue> };
+  admin?: {
+    registry: AdminRegistry;
+    configuration(principal: Principal): JsonValue;
+    diagnostics(principal: Principal, subjectId: string): JsonValue;
+    lifecycle(principal: Principal, instance: string, revision: string, action: string): Promise<JsonValue>;
+    operate(principal: Principal, instance: string, generation: string, action: string, input: unknown): Promise<JsonValue>;
+  };
 }
 export interface ProtocolService {
   forPlugin(ctx: Context): ProtocolApi;

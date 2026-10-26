@@ -7,8 +7,9 @@ import { fields, json, limits, object, string } from '../../core/validation.js';
 import type { EventInput, EventRef, JsonObject, JsonValue } from '../../core/types.js';
 import type { CallOutcome } from '../../core/store.js';
 import type {} from '../../host/plugin-api.js';
-import { mapMessage, nativeId, parseOneBotConfig, replyAction, replySchema } from './protocol.js';
+import { mapMessage, mapRequest, nativeId, parseOneBotConfig, replyAction, replySchema, sourceFor } from './protocol.js';
 import { OneBotSocket, RequestError } from './socket.js';
+import { registerQQCapabilities, safeRevoke, SentMessages } from './capabilities.js';
 import { Companion } from './companion.js';
 import {
   mergeRuntime, parseManagedProcess, parseRuntimeFilters, readRuntimeConfig, writeRuntimeConfig,
@@ -160,7 +161,11 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
     const kind = item.message_type;
     if (kind !== 'group' && kind !== 'private') return;
     let conversation: string;
-    try { conversation = nativeId(kind === 'group' ? item.group_id : item.user_id); } catch { return; }
+    try {
+      const sender = nativeId(item.user_id);
+      if (kind === 'private' && sender === config.accountId && item.target_id === undefined) return;
+      conversation = nativeId(kind === 'group' ? item.group_id : sender === config.accountId ? item.target_id : item.user_id);
+    } catch { return; }
     if ((kind === 'group' ? config.groupIds : config.privateIds).includes(conversation)) return;
     return { time: new Date().toISOString(), kind, conversation };
   }
@@ -268,6 +273,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
           binding: binding ? { ...binding } : null, started_at: startedAt, last_error: ready ? null : lastCode,
           accepted_events: accepted.toString(), duplicate_events: duplicates.toString(), queued_events: queue.length,
           connection_metrics: metrics,
+          capability_limits: { revoke_message: { available: ready && safeRevoke(binding?.app_name), reason: safeRevoke(binding?.app_name) ? (ready ? null : 'onebot_not_connected') : 'onebot_revoke_unsafe_message_identity' } },
           scope: scope(),
           runtime_config: { error: runtimeError ?? null },
           managed_process: { saved: managedConfig, active: process },
@@ -291,6 +297,17 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
     })();
   };
 
+  const sent = new SentMessages();
+  ctx.effect(() => registerQQCapabilities(api, config, async (action, params, signal) => {
+    const active = connection;
+    if (!ready || !active) throw new RequestError('onebot_not_connected', false);
+    return active.request(action, params, signal);
+  }, sent, () => ({ connected: ready && Boolean(connection?.connected), account_verified: ready,
+    account_id: config.accountId, identity_namespace: config.identityNamespace,
+    connection_metrics: json(connection?.metrics() ?? null), binding: json(binding ?? null),
+    capability_limits: { revoke_message: { available: ready && safeRevoke(binding?.app_name), reason: safeRevoke(binding?.app_name) ? (ready ? null : 'onebot_not_connected') : 'onebot_revoke_unsafe_message_identity' } },
+  }), () => safeRevoke(binding?.app_name)));
+
   ctx.effect(() => api.capabilities.register<{ input_event_ref: EventRef; text: string }, never>({
     localName: 'reply', description: 'Reply to a permitted inbound QQ message in its original conversation.',
     schemaVersion: '1', isSideEffectful: true, inputSchema: replySchema,
@@ -312,6 +329,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
         }
         if (response.status !== 'ok' || response.retcode !== 0) throw new RequestError('onebot_result_unconfirmed', true);
         const messageId = nativeId(object(response.data).message_id, true);
+        sent.remember(messageId, sourceFor(config, String(target.conversation_type), String(target.conversation_id)));
         return { status: 'succeeded', result: { ...target, native_message_id: messageId } };
       } catch (error) {
         const known = error instanceof RequestError;
@@ -328,10 +346,19 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
       try {
         active = new OneBotSocket(config.wsUrl, token, (value) => {
           if (api.signal.aborted) return;
+          if (value.post_type === 'message') {
+            try {
+              if (nativeId(value.self_id) === config.accountId && (value.message_type === 'group' || value.message_type === 'private')) {
+                const kind = value.message_type;
+                const peer = nativeId(kind === 'group' ? value.group_id : value.target_id ?? value.user_id);
+                sent.observe(nativeId(value.message_id, true), sourceFor(config, kind, peer), nativeId(value.user_id) === config.accountId);
+              }
+            } catch { /* Invalid observations never create a sending proof. */ }
+          }
           const outside = outsideScope(value);
           if (outside) { recordIntercept(outside.kind, outside.conversation); return; }
           try {
-            const event = mapMessage(value, config);
+            const event = value.post_type === 'request' ? mapRequest(value, config) : mapMessage(value, config);
             if (!event) return;
             if (queue.length >= limits.queue) { unavailable('onebot_ingress_overflow'); active?.close(); return; }
             queue.push(event); drain();
