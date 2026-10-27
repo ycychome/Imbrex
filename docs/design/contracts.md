@@ -232,9 +232,11 @@ call_id 是不透明标识，路径段百分号解码一次后保留原值，点
 
 ## 9. 插件状态
 
-`GET /v1/plugins` 返回 `{store_id,plugins}`。每项包含 id、module_name、enabled、state、required、available，以及可选的 client_entry 和脱敏 last_error。state 为 waiting/loading/active/failed/stopping/stopped；client_entry 是插件自携前端 ESM 的同源静态路径（/admin/plugins/<module>/<entry>），仅表示可加载入口，不代表视图已注册或权限通过。插件实例配置、访问 token 和消息正文不返回。
+`GET /v1/plugins` 返回 `{store_id,plugins}`。每项包含 id、module_name、enabled、state、required、available、lifecycle_revision，以及可选的 client_entry 和脱敏 last_error。state 为 waiting/loading/active/failed/stopping/stopped；lifecycle_revision 是包括 stopped/failed 实例在内的不透明运行版本，随生命周期转换改变，宿主重启后重新生成，不等同面板 generation。client_entry 是插件自携前端 ESM 的同源静态路径（/admin/plugins/<module>/<entry>），仅表示可加载入口，不代表视图已注册或权限通过。插件实例配置、访问 token 和消息正文不返回。
 
-该接口继续只读；当前 M1 通过配置与宿主重启管理加载。M2 管理动作使用专属 /api/admin/* 入口及管理权限，不改变 /v1/plugins 的语义，也不把 runtime:inspect 升级为操作权限。
+enabled 表示宿主配置启用或实例已被在线启动；初始 disabled 的实例在线启动后返回 true，以便 Shell 按 enabled 和 active 加载其视图。/api/admin/configuration 的 enabled 保留宿主装配基准，在线启停不改写它。
+
+该接口继续只读；M2 管理动作使用专属 /api/admin/* 入口及管理权限，不把 runtime:inspect 升级为操作权限。
 
 ## 10. 错误契约
 
@@ -288,7 +290,7 @@ store_id 为数据库身份；latest_seq 沿用规范十进制字符串；versio
 | /api/admin/panels | 无 | {store_id, panels:[{instance_id,module,generation,title,icon,actions}]}；actions 为已登记动作描述 |
 | /api/admin/panels/:instance | 无 | {store_id,instance_id,module,generation,data:{status:{tone,label},metrics:[{label,value,hint?}],data:{...}}}；读取失败时以 error:{code,message} 替代 data |
 | /api/admin/events | store_id、after_seq 必填；limit、source_prefix、type 可选 | 与 /v1/events 相同的记录和分页字段，管理权限可读本网关全局事件 |
-| /api/admin/capabilities | 无 | {store_id,capabilities:[...]}；既有能力描述加 available，包含仍登记但不可用的能力 |
+| /api/admin/capabilities | principal_id 可选 | {store_id,capabilities:[...]}；既有能力描述加 available，包含仍登记但不可用的能力；指定主体时另返回 diagnostics |
 | /api/admin/calls | store_id 必填；limit 默认 50、最大 100；caller_id、status、after_caller_id、after_call_id 可选 | {store_id,calls:[...],next}；每条 call 添加 caller_id，next 为 {caller_id,call_id} 或 null |
 | /api/admin/configuration | 无 | {config_version,external_writes_enabled,mcp_url,principals,plugins} |
 
@@ -353,6 +355,34 @@ configuration 的 principals 包含 id、permissions、read_sources、write_sour
 
 状态或配置写入失败不能报告成功；旧页面提交的操作若不再对应当前未决项，应拒绝而不推进其他输入。管理请求断开不等于操作取消，后续应查询实际状态；不得把重新提交操作解释成新的外部发送意图。
 
+### 12.1 通用实例生命周期与能力测试
+
+`POST /api/admin/instances/:instance/actions/:action` 支持 start/stop/restart，要求 Bearer、admin:operate、同源 Origin（若有），禁止 query。请求严格为：
+
+```json
+{"store_id":"<store-id>","lifecycle_revision":"<当前实例运行版本>"}
+```
+
+版本来自 info/plugins，stopped/failed 实例仍有版本。start 只接受 stopped/failed，stop/restart 只接受运行实例；状态按 info/plugins 的有效生命周期判定，运行期依赖恢复失败的实例可通过 start 恢复，先注销旧注册、排空调用并清理旧 fiber，再创建新实例。启动/停止中或同实例已有面板/生命周期动作时返回 429 busy。版本过期为 409 admin_conflict，store 不符为 409 store_mismatch，清理失败或宿主关闭为 503 provider_unavailable。生命周期动作由宿主协调，不读取已注销面板闭包；面板动作与生命周期互斥，停止会注销视图。宿主装配 enabled 字段不被在线动作改写，宿主重启依原装配启动。
+
+操作完成返回 {store_id,instance_id,result:{status,state,lifecycle_revision,reason?,inspect_required}}。status=succeeded 只说明期望生命周期状态成立，不证明连接器平台登录或 Agent 模型状态。启动/清理失败返回 failed 和需要核验的实际状态，不创建第二套实例；失去响应时先重新读取实例，不自动重复。通过正在服务的管理端点停止自身 Admin 或 HTTP 实例返回 404 feature_unavailable；这类管理通道变更使用离线部署控制，避免请求自身清理互等和无法恢复入口。
+
+`GET /api/admin/capabilities?principal_id=<主体>` 可诊断一个配置主体，只接受该单个 query key。原 capabilities 清单保留；diagnostics 包含 principal 的 id/permissions/read_sources/invoke_capabilities、external_writes_enabled，以及每个已登记能力的 id/available/invoke_authorized/events_read_permitted/external_write_enabled。权限、提供方在线、外部写开关分开表达；events_read_permitted 只说明权限项，不证明具体目标被 read_sources 覆盖。平台角色与参数尚未校验，诊断不承诺一次具体调用一定可执行，也不在线修改 Principal。
+
+`POST /api/admin/capabilities/:capability/invoke` 作为通用能力测试入口，要求实际登录者 admin:inspect 和核心的 capabilities:invoke/具体能力/来源授权/外部写开关。请求 {store_id,params,call_id?}，只读省略 call_id，外部写必须稳定 call_id。它不使用诊断主体作为执行身份，不借用 Agent/连接器 token，不接受 caller_id/subject_id。返回与 /v1 能力调用相同的 result/call；HTTP 200 不等于 call.status=succeeded。管理员核验旧调用使用 /api/admin/calls 的 caller_id + call_id；普通主体的原调用查询仍经 /v1 或 MCP 的 calls:read。所有入口使用 no-store。
+
+模拟测试输入：
+
+```json
+{"store_id":"<store-id>","call_id":"manual-qq-001","params":{"target":{"type":"group","id":"987654"},"segments":[{"type":"text","data":{"text":"fixture"}}]}}
+```
+
+来源越权在读取工具时返回 HTTP 403 的 error.code=forbidden；写动作的目标/平台前置校验拒绝返回持久 call.status=failed。已派发但无法确认的模拟回执为：
+
+```json
+{"store_id":"<store-id>","kind":"call","call":{"call_id":"manual-qq-001","capability_id":"qq-main.send_message","schema_version":"1","params":{"target":{"type":"group","id":"987654"},"segments":[{"type":"text","data":{"text":"fixture"}}]},"status":"unknown","reason":{"code":"onebot_result_unconfirmed","message":"QQ operation result could not be confirmed."},"created_at":"2026-10-26T00:00:00Z","updated_at":"2026-10-26T00:00:00Z"}}
+```
+
 ## 13. MCP 入口
 
 `/v1/mcp` 由 adapter-mcp 插件提供，在进程内直接复用 events、capabilities、access，保持 core 不依赖 MCP、Cordis 或 HTTP 框架。上下文与动作使用同一个 MCP Server。
@@ -388,6 +418,16 @@ tools/list 按每次请求的主体权限过滤以下工具。能力清单由 im
 参数 schema 由 tools/list 提供，未知业务参数拒绝；store_id 为字符串，位置是规范十进制字符串，limit 是 1—100 的整数。字符串、JSON 大小与深度限制沿用第 2 节。SDK 转换前检查原始工具请求，业务 schema 校验使用保留的原始 arguments，不因 SDK 删除字段而放行非法请求。工具发现只是一份当前视图，执行重新检查权限、存储身份、参数与提供者状态，不凭模型提示授权。没有事件写入、原始平台 Action 或任意收件人工具。
 
 工具响应的 content 文本与 structuredContent 提供相同 JSON。核心错误返回 isError=true 和 error.code/message、request_id；外部写结果为 failed、unknown 或 in_progress 时也标记 isError=true，并保留完整 call。查询未知调用成功仅表示查询成功，必须继续检查 call.status；不能从 MCP 协议成功或查询的 isError=false 推断远端动作成功。
+
+能力动态工具按实际 Principal 同时具备 capabilities:list、capabilities:invoke 及具体能力授权过滤；调用时重新从有效注册中解析，再走核心 invoke。通常 name 等于完整 capability_id，保留唯一点号及连字符，不做下划线编码。合法 core ID 长达 129 字符时使用 `imbrex_cap_<完整 capability_id 的 SHA-256 十六进制摘要>`，别名稳定且不截断 ID；名字碰撞明确拒绝，不覆盖其他工具。系统工具与通常含点号的能力工具分域。
+
+动态工具的顶层 inputSchema 是薄信封：只读必须 {store_id,params} 且拒绝 call_id；外部写必须 {store_id,params,call_id}。不接受 caller_id、subject_id 或其他身份覆盖字段。params 保留能力原 Schema 的验证语义，包括数组和布尔 Schema；布尔 Schema 在工具属性中使用等价对象表达。只读工具不生成 calls；写结果、isError 及原调用查询保持通用工具语义。tools/list 每次重建，不提供长期 list_changed 推送；卸载后原名字不能继续调用旧闭包，原 call_id 仍由 imbrex_get_call 核验。
+
+示例调用（所有值为模拟占位）：
+
+```json
+{"name":"qq-main.send_message","arguments":{"store_id":"<store-id>","call_id":"fixture-send-001","params":{"target":{"type":"group","id":"987654"},"segments":[{"type":"text","data":{"text":"fixture"}}]}}}
+```
 
 ### 13.3 传输、认证与清理
 

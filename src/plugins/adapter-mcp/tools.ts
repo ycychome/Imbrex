@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { requirePermission } from '../../core/access.js';
 import type { Capabilities } from '../../core/capabilities.js';
@@ -6,8 +7,8 @@ import type { Events } from '../../core/events.js';
 import { compileSchema } from '../../core/schema.js';
 import type { GatewayStore } from '../../core/store.js';
 import type { Permission, Principal } from '../../core/types.js';
-import { capabilityPattern, eventRef, json, limits, object, position, readOptions, string } from '../../core/validation.js';
-import { invokeBody, wireCall, wireCapability, wireInvocation, wirePage, wireRecord } from '../api-rest/dto.js';
+import { capabilityPattern, eventRef, fields, json, limits, object, position, readOptions, string } from '../../core/validation.js';
+import { invokeBody, wireCall, wireCapability, wireInvocation, wirePage, wireRecord } from '../../core/wire.js';
 
 const storeIdSchema = { type: 'string', minLength: 1, maxLength: 256 };
 const callIdSchema = { type: 'string', minLength: 1, maxLength: 128, description: 'Stable intent ID (ASCII letters, digits, . _ : -). Preserve this ID after an uncertain outcome.' };
@@ -47,8 +48,21 @@ export interface ToolContext {
   report: (code: string) => void;
 }
 
-export function listTools(principal: Principal): Tool[] {
-  return tools.filter((item) => item.permission === undefined || principal.permissions.includes(item.permission)).map((item) => item.tool);
+function projectedTools(principal: Principal, capabilities: Capabilities): { capabilityId: string; tool: Tool }[] {
+  if (!principal.permissions.includes('capabilities:list') || !principal.permissions.includes('capabilities:invoke')) return [];
+  return capabilities.list(principal).map((cap) => ({ capabilityId: cap.id, tool: {
+    name: cap.id.length <= 128 ? cap.id : 'imbrex_cap_' + createHash('sha256').update(cap.id).digest('hex'),
+    description: cap.description + (cap.isSideEffectful ? ' Preserve call_id after uncertain outcomes; query imbrex_get_call rather than automatically repeating.' : ''),
+    inputSchema: { type: 'object', properties: { store_id: storeIdSchema, params: typeof cap.inputSchema === 'boolean' ? (cap.inputSchema ? {} : { not: {} }) : object(cap.inputSchema), ...(cap.isSideEffectful ? { call_id: callIdSchema } : {}) },
+      required: cap.isSideEffectful ? ['store_id', 'params', 'call_id'] : ['store_id', 'params'], additionalProperties: false },
+    annotations: { readOnlyHint: !cap.isSideEffectful, openWorldHint: true },
+  } }));
+}
+
+export function listTools(principal: Principal, capabilities: Capabilities): Tool[] {
+  const result = [...tools.filter((item) => item.permission === undefined || principal.permissions.includes(item.permission)).map((item) => item.tool), ...projectedTools(principal, capabilities).map((item) => item.tool)];
+  if (new Set(result.map((tool) => tool.name)).size !== result.length) fail('invalid_request');
+  return result;
 }
 
 function result(value: Record<string, unknown>, isError = false): CallToolResult {
@@ -58,7 +72,16 @@ function result(value: Record<string, unknown>, isError = false): CallToolResult
 export async function callTool(name: string, input: unknown, context: ToolContext): Promise<CallToolResult> {
   const { principal, store, events, capabilities } = context;
   try {
-    const definition = tools.find((item) => item.tool.name === name) ?? fail('not_found');
+    const definition = tools.find((item) => item.tool.name === name);
+    if (!definition) {
+      const projected = projectedTools(principal, capabilities).find((item) => item.tool.name === name) ?? fail('not_found');
+      const value = object(json(input ?? {}, limits.httpBytes));
+      fields(value, ['store_id', 'params', 'call_id'], projected.tool.annotations?.readOnlyHint ? ['store_id', 'params'] : ['store_id', 'params', 'call_id'], 'invalid_params');
+      if (projected.tool.annotations?.readOnlyHint && Object.hasOwn(value, 'call_id')) fail('invalid_params');
+      const invocation = invokeBody(value);
+      const outcome = await capabilities.invoke(principal, invocation.storeId, projected.capabilityId, invocation.params, invocation.callId);
+      return result(wireInvocation(outcome), outcome.kind === 'call' && outcome.call.status !== 'succeeded');
+    }
     if (definition.permission) requirePermission(principal, definition.permission);
     const value = object(json(input ?? {}, limits.httpBytes));
     if (!definition.validate(value)) fail('invalid_params');

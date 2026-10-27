@@ -12,6 +12,10 @@ import { parseConfig } from '../../src/host/config.js';
 import { loadModules, type PluginModule } from '../../src/host/modules.js';
 import { object } from '../../src/core/validation.js';
 import { SqliteStore } from '../../src/storage/store.js';
+import { Capabilities } from '../../src/core/capabilities.js';
+import { Events } from '../../src/core/events.js';
+import type { Principal } from '../../src/core/types.js';
+import { listTools } from '../../src/plugins/adapter-mcp/tools.js';
 
 const agentToken = 'fixture-mcp-agent';
 const otherToken = 'fixture-mcp-other';
@@ -19,6 +23,45 @@ const headers = { authorization: 'Bearer ' + agentToken, 'content-type': 'applic
 const rpc = (name: string, args: Record<string, unknown> = {}, id = 7) => ({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } });
 const payload = (value: unknown) => object(object(value).structuredContent);
 const errorCode = (value: unknown) => object(payload(value).error).code;
+
+test('projected tools retain arrays and stable intent envelopes without granting identity overrides', async (t) => {
+  const f = await fixture(t), client = await f.connect();
+  const listed = (await client.listTools()).tools;
+  assert.deepEqual(listed.find((item) => item.name === 'provider.echo')!.inputSchema.required, ['store_id', 'params']);
+  assert.deepEqual(payload(await f.call(client, 'provider.echo', { store_id: f.storeId, params: ['fixture'] })).result, ['fixture']);
+  assert.equal(errorCode(await f.call(client, 'provider.echo', { store_id: f.storeId, params: [], call_id: 'bad-read' })), 'invalid_params');
+  assert.equal(errorCode(await f.call(client, 'provider.write', { store_id: f.storeId, params: { text: 'fixture' } })), 'invalid_params');
+  assert.equal(errorCode(await f.call(client, 'provider.write', { store_id: f.storeId, params: { text: 'fixture' }, call_id: 'forged', caller_id: 'provider' })), 'invalid_params');
+  assert.equal(f.control.writes, 0);
+  f.control.outcome = 'unknown';
+  const args = { store_id: f.storeId, params: { text: 'fixture' }, call_id: 'projected-intent' };
+  const unknown = await f.call(client, 'provider.write', args);
+  assert.equal(object(payload(unknown).call).status, 'unknown');
+  assert.deepEqual(payload(await f.call(client, 'provider.write', args)), payload(unknown));
+  assert.equal(f.control.writes, 1);
+  const other = await f.connect(otherToken);
+  assert.ok(!(await other.listTools()).tools.some((item) => item.name === 'provider.write'));
+  await f.app.stopPlugin('provider');
+  assert.ok(!(await client.listTools()).tools.some((item) => item.name === 'provider.write'));
+  assert.deepEqual(payload(await f.call(client, 'imbrex_get_call', { store_id: f.storeId, call_id: args.call_id })).call, payload(unknown).call);
+});
+
+test('full capability names avoid underscore collisions and 129-character IDs have stable bounded aliases', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'imbrex-tools-'));
+  const store = await SqliteStore.open(join(directory, 'gateway.db'));
+  t.after(async () => { await store.close(); await rm(directory, { recursive: true, force: true }); });
+  const capabilities = new Capabilities(store, new Events(store), true);
+  const principal: Principal = { id: 'agent', permissions: ['capabilities:list', 'capabilities:invoke'], readSources: [], writeSources: [], invokeCapabilities: [] };
+  for (const [instanceId, localName, inputSchema] of [['a__b', 'c', { type: 'object' }], ['a', 'b__c', { type: 'object' }], ['a'.repeat(64), 'b'.repeat(64), true]] as const) {
+    principal.invokeCapabilities.push(instanceId + '.' + localName);
+    capabilities.register({ instanceId, signal: new AbortController().signal, available: () => true }, { localName, description: 'fixture', schemaVersion: '1', isSideEffectful: false, inputSchema, handler: () => null });
+  }
+  const names = listTools(principal, capabilities).map((tool) => tool.name);
+  assert.ok(names.includes('a__b.c')); assert.ok(names.includes('a.b__c'));
+  const alias = names.find((name) => name.startsWith('imbrex_cap_'))!;
+  assert.ok(alias.length <= 128); assert.equal(new Set(names).size, names.length);
+  assert.deepEqual(listTools(principal, capabilities).map((tool) => tool.name), names);
+});
 
 async function fixture(t: TestContext, largeSeq = false) {
   const dir = await mkdtemp(join(tmpdir(), 'imbrex-mcp-'));
@@ -80,7 +123,7 @@ async function fixture(t: TestContext, largeSeq = false) {
 test('official SDK discovers scoped tools and schemas, and preserves decimal positions and event references', async (t) => {
   const { connect, call, storeId, app } = await fixture(t, true);
   const client = await connect();
-  assert.equal((await client.listTools()).tools.length, 6);
+  assert.equal((await client.listTools()).tools.length, 8);
   assert.equal(payload(await call(client, 'imbrex_info')).latest_seq, '9007199254740994');
   const page = payload(await call(client, 'imbrex_read_events', { store_id: storeId, after_seq: '9007199254740992' }));
   assert.equal(page.next_after_seq, '9007199254740994');

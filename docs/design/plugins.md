@@ -75,6 +75,10 @@ export function apply(ctx: Context) {
 
 外部写注册使用 isSideEffectful=true。handler 除参数外可获得受信 invocation 上下文：callerId、callId、storeId、停止信号、受限日志及 `readEvent({source,id})`。readEvent 使用实际调用者的读取权限和本次 storeId，而不是连接器自身的较大权限；因此回复工具可以核验调用者有权读取其引用的输入。上下文不能接受任意 caller 覆盖，也不能绕过网关自动重复发送同一请求。
 
+只读与外部写 handler 均获得 `requireReadSource(source): void`：先验证规范 URI，再按真实 caller 的 events:read 与 read_sources 检查来源，拒绝时抛出核心错误。它不要求来源已有事件，也不返回 Principal、凭据或来源内容。连接器据此校验主动查询/发送的目标，并叠加自身名单及平台角色；core 不解释 QQ 会话。
+
+定义可提供同步的 `available(): boolean`，表示该能力额外的实际可用条件，与提供方生命周期取交集。发现与派发同时检查；返回 false 或抛错时隐藏普通工具发现并拒绝新调用，管理 inspect 保留登记及 available=false。它不授予权限，也不改变已保存调用查询。此条件避免把已确认不安全/不支持的平台动作当作可用工具；原因由所属插件诊断说明。
+
 handler 返回可分类结果：
 
 - `succeeded` 与合法 JSON result：实际操作协议已返回确定成功。
@@ -152,7 +156,7 @@ onebot-v11、agent-chat 与三个演示插件使用绑定业务 API。observer �
 
 server-http 监听成功后向 Cordis 提供 ctx.http。协议插件声明 http 依赖，通过 ctx.http.scope(ctx) 取得 HttpScope：register(method, pattern, handler): () => void；static(prefix, rootDir): Promise<() => void>。注销同时绑定调用插件的生命周期，接口类型位于 src/plugins/server-http/server.ts。支持字面路径、:参数段及末尾 *资产路径；不含 * 的具体路由优先于通配路由，:参数段不接受空段；请求路径不做点段归一化，保留不透明 call_id。静态资源按文件大小与 mtime 生成弱 ETag，对匹配的 If-None-Match 返回 304。
 
-Handler 收到 request/response、requestId、origin、params、query、queryText（原始查询串），以及 readBody()/send()/ensureActive()。readBody 按公共 JSON 限额读取且在返回前确认路由仍有效；鉴权由协议插件根据真实请求主体执行；api-rest 对未匹配的 /v1 路径先认证再返回 404，避免未认证请求枚举路由。宿主 protocol 服务只向内置协议实例提供请求侧接口，不加入普通 PluginApi。REST DTO 位于 src/plugins/api-rest/dto.ts，MCP 与其共享。
+Handler 收到 request/response、requestId、origin、params、query、queryText（原始查询串），以及 readBody()/send()/ensureActive()。readBody 按公共 JSON 限额读取且在返回前确认路由仍有效；鉴权由协议插件根据真实请求主体执行；api-rest 对未匹配的 /v1 路径先认证再返回 404，避免未认证请求枚举路由。宿主 protocol 服务只向内置协议实例提供请求侧接口，不加入普通 PluginApi。REST/MCP/Admin 的公共请求及 JSON 转换位于 src/core/wire.ts，不依赖 Cordis 或 HTTP/WS 框架；协议插件直接复用，不互相导入插件实现。api-rest/dto.ts 保留自身入口的兼容导出。
 
 插件卸载后移除对应路由与静态映射，不留可执行旧回调。重复路由不能静默覆盖其他实例；统一处理请求体大小、JSON 边界、并发预算与连接关闭，协议业务鉴权不由通用路由器猜测。协议 DTO 可复用，但 REST 不静态调用 MCP 的处理入口。
 
