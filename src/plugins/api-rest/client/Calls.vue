@@ -2,39 +2,15 @@
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import type { ViewClient } from '@imbrex/ui-contract';
 import { Chip, CopyButton, EmptyState, ErrorNotice, Icon, JsonBlock, KeyValueList, PageHeader, RelativeTime, Section, formatFull, isAbort, useNarrow, type KeyValueEntry, type Tone } from '@imbrex/ui-contract/ui';
-
-type CallStatus = 'in_progress' | 'succeeded' | 'failed' | 'unknown';
-type StatusFilter = 'all' | CallStatus;
-
-interface AdminCall {
-  caller_id: string;
-  call_id: string;
-  capability_id: string;
-  schema_version: string;
-  params: unknown;
-  status: CallStatus;
-  result?: unknown;
-  reason?: unknown;
-  created_at: string;
-  updated_at: string;
-}
-interface CallCursor { caller_id: string; call_id: string }
-interface CallPage { calls: AdminCall[]; next: CallCursor | null }
-interface AdminCapability {
-  id: string;
-  plugin_instance_id: string;
-  description: string;
-  schema_version: string;
-  is_side_effectful: boolean;
-  input_schema: unknown;
-  available: boolean;
-}
-interface CapabilityPage { capabilities: AdminCapability[] }
+import CapabilityTest from './CapabilityTest.vue';
+import PrincipalDiagnostics from './PrincipalDiagnostics.vue';
+import type { AdminCall, AdminCapability, AdminConfiguration, CallCursor, CallPage, CallStatus, CapabilityPage, StatusFilter } from './types';
 
 const props = defineProps<{ client: ViewClient }>();
 
 const controller = new AbortController();
 const capabilities = shallowRef<AdminCapability[]>([]);
+const configuration = shallowRef<AdminConfiguration | null>(null);
 const calls = shallowRef<AdminCall[]>([]);
 const next = ref<CallCursor | null>(null);
 const loading = ref(false);
@@ -54,6 +30,14 @@ const narrow = useNarrow();
 watch(narrow, (value) => { if (!value) sheetOpen.value = false; });
 
 const storeId = ref('');
+const testing = ref<AdminCapability | null>(null);
+
+const principals = computed(() => configuration.value?.principals ?? []);
+
+watch(capabilities, (list) => {
+  if (!testing.value) return;
+  testing.value = list.find((capability) => capability.id === testing.value?.id) ?? null;
+});
 
 const statusLabels: Record<CallStatus, string> = {
   in_progress: '进行中',
@@ -114,6 +98,14 @@ async function loadCapabilities(): Promise<void> {
   }
 }
 
+async function loadConfiguration(): Promise<void> {
+  try {
+    configuration.value = await props.client.request<AdminConfiguration>('/api/admin/configuration', { signal: controller.signal });
+  } catch (cause) {
+    if (!isAbort(cause)) error.value = cause;
+  }
+}
+
 function apply(): void {
   appliedCaller.value = caller.value.trim();
   appliedStatus.value = status.value;
@@ -130,6 +122,15 @@ function resetFilters(): void {
 
 function refresh(): void {
   void loadCapabilities();
+  void loadConfiguration();
+  void load(true);
+}
+
+function selectCapability(id: string): void {
+  testing.value = capabilities.value.find((capability) => capability.id === id) ?? null;
+}
+
+function refreshCalls(): void {
   void load(true);
 }
 
@@ -159,7 +160,7 @@ onMounted(async () => {
   try {
     const info = await props.client.request<{ store_id: string }>('/api/admin/info', { signal: controller.signal });
     storeId.value = info.store_id;
-    await Promise.all([loadCapabilities(), load(true)]);
+    await Promise.all([loadCapabilities(), loadConfiguration(), load(true)]);
   } catch (cause) {
     if (!isAbort(cause)) error.value = cause;
   }
@@ -190,7 +191,7 @@ onUnmounted(() => {
     <Section title="已登记能力" description="包含仍登记但当前不可用的实例。">
       <div class="panel overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="table min-w-[52rem]">
+          <table class="table min-w-[58rem]">
             <thead>
               <tr>
                 <th>能力</th>
@@ -199,6 +200,7 @@ onUnmounted(() => {
                 <th>副作用</th>
                 <th>可用</th>
                 <th>输入 Schema</th>
+                <th>测试</th>
               </tr>
             </thead>
             <tbody>
@@ -218,9 +220,18 @@ onUnmounted(() => {
                     </div>
                   </details>
                 </td>
+                <td>
+                  <button
+                    type="button"
+                    class="btn btn-sm"
+                    :disabled="!capability.available"
+                    :title="capability.available ? '在人工能力测试中执行' : '提供方当前不可用'"
+                    @click="selectCapability(capability.id)"
+                  >测试</button>
+                </td>
               </tr>
               <tr v-if="!capabilities.length">
-                <td colspan="6">
+                <td colspan="7">
                   <EmptyState title="暂无已登记能力" description="插件注册能力后会出现在这里。" />
                 </td>
               </tr>
@@ -229,6 +240,18 @@ onUnmounted(() => {
         </div>
       </div>
     </Section>
+
+    <PrincipalDiagnostics v-if="storeId && configuration" :client="client" :principals="principals" />
+
+    <CapabilityTest
+      v-if="storeId"
+      :client="client"
+      :store-id="storeId"
+      :capabilities="capabilities"
+      :selected="testing"
+      @select="selectCapability"
+      @invoked="refreshCalls"
+    />
 
     <Section title="调用审计" description="按调用主体与 call_id 的字典序分页读取。">
       <form class="panel grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_10rem_auto]" @submit.prevent="apply">

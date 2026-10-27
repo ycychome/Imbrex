@@ -1,5 +1,6 @@
 export interface AdminPluginStatus {
   id: string;
+  lifecycle_revision: string;
   module_name: string;
   enabled: boolean;
   state: string;
