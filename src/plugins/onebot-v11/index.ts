@@ -91,6 +91,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
 
   let connection: OneBotSocket | undefined;
   let ready = false;
+  let verifiedAppName: string | undefined;
   let queue: EventInput[] = [];
   let draining = false;
   let worker = Promise.resolve();
@@ -273,7 +274,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
           binding: binding ? { ...binding } : null, started_at: startedAt, last_error: ready ? null : lastCode,
           accepted_events: accepted.toString(), duplicate_events: duplicates.toString(), queued_events: queue.length,
           connection_metrics: metrics,
-          capability_limits: { revoke_message: { available: ready && safeRevoke(binding?.app_name), reason: safeRevoke(binding?.app_name) ? (ready ? null : 'onebot_not_connected') : 'onebot_revoke_unsafe_message_identity' } },
+          capability_limits: { revoke_message: { available: ready && safeRevoke(verifiedAppName), reason: safeRevoke(verifiedAppName) ? (ready ? null : 'onebot_not_connected') : 'onebot_revoke_unsafe_message_identity' } },
           scope: scope(),
           runtime_config: { error: runtimeError ?? null },
           managed_process: { saved: managedConfig, active: process },
@@ -305,8 +306,8 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
   }, sent, () => ({ connected: ready && Boolean(connection?.connected), account_verified: ready,
     account_id: config.accountId, identity_namespace: config.identityNamespace,
     connection_metrics: json(connection?.metrics() ?? null), binding: json(binding ?? null),
-    capability_limits: { revoke_message: { available: ready && safeRevoke(binding?.app_name), reason: safeRevoke(binding?.app_name) ? (ready ? null : 'onebot_not_connected') : 'onebot_revoke_unsafe_message_identity' } },
-  }), () => safeRevoke(binding?.app_name)));
+    capability_limits: { revoke_message: { available: ready && safeRevoke(verifiedAppName), reason: safeRevoke(verifiedAppName) ? (ready ? null : 'onebot_not_connected') : 'onebot_revoke_unsafe_message_identity' } },
+  }), () => safeRevoke(verifiedAppName)));
 
   ctx.effect(() => api.capabilities.register<{ input_event_ref: EventRef; text: string }, never>({
     localName: 'reply', description: 'Reply to a permitted inbound QQ message in its original conversation.',
@@ -365,6 +366,7 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
           } catch { unavailable('onebot_invalid_event'); active?.close(); }
         }, unavailable);
         connection = active;
+        verifiedAppName = undefined;
         await active.opened;
         if (api.signal.aborted || persistenceFailed) break;
         const [version, login] = await Promise.all([
@@ -385,13 +387,14 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
         try { await directory.sync(); } finally { await directory.close(); }
         binding = next;
         if (active.connected && !api.signal.aborted && !persistenceFailed) {
+          verifiedAppName = version.app_name === undefined ? undefined : string(version.app_name, 128);
           ready = true; api.setAvailable(true); drain();
           await active.closed;
           if (ready) unavailable('onebot_disconnected');
         }
       } catch (error) { unavailable(error instanceof RequestError ? error.code : 'onebot_handshake_failed'); }
       finally {
-        ready = false; queue = [];
+        ready = false; verifiedAppName = undefined; queue = [];
         active?.close(); await active?.closed; await worker;
         connection = undefined;
       }

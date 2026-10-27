@@ -21,12 +21,12 @@ async function fixture(t: TestContext, appName: string | null = 'fixture') {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const state = { actions: [] as { action: string; params: Record<string, unknown> }[], sends: 0, memberCount: 1200, botRole: 'admin', targetRole: 'member', mode: 'ok',
-    messages: new Map<number, unknown>(), forwards: new Map<string, unknown>(), history: [] as unknown[] };
+    appName, messages: new Map<number, unknown>(), forwards: new Map<string, unknown>(), history: [] as unknown[] };
   server.on('connection', (socket) => socket.on('message', (wire) => {
     const request = object(JSON.parse(wire.toString())), params = object(request.params);
     const respond = (data: unknown, status = 'ok', retcode = 0) => socket.send(JSON.stringify({ status, retcode, data, echo: request.echo }));
     if (request.action === 'get_login_info') { respond({ user_id: 123456, nickname: 'fixture-bot' }); return; }
-    if (request.action === 'get_version_info') { respond({ ...(appName === null ? {} : { app_name: appName }), protocol_version: 'v11' }); return; }
+    if (request.action === 'get_version_info') { respond({ ...(state.appName === null ? {} : { app_name: state.appName }), protocol_version: 'v11' }); return; }
     state.actions.push({ action: String(request.action), params });
     if (request.action === 'get_group_list') { respond([{ group_id: 111111, group_name: 'secret-group' }, { group_id: 987654, group_name: 'visible' }]); return; }
     if (request.action === 'get_friend_list') { respond([{ user_id: 654321, nickname: 'friend', remark: '' }, { user_id: 111111, nickname: 'hidden' }]); return; }
@@ -114,16 +114,34 @@ test('send and revoke bind confirmed message proofs to the original source and p
 
 test('SnowLuma revocation is unavailable in discovery and rejected before dispatch while other QQ capabilities remain usable', async (t) => {
   for (const appName of ['SnowLuma', null]) await t.test(appName ?? 'unidentified implementation', async (t) => {
-  const f = await fixture(t, appName);
+    const f = await fixture(t, appName);
+    const response = await fetch('http://127.0.0.1:' + f.app.port + '/v1/capabilities', { headers: { authorization: 'Bearer fixture-agent' } });
+    const capabilities = object(await response.json()).capabilities as unknown[];
+    assert.equal(capabilities.length, 21); assert.ok(!capabilities.some((item) => object(item).id === 'qq-main.revoke_message'));
+    assert.equal((await f.invoke('revoke_message', { target: { type: 'group', id: '987654' }, message_id: '100' }, 'unsupported-revoke')).status, 503);
+    assert.equal(f.state.actions.length, 0);
+    const status = object((await f.invoke('get_connection_status', {})).body.result);
+    assert.deepEqual(object(status.capability_limits).revoke_message, { available: false, reason: 'onebot_revoke_unsafe_message_identity' });
+    assert.equal(object((await f.invoke('send_message', { target: { type: 'group', id: '987654' }, segments: [{ type: 'text', data: { text: 'fixture' } }] }, 'safe-send')).body.call).status, 'succeeded');
+  });
+});
+
+test('a reconnect without implementation metadata cannot inherit an earlier revocation grant', async (t) => {
+  const f = await fixture(t);
+  const target = { type: 'group', id: '987654' };
+  const sent = object((await f.invoke('send_message', { target, segments: [{ type: 'text', data: { text: 'fixture' } }] }, 'before-reconnect')).body.call);
+  assert.equal(sent.status, 'succeeded');
+  f.state.appName = null;
+  for (const socket of f.server.clients) socket.terminate();
+  await until(() => !f.ready()); await until(f.ready);
   const response = await fetch('http://127.0.0.1:' + f.app.port + '/v1/capabilities', { headers: { authorization: 'Bearer fixture-agent' } });
   const capabilities = object(await response.json()).capabilities as unknown[];
-  assert.equal(capabilities.length, 21); assert.ok(!capabilities.some((item) => object(item).id === 'qq-main.revoke_message'));
-  assert.equal((await f.invoke('revoke_message', { target: { type: 'group', id: '987654' }, message_id: '100' }, 'unsupported-revoke')).status, 503);
-  assert.equal(f.state.actions.length, 0);
+  assert.ok(!capabilities.some((item) => object(item).id === 'qq-main.revoke_message'));
   const status = object((await f.invoke('get_connection_status', {})).body.result);
+  assert.equal(object(status.binding).app_name, 'fixture');
   assert.deepEqual(object(status.capability_limits).revoke_message, { available: false, reason: 'onebot_revoke_unsafe_message_identity' });
-  assert.equal(object((await f.invoke('send_message', { target: { type: 'group', id: '987654' }, segments: [{ type: 'text', data: { text: 'fixture' } }] }, 'safe-send')).body.call).status, 'succeeded');
-  });
+  assert.equal((await f.invoke('revoke_message', { target, message_id: object(sent.result).native_message_id }, 'after-reconnect')).status, 503);
+  assert.ok(!f.state.actions.some((item) => item.action === 'delete_msg'));
 });
 
 test('trusted message, forward and media references retain their account/source binding', async (t) => {

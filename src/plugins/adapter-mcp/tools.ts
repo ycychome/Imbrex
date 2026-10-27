@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { requirePermission } from '../../core/access.js';
 import type { Capabilities } from '../../core/capabilities.js';
@@ -115,4 +116,3 @@ export async function callTool(name: string, input: unknown, context: ToolContex
     return result({ error: { code: error.code, message: error.message }, request_id: context.requestId }, true);
   }
 }
-import { createHash } from 'node:crypto';

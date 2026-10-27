@@ -234,7 +234,9 @@ call_id 是不透明标识，路径段百分号解码一次后保留原值，点
 
 `GET /v1/plugins` 返回 `{store_id,plugins}`。每项包含 id、module_name、enabled、state、required、available、lifecycle_revision，以及可选的 client_entry 和脱敏 last_error。state 为 waiting/loading/active/failed/stopping/stopped；lifecycle_revision 是包括 stopped/failed 实例在内的不透明运行版本，随生命周期转换改变，宿主重启后重新生成，不等同面板 generation。client_entry 是插件自携前端 ESM 的同源静态路径（/admin/plugins/<module>/<entry>），仅表示可加载入口，不代表视图已注册或权限通过。插件实例配置、访问 token 和消息正文不返回。
 
-该接口继续只读；当前 M1 通过配置与宿主重启管理加载。M2 管理动作使用专属 /api/admin/* 入口及管理权限，不改变 /v1/plugins 的语义，也不把 runtime:inspect 升级为操作权限。
+enabled 表示宿主配置启用或实例已被在线启动；初始 disabled 的实例在线启动后返回 true，以便 Shell 按 enabled 和 active 加载其视图。/api/admin/configuration 的 enabled 保留宿主装配基准，在线启停不改写它。
+
+该接口继续只读；M2 管理动作使用专属 /api/admin/* 入口及管理权限，不把 runtime:inspect 升级为操作权限。
 
 ## 10. 错误契约
 
@@ -361,7 +363,7 @@ configuration 的 principals 包含 id、permissions、read_sources、write_sour
 {"store_id":"<store-id>","lifecycle_revision":"<当前实例运行版本>"}
 ```
 
-版本来自 info/plugins，stopped/failed 实例仍有版本。start 只接受 stopped/failed，stop/restart 只接受运行实例；启动/停止中或同实例已有面板/生命周期动作时返回 429 busy。版本过期为 409 admin_conflict，store 不符为 409 store_mismatch，清理失败或宿主关闭为 503 provider_unavailable。生命周期动作由宿主协调，不读取已注销面板闭包；面板动作与生命周期互斥，停止会注销视图。宿主装配 enabled 字段不被在线动作改写，宿主重启依原装配启动。
+版本来自 info/plugins，stopped/failed 实例仍有版本。start 只接受 stopped/failed，stop/restart 只接受运行实例；状态按 info/plugins 的有效生命周期判定，运行期依赖恢复失败的实例可通过 start 恢复，先注销旧注册、排空调用并清理旧 fiber，再创建新实例。启动/停止中或同实例已有面板/生命周期动作时返回 429 busy。版本过期为 409 admin_conflict，store 不符为 409 store_mismatch，清理失败或宿主关闭为 503 provider_unavailable。生命周期动作由宿主协调，不读取已注销面板闭包；面板动作与生命周期互斥，停止会注销视图。宿主装配 enabled 字段不被在线动作改写，宿主重启依原装配启动。
 
 操作完成返回 {store_id,instance_id,result:{status,state,lifecycle_revision,reason?,inspect_required}}。status=succeeded 只说明期望生命周期状态成立，不证明连接器平台登录或 Agent 模型状态。启动/清理失败返回 failed 和需要核验的实际状态，不创建第二套实例；失去响应时先重新读取实例，不自动重复。通过正在服务的管理端点停止自身 Admin 或 HTTP 实例返回 404 feature_unavailable；这类管理通道变更使用离线部署控制，避免请求自身清理互等和无法恢复入口。
 

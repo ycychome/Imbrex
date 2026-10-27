@@ -92,7 +92,7 @@ flowchart LR
 
 当前实现拒绝 ws_url 中的用户名、密码、query 与 fragment；认证只从 access_token_env 读取。账号、群号、用户号配置为无前导零的正十进制字符串，最大 `Number.MAX_SAFE_INTEGER`；消息 ID 接受 int32 范围（包括负数）。Action 的 group_id/user_id 编码为精确整数，reply.id 为字符串。白名单各至多 1024 项，消息至多 128 段；只接受 text/reply 数组段或对应 CQ 字符串，其他段拒收。群聊只接收 `sub_type=normal`，自身群消息保存为 outbound；不声明完整自发消息覆盖。
 
-握手和单次 Action 等待上限为 5 秒；断线后间隔 1 秒重连，15 秒发送一次 WS ping、下个周期仍无 pong 则关闭。每个连接最多 8 个未决请求、64 KiB 帧和 32 条待写事件；溢出关连接并报告诊断，未持久化输入可能丢失。没有历史补取或自动重发。绑定文件 onebot-binding.json 通过文件 fsync、rename、目录 fsync 保存；观察到实现名称变化时拒绝恢复，版本升级保留记录但不等于兼容声明。
+握手和单次 Action 等待上限为 5 秒；断线后间隔 1 秒重连，15 秒发送一次 WS ping、下个周期仍无 pong 则关闭。每个连接最多 8 个未决请求、512 KiB 帧和 32 条待写事件，规范事件仍有 64 KiB 上限；溢出关连接并报告诊断，未持久化输入可能丢失。没有自动补取历史或自动重发。绑定文件 onebot-binding.json 通过文件 fsync、rename、目录 fsync 保存；观察到实现名称变化时拒绝恢复，版本升级保留记录但不等于兼容声明。
 
 ## 4. 身份不绑定实现品牌，也不假定跨实现天然连续
 
@@ -195,7 +195,7 @@ get_message 核验消息 ID/会话；缺少远端群目标字段或无法证明�
 
 自发私聊事实以已核验的 target_id 定位对端，sender_id 仍为机器人账号，direction 为 outbound，不当作回复触发。缺少对端字段时不以发送者账号猜会话；读取消息时明确 target_id/group_id 冲突优先拒绝，旧引用不能覆盖它们。
 
-SnowLuma 的已核查公开撤回路径按有限消息哈希读取可覆盖的独立元数据；get_msg 的正文预检不是原子目标校验。声明为 SnowLuma 的连接在公开原子归属校验获得验证前禁用 revoke_message，缺少实现名时也不猜测支持：核心登记供管理员 inspect 诊断，但 REST/MCP 普通能力发现不列为可用，直接新调用派发前返回 provider_unavailable。get_connection_status 与面板 capability_limits.revoke_message 提供 available=false 和 onebot_revoke_unsafe_message_identity 原因。其余 21 项能力与原调用查询保持；该限制不通过忽略冲突或私有 SDK 绕过。
+SnowLuma 的已核查公开撤回路径按有限消息哈希读取可覆盖的独立元数据；get_msg 的正文预检不是原子目标校验。声明为 SnowLuma 的连接在公开原子归属校验获得验证前禁用 revoke_message，缺少实现名时也不猜测支持：资格只取本次已核验握手的信息，重连不继承历史绑定中的实现名；历史绑定供诊断和一致性检查。核心登记供管理员 inspect 诊断，但 REST/MCP 普通能力发现不列为可用，直接新调用派发前返回 provider_unavailable。get_connection_status 与面板 capability_limits.revoke_message 提供 available=false 和 onebot_revoke_unsafe_message_identity 原因。其余 21 项能力与原调用查询保持；该限制不通过忽略冲突或私有 SDK 绕过。
 
 send_message.segments 最多 32 段，只接受：
 

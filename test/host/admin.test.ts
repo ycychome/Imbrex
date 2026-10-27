@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import { test, type TestContext } from 'node:test';
 import { Host } from '../../src/host/host.js';
 import { parseConfig } from '../../src/host/config.js';
@@ -85,7 +86,7 @@ test('generic lifecycle actions recover stopped views, serialize same-instance o
   let holdStop = false, starts = 0;
   t.after(() => release.resolve());
   f.config.plugins.push({ id: 'controlled', module: 'fixture', principalId: 'mock-provider', enabled: false, required: false, config: {} });
-  f.modules.set('controlled', { apply: (ctx) => {
+  f.modules.set('controlled', { name: 'fixture', client: 'entry.js', apply: (ctx) => {
     starts += 1;
     const api = ctx.imbrex.forPlugin(ctx);
     api.registerAdminPanel({ title: 'fixture', icon: 'fixture', read: () => ({ status: { tone: 'ok', label: 'fixture' }, metrics: [], data: {} }) });
@@ -95,15 +96,23 @@ test('generic lifecycle actions recover stopped views, serialize same-instance o
   const storeId = (await app.info()).storeId;
   const revision = () => app.plugins().find((item) => item.id === 'controlled')!.lifecycle_revision;
   const operate = (action: string, version = revision()) => f.request('/api/admin/instances/controlled/actions/' + action, 'fixture-operate-secret', { store_id: storeId, lifecycle_revision: version });
+  const pluginInfo = async () => ((await f.request('/api/admin/info')).body.plugins as unknown[]).map((item) => object(item)).find((item) => item.id === 'controlled')!;
+  assert.equal((await pluginInfo()).enabled, false);
   const before = revision();
   const started = await operate('start');
   assert.equal(object(started.body.result).status, 'succeeded'); assert.equal(starts, 1); assert.notEqual(revision(), before);
+  const active = await pluginInfo();
+  assert.equal(active.enabled, true); assert.equal(active.state, 'active'); assert.equal(active.client_entry, '/admin/plugins/fixture/entry.js');
+  const configured = ((await f.request('/api/admin/configuration')).body.plugins as unknown[]).map((item) => object(item)).find((item) => item.instance_id === 'controlled')!;
+  assert.equal(configured.enabled, false);
   assert.ok((object((await f.request('/api/admin/panels')).body).panels as unknown[]).some((item) => object(item).instance_id === 'controlled'));
   holdStop = true;
   const old = revision(), stopping = operate('stop');
   await entered.promise;
   assert.equal((await operate('restart', old)).status, 429);
   release.resolve(); assert.equal(object((await stopping).body.result).status, 'succeeded');
+  const stopped = await pluginInfo();
+  assert.equal(stopped.enabled, false); assert.equal(stopped.state, 'stopped');
   assert.ok(!(object((await f.request('/api/admin/panels')).body).panels as unknown[]).some((item) => object(item).instance_id === 'controlled'));
   assert.equal((await operate('start', old)).status, 409);
   assert.equal(object((await operate('start')).body.result).status, 'succeeded'); assert.equal(starts, 2);
@@ -111,6 +120,33 @@ test('generic lifecycle actions recover stopped views, serialize same-instance o
   assert.equal(badStore.status, 409);
   const own = await f.request('/api/admin/instances/admin/actions/stop', 'fixture-operate-secret', { store_id: storeId, lifecycle_revision: app.plugins().find((item) => item.id === 'admin')!.lifecycle_revision });
   assert.equal(own.status, 404);
+});
+
+test('start recovers a failed dependency reload only after disposing the previous fiber', async (t) => {
+  const f = await managementFixture(t);
+  for (const id of ['provider', 'dependent']) f.config.plugins.push({ id, module: 'fixture', principalId: 'mock-provider', enabled: true, required: false, config: {} });
+  let failApply = false, starts = 0, live = 0;
+  f.modules.set('provider', { apply: (ctx) => { ctx.provide('fixtureService', {}); } });
+  f.modules.set('dependent', { inject: ['fixtureService'], apply: (ctx) => {
+    starts += 1; live += 1;
+    assert.equal(live, 1, 'the previous fiber must be cleaned before starting another');
+    ctx.effect(() => () => { live -= 1; });
+    const api = ctx.imbrex.forPlugin(ctx);
+    api.registerAdminPanel({ title: 'fixture', icon: 'fixture', read: () => ({ status: { tone: 'ok', label: 'fixture' }, metrics: [], data: {} }) });
+    if (failApply) throw new Error('fixture reload failure');
+  } });
+  const app = await f.open(); await app.startPlugin('admin');
+  await app.stopPlugin('provider');
+  failApply = true; await app.startPlugin('provider');
+  await setImmediate();
+  const failed = app.plugins().find((item) => item.id === 'dependent')!;
+  assert.equal(failed.state, 'failed'); assert.equal(starts, 2);
+  failApply = false;
+  const restored = await f.request('/api/admin/instances/dependent/actions/start', 'fixture-operate-secret', { store_id: (await app.info()).storeId, lifecycle_revision: failed.lifecycle_revision });
+  assert.equal(restored.status, 200);
+  assert.equal(object(restored.body.result).status, 'succeeded'); assert.equal(object(restored.body.result).state, 'active');
+  assert.equal(starts, 3); assert.equal(live, 1);
+  assert.ok(((await f.request('/api/admin/panels')).body.panels as unknown[]).some((item) => object(item).instance_id === 'dependent'));
 });
 
 test('capability diagnostics never change the administrator test execution identity', async (t) => {

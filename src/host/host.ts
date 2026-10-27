@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Context, type Fiber } from 'cordis';
@@ -146,6 +147,11 @@ export class Host {
   private moduleName(runtime: Runtime): string {
     return runtime.module?.name && namespacePattern.test(runtime.module.name) ? runtime.module.name : 'external';
   }
+  private state(runtime: Runtime): State {
+    return runtime.state === 'active' && runtime.fiber
+      ? (['waiting', 'loading', 'active', 'failed', 'stopped', 'stopping'] as const)[runtime.fiber.state] ?? 'failed'
+      : runtime.state;
+  }
   plugins() {
     return [...this.runtimes.values()].map((runtime) => {
       const moduleName = this.moduleName(runtime);
@@ -157,8 +163,8 @@ export class Host {
         id: runtime.config.id,
         lifecycle_revision: runtime.revision,
         module_name: moduleName,
-        enabled: runtime.config.enabled,
-        state: runtime.state === 'active' && runtime.fiber ? (['waiting', 'loading', 'active', 'failed', 'stopped', 'stopping'][runtime.fiber.state] ?? 'failed') : runtime.state,
+        enabled: runtime.config.enabled || runtime.state === 'active',
+        state: this.state(runtime),
         required: runtime.config.required, available: runtime.state === 'active' && runtime.fiber?.state === 2 && runtime.available,
         ...(clientEntry ? { client_entry: clientEntry } : {}),
         ...(runtime.lastError ? { last_error: runtime.lastError } : {}),
@@ -256,17 +262,19 @@ export class Host {
     if (this.closing || runtime.stopFailed) fail('provider_unavailable');
     if (runtime.operation || runtime.lifecycleOperation) fail('busy');
     if (revision !== runtime.revision) fail('admin_conflict');
-    if (['loading', 'stopping'].includes(runtime.state)) fail('busy');
-    if ((action === 'start' && !['stopped', 'failed'].includes(runtime.state)) || (action !== 'start' && runtime.state !== 'active')) fail('admin_conflict');
+    const state = this.state(runtime);
+    if (['loading', 'stopping'].includes(state)) fail('busy');
+    if ((action === 'start' && !['stopped', 'failed'].includes(state)) || (action !== 'start' && runtime.state !== 'active')) fail('admin_conflict');
     const work = Promise.resolve().then(async (): Promise<JsonValue> => {
       try {
-        if (action !== 'start') await this.stopPlugin(id);
+        if (action !== 'start' || runtime.state === 'active') await this.stopPlugin(id);
         if (action !== 'stop') await this.startPlugin(id);
-        return { status: runtime.state === (action === 'stop' ? 'stopped' : 'active') ? 'succeeded' : 'failed',
-          lifecycle_revision: runtime.revision, state: runtime.state,
-          ...(runtime.lastError === undefined ? {} : { reason: runtime.lastError }), inspect_required: runtime.state === 'failed' };
+        const resultState = this.state(runtime);
+        return { status: resultState === (action === 'stop' ? 'stopped' : 'active') ? 'succeeded' : 'failed',
+          lifecycle_revision: runtime.revision, state: resultState,
+          ...(runtime.lastError === undefined ? {} : { reason: runtime.lastError }), inspect_required: resultState === 'failed' };
       } catch (error) {
-        return { status: 'failed', lifecycle_revision: runtime.revision, state: runtime.state,
+        return { status: 'failed', lifecycle_revision: runtime.revision, state: this.state(runtime),
           reason: { code: runtime.lastError?.code ?? publicError(error).code }, inspect_required: true };
       }
     });
@@ -351,4 +359,3 @@ export class Host {
     })();
   }
 }
-import { randomUUID } from 'node:crypto';

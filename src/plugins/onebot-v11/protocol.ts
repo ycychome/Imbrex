@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { fail } from '../../core/errors.js';
 import { fields, json, limits, namespacePattern, object, string } from '../../core/validation.js';
 import type { EventInput, EventRecord, JsonObject } from '../../core/types.js';
@@ -181,4 +182,3 @@ export const replySchema = {
     text: { type: 'string', minLength: 1, maxLength: 2000 },
   }, required: ['input_event_ref', 'text'], additionalProperties: false,
 };
-import { createHash } from 'node:crypto';
