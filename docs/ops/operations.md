@@ -238,6 +238,8 @@ Agent 无法恢复旧 session 时，须已无 `in_flight`，并用当前 `last_s
 
 管理页面 /admin 与 API /api/admin/* 由 admin 插件登记，使用显式管理员 Principal 和 token_env 引用 Bearer 凭据。admin:inspect 用于全局观测，admin:operate 用于配置应用和受控管理动作。所有管理 API 请求重新鉴权，loopback 不免密；静态页面不嵌入管理数据或凭据。原 operator/Agent 凭据不自动升级。完整范围见 [Admin 契约](../design/admin.md)。
 
+使用通用能力测试器或以 OneBot 自携视图读取 QQ 目录时，管理员 Principal 还必须具备 capabilities:invoke、events:read、相应具体能力及覆盖目标的 read_sources；外部写另需全局外部写开关。诊断选择其他主体只用于查看授权交集，不会改变实际执行身份。
+
 托管配置位于 Imbrex 专属数据目录，包含独立 Agent 工作目录、PI_CODING_AGENT_DIR 和 HOME。MCP 地址及凭据引用由该配置同步生成，不修改用户全局 pi 环境，不回显秘密；不得假定 pi-acp 支持未经验证的 --cwd 参数。迁移已有目录时保留会话映射、进度和凭据引用，具体说明随实现更新。
 
 | 修改 | 生效方式 |
