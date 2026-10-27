@@ -7,6 +7,7 @@ import ScopeEditor from './ScopeEditor.vue';
 import InterceptList from './InterceptList.vue';
 import ProcessDrawer from './ProcessDrawer.vue';
 import LogDrawer from './LogDrawer.vue';
+import QQInspector from './QQInspector.vue';
 
 const props = defineProps<{ client: ViewClient }>();
 const { entries, error, updatedAt, loading, paused, load, toggle } = usePanels(props.client, 'onebot-v11');
@@ -45,6 +46,7 @@ const identity = computed(() => JSON.stringify([entry.value?.summary.instance_id
 const binding = computed(() => record(data.value.binding) ?? {});
 const connection = computed(() => record(data.value.connection_metrics));
 const runtimeError = computed(() => text(record(data.value.runtime_config)?.error));
+const revokeLimit = computed(() => record(record(data.value.capability_limits)?.revoke_message));
 
 const scope = computed(() => {
   const value = record(data.value.scope);
@@ -115,9 +117,11 @@ const settingsOpen = ref(false);
 const logsOpen = ref(false);
 const needsRefresh = ref(false);
 const controlsBusy = computed(() => busy.value || loading.value || needsRefresh.value || !entry.value?.view);
+let observedEntry = false;
 watch(identity, (_value, previous) => {
   settingsOpen.value = false; logsOpen.value = false; failure.value = ''; needsRefresh.value = false;
-  notice.value = previous && entry.value ? '实例、代次或存储已改变；旧编辑与确认已清除，请核对当前面板后再操作。' : '';
+  notice.value = observedEntry && previous && entry.value ? '实例、代次或存储已改变；旧编辑与确认已清除，请核对当前面板后再操作。' : '';
+  observedEntry = Boolean(entry.value);
 });
 watch(updatedAt, () => { if (entry.value?.view) needsRefresh.value = false; });
 
@@ -255,8 +259,13 @@ function selectInstance(value: string): void {
         </template>
       </p>
 
+      <p v-if="revokeLimit && revokeLimit.available === false" class="notice-warn">
+        QQ 撤回当前不可用：{{ text(revokeLimit.reason, '未说明') }}。其余已授权能力仍可使用。
+      </p>
+
       <ScopeEditor :key="identity" :scope="scope" :busy="controlsBusy" @save="saveScope" @reset="resetScope" />
       <InterceptList :items="intercepts" :busy="controlsBusy" @allow="allow" />
+      <QQInspector v-if="entry.view && storeId" :key="identity" :client="client" :instance-id="entry.summary.instance_id" :store-id="storeId" />
 
       <p v-if="notice" role="status" class="notice-warn">{{ notice }}</p>
       <p v-if="failure" role="alert" class="notice-bad">{{ failure }}</p>
