@@ -3,6 +3,8 @@ import WebSocket, { type RawData } from 'ws';
 import { json, limits, object } from '../../core/validation.js';
 import type { JsonObject } from '../../core/types.js';
 
+export const upstreamBytes = 512 * 1024;
+
 export class RequestError extends Error {
   constructor(readonly code: string, readonly dispatched: boolean) { super(code); }
 }
@@ -21,7 +23,7 @@ export class OneBotSocket {
 
   constructor(url: string, token: string | undefined, onEvent: (value: Record<string, unknown>) => void, onError: (code: string) => void) {
     this.socket = new WebSocket(url, {
-      maxPayload: limits.valueBytes, perMessageDeflate: false, handshakeTimeout: 5000, followRedirects: false,
+      maxPayload: upstreamBytes, perMessageDeflate: false, handshakeTimeout: 5000, followRedirects: false,
       ...(token === undefined ? {} : { headers: { authorization: 'Bearer ' + token } }),
     });
     const opened = Promise.withResolvers<void>();
@@ -46,8 +48,9 @@ export class OneBotSocket {
       try {
         if (binary) throw new Error('Binary message');
         const bytes = Array.isArray(raw) ? Buffer.concat(raw) : raw instanceof ArrayBuffer ? Buffer.from(raw) : raw;
-        const value = object(json(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)), limits.valueBytes, 'invalid_event'), 'invalid_event');
+        const value = object(json(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)), upstreamBytes, 'invalid_event'), 'invalid_event');
         if (typeof value.echo === 'string') { this.pending.get(value.echo)?.resolve(value); return; }
+        json(value, limits.valueBytes, 'invalid_event');
         onEvent(value);
       } catch { onError('onebot_invalid_frame'); this.close(); }
     });

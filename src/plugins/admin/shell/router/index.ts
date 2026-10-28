@@ -16,4 +16,6 @@ const Missing = defineComponent({
 export const router = createRouter({
   history: createWebHashHistory(),
   routes: [{ path: '/:pathMatch(.*)*', name: 'missing', component: Missing }],
+  // Views are independent pages; keep the scroll position from leaking across them.
+  scrollBehavior: () => ({ top: 0 }),
 });

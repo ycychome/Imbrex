@@ -9,9 +9,11 @@ export const consumerLimits = { sessions: 32, frameBytes: 32 * 1024 * 1024, stat
 export interface AgentConfig { command: string; args: string[]; cwd: string; envVars: string[] }
 export interface ConsumerFilter { group_ids: string[]; private_user_ids: string[] }
 export interface MemoryContextConfig { capability: string; timeoutMs: number; maxBytes: number }
+export interface PiSettings { model: string; context_window: number; system_prompt: string; max_tokens?: number }
+export interface ManagedPi extends PiSettings { provider: string; api: string; base_url: string; api_key_env: string; pi_command: string; mcp_principal_id: string }
 export interface ConsumerConfig {
   inputId: string; sourcePrefix: string; accountId: string; identityNamespace: string;
-  maxAgeSeconds: number; turnTimeoutMs: number; agent: AgentConfig; filter?: ConsumerFilter; memoryContext?: MemoryContextConfig;
+  maxAgeSeconds: number; turnTimeoutMs: number; agent: AgentConfig; filter?: ConsumerFilter; managedPi?: ManagedPi; memoryContext?: MemoryContextConfig;
 }
 export class ConsumerError extends Error {
   constructor(readonly code: string) { super(code); }
@@ -26,10 +28,28 @@ function argument(value: unknown, allowEmpty = false): string {
   if (result.includes(String.fromCharCode(0))) fail('invalid_request');
   return result;
 }
+export function parseFilter(input: unknown): ConsumerFilter {
+  const selection = object(input);
+  fields(selection, ['group_ids', 'private_user_ids'], ['group_ids', 'private_user_ids']);
+  const ids = (input: unknown): string[] => {
+    if (!Array.isArray(input) || input.length > 1000) fail('invalid_request');
+    return [...new Set(input.map((id) => nativeId(string(id, 20))))].sort();
+  };
+  return { group_ids: ids(selection.group_ids), private_user_ids: ids(selection.private_user_ids) };
+}
+export function parsePiSettings(input: unknown): PiSettings {
+  const value = object(input);
+  fields(value, ['model', 'context_window', 'system_prompt', 'max_tokens'], ['model', 'context_window', 'system_prompt']);
+  return {
+    model: string(value.model, 256), context_window: integer(value.context_window, 1024, 2000000),
+    system_prompt: string(value.system_prompt, 32768, 'invalid_request', true),
+    ...(value.max_tokens === undefined ? {} : { max_tokens: integer(value.max_tokens, 256, 262144) }),
+  };
+}
 export function parseConsumerConfig(input: unknown): ConsumerConfig {
   const value = object(json(input, limits.valueBytes, 'invalid_request'));
   const required = ['input_id', 'source_prefix', 'max_event_age_seconds', 'agent'];
-  fields(value, [...required, 'turn_timeout_ms', 'filter', 'memory_context'], required);
+  fields(value, [...required, 'turn_timeout_ms', 'filter', 'managed_pi', 'memory_context'], required);
   const inputId = string(value.input_id, 64);
   if (!namespacePattern.test(inputId)) fail('invalid_request');
   const sourcePrefix = string(value.source_prefix, 1024);
@@ -40,13 +60,21 @@ export function parseConsumerConfig(input: unknown): ConsumerConfig {
   if (!namespacePattern.test(identityNamespace)) fail('invalid_request');
   let filter: ConsumerFilter | undefined;
   if (value.filter !== undefined) {
-    const selection = object(value.filter);
-    fields(selection, ['group_ids', 'private_user_ids'], ['group_ids', 'private_user_ids']);
-    const ids = (input: unknown): string[] => {
-      if (!Array.isArray(input)) fail('invalid_request');
-      return [...new Set(input.map((id) => nativeId(string(id, 20))))].sort();
-    };
-    filter = { group_ids: ids(selection.group_ids), private_user_ids: ids(selection.private_user_ids) };
+    filter = parseFilter(value.filter);
+  }
+  let managedPi: ManagedPi | undefined;
+  if (value.managed_pi !== undefined) {
+    const managed = object(value.managed_pi);
+    const keys = ['model', 'context_window', 'system_prompt', 'max_tokens', 'provider', 'api', 'base_url', 'api_key_env', 'pi_command', 'mcp_principal_id'];
+    fields(managed, keys, keys.filter((key) => key !== 'max_tokens'));
+    const endpoint = new URL(string(managed.base_url, 2048));
+    if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) fail('invalid_request');
+    const api = string(managed.api, 64);
+    if (!['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai'].includes(api)) fail('invalid_request');
+    const provider = string(managed.provider, 64), credential = string(managed.api_key_env, 128), principal = string(managed.mcp_principal_id, 64);
+    if (!namespacePattern.test(provider) || !namespacePattern.test(principal) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(credential)) fail('invalid_request');
+    managedPi = { ...parsePiSettings({ model: managed.model, context_window: managed.context_window, system_prompt: managed.system_prompt, ...(managed.max_tokens === undefined ? {} : { max_tokens: managed.max_tokens }) }),
+      provider, api, base_url: endpoint.href, api_key_env: credential, pi_command: argument(managed.pi_command), mcp_principal_id: principal };
   }
   let memoryContext: MemoryContextConfig | undefined;
   if (value.memory_context !== undefined) {
@@ -73,6 +101,7 @@ export function parseConsumerConfig(input: unknown): ConsumerConfig {
     maxAgeSeconds: integer(value.max_event_age_seconds, 1, 86400),
     turnTimeoutMs: integer(value.turn_timeout_ms ?? 120000, 10, 600000),
     ...(filter === undefined ? {} : { filter }),
+    ...(managedPi === undefined ? {} : { managedPi }),
     ...(memoryContext === undefined ? {} : { memoryContext }),
     agent: { command: argument(agent.command), args: agent.args.map((item) => argument(item, true)), cwd, envVars: names.sort() },
   };

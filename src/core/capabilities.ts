@@ -1,19 +1,21 @@
 import { isDeepStrictEqual } from 'node:util';
-import { requireCapability, requirePermission } from './access.js';
+import { requireCapability, requirePermission, requireSource } from './access.js';
 import { fail, GatewayError } from './errors.js';
 import { compileSchema } from './schema.js';
 import type { Events } from './events.js';
 import type { CallOutcome, CallQuery, CallRecord, GatewayStore } from './store.js';
 import type { EventRef, JsonValue, Principal } from './types.js';
-import { callIdPattern, fields, json, limits, namespacePattern, object, string } from './validation.js';
+import { callIdPattern, fields, json, limits, namespacePattern, object, string, uri } from './validation.js';
 
 export interface Provider { instanceId: string; signal: AbortSignal; available: () => boolean }
 export interface Invocation {
   callerId: string; callId?: string; storeId: string; signal: AbortSignal;
   readEvent: (ref: EventRef) => ReturnType<Events['lookup']>;
+  requireReadSource: (source: string) => void;
 }
 export interface CapabilityDefinition<P = JsonValue, R = JsonValue> {
   localName: string; description: string; schemaVersion: string; isSideEffectful: boolean; inputSchema: unknown;
+  available?: () => boolean;
   handler: (params: P, invocation: Invocation) => R | CallOutcome | Promise<R | CallOutcome>;
 }
 export interface CapabilityDescription {
@@ -21,6 +23,7 @@ export interface CapabilityDescription {
 }
 interface Registration {
   owner: Provider; description: CapabilityDescription; validate: (value: unknown) => boolean;
+  available?: () => boolean;
   handler: (params: JsonValue, invocation: Invocation) => unknown; registered: boolean;
 }
 export type InvokeResult = { kind: 'result'; storeId: string; capabilityId: string; result: JsonValue } | { kind: 'call'; storeId: string; call: CallRecord };
@@ -37,14 +40,15 @@ export class Capabilities {
   register<P, R>(owner: Provider, definition: CapabilityDefinition<P, R>): () => void {
     if (this.stopped) fail('provider_unavailable');
     if (!namespacePattern.test(owner.instanceId) || !/^[a-z][a-z0-9_]{0,63}$/.test(definition.localName)) fail('invalid_request');
-    if (typeof definition.isSideEffectful !== 'boolean' || typeof definition.handler !== 'function') fail('invalid_request');
+    if (typeof definition.isSideEffectful !== 'boolean' || typeof definition.handler !== 'function' ||
+        (definition.available !== undefined && typeof definition.available !== 'function')) fail('invalid_request');
     const id = owner.instanceId + '.' + definition.localName;
     if (this.registrations.has(id)) fail('invalid_request', 'Capability already registered');
     if (this.registrations.size >= limits.capabilities) fail('payload_too_large');
     const { schema, validate } = compileSchema(definition.inputSchema);
     const handler = definition.handler;
     const registration: Registration = {
-      owner, validate, registered: true, handler: (params, invocation) => handler(params as P, invocation),
+      owner, validate, available: definition.available, registered: true, handler: (params, invocation) => handler(params as P, invocation),
       description: {
         id, pluginInstanceId: owner.instanceId, description: string(definition.description, 4096),
         schemaVersion: string(definition.schemaVersion, 128), isSideEffectful: definition.isSideEffectful, inputSchema: schema,
@@ -71,7 +75,8 @@ export class Capabilities {
     return this.store.listCalls(storeId, query);
   }
   private available(entry: Registration): boolean {
-    return !this.stopped && entry.registered && !entry.owner.signal.aborted && entry.owner.available();
+    if (this.stopped || !entry.registered || entry.owner.signal.aborted || !entry.owner.available()) return false;
+    try { return entry.available === undefined || entry.available() === true; } catch { return false; }
   }
   async getCall(principal: Principal, storeId: string, callId: string): Promise<CallRecord> {
     requirePermission(principal, 'calls:read');
@@ -136,7 +141,11 @@ export class Capabilities {
       const controller = new AbortController();
       this.controllers.add(controller);
       const signal = AbortSignal.any([controller.signal, entry.owner.signal]);
-      const invocation: Invocation = { callerId: principal.id, callId, storeId, signal, readEvent: (ref) => this.events.lookup(principal, storeId, ref) };
+      const invocation: Invocation = {
+        callerId: principal.id, callId, storeId, signal,
+        readEvent: (ref) => this.events.lookup(principal, storeId, ref),
+        requireReadSource: (source) => requireSource(principal, uri(source, 'invalid_params')),
+      };
       let timer: ReturnType<typeof setTimeout> | undefined;
       let abortListener: () => void = () => {};
       const interrupted = new Promise<InvokeResult>((resolve, reject) => {
@@ -167,8 +176,8 @@ export class Capabilities {
         try { outcome = this.outcome(value); }
         catch { outcome = { status: 'unknown', reason: { code: 'invalid_provider_result', message: 'Provider returned an invalid result.' } }; }
         return { kind: 'call', storeId, call: await this.finish(storeId, principal.id, callId!, outcome) };
-      }, async (): Promise<InvokeResult> => {
-        if (!sideEffectful) fail('provider_unavailable');
+      }, async (error: unknown): Promise<InvokeResult> => {
+        if (!sideEffectful) fail(error instanceof GatewayError ? error.code : 'provider_unavailable');
         const call = await this.finish(storeId, principal.id, callId!, { status: 'unknown', reason: { code: 'provider_error', message: 'Provider outcome is not confirmed.' } });
         return { kind: 'call', storeId, call };
       });

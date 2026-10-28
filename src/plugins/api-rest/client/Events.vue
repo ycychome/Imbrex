@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import type { ViewClient } from '@imbrex/ui-contract';
 import { CopyButton, EmptyState, ErrorNotice, Icon, JsonBlock, KeyValueList, PageHeader, RelativeTime, formatFull, isAbort, useNarrow, type KeyValueEntry } from '@imbrex/ui-contract/ui';
 
@@ -33,6 +33,9 @@ const appliedType = ref('');
 const selected = ref<EventRecord | null>(null);
 const sheetOpen = ref(false);
 const narrow = useNarrow();
+// The bottom sheet only exists on narrow viewports; a desktop selection must not
+// leave the modal scrim covering the page.
+watch(narrow, (value) => { if (!value) sheetOpen.value = false; });
 
 const storeId = ref('');
 
@@ -89,7 +92,7 @@ function resetFilters(): void {
 
 function pick(record: EventRecord): void {
   selected.value = record;
-  sheetOpen.value = true;
+  if (narrow.value) sheetOpen.value = true;
 }
 
 const entries = computed<KeyValueEntry[]>(() => {
@@ -195,7 +198,7 @@ onUnmounted(() => {
       </section>
 
       <Teleport to="body" :disabled="!narrow">
-        <button v-if="sheetOpen" type="button" class="scrim" aria-label="关闭详情" @click="closeSheet" />
+        <button v-if="narrow && sheetOpen" type="button" class="scrim" aria-label="关闭详情" @click="closeSheet" />
       </Teleport>
 
       <Teleport to="body" :disabled="!narrow">

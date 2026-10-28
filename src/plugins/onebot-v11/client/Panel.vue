@@ -1,58 +1,183 @@
 <script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { ViewClient } from '@imbrex/ui-contract';
-import { EmptyState, ErrorNotice, JsonBlock, KeyValueList, PageHeader, PanelFrame, RelativeTime, formatDateTime, formatFull, formatReading, usePanels, type KeyValueEntry, type PanelEntry } from '@imbrex/ui-contract/ui';
+import { Chip, EmptyState, ErrorNotice, JsonBlock, KeyValueList, PageHeader, RelativeTime, formatDateTime, formatReading, usePanels, type KeyValueEntry } from '@imbrex/ui-contract/ui';
+import { act, number, record, resultFailed, strings, text } from './actions';
+import ScopeEditor from './ScopeEditor.vue';
+import InterceptList from './InterceptList.vue';
+import ProcessDrawer from './ProcessDrawer.vue';
+import LogDrawer from './LogDrawer.vue';
+import QQInspector from './QQInspector.vue';
 
 const props = defineProps<{ client: ViewClient }>();
-
 const { entries, error, updatedAt, loading, paused, load, toggle } = usePanels(props.client, 'onebot-v11');
 
-function dataOf(entry: PanelEntry): Record<string, unknown> {
-  return entry.view?.data ?? {};
+function instanceFromHash(): string {
+  const match = /[?&]instance=([a-z0-9_-]+)/.exec(location.hash);
+  return match?.[1] ?? '';
 }
 
-function metricOf(entry: PanelEntry, label: string): string {
-  return entry.view?.metrics.find((metric) => metric.label === label)?.value ?? '—';
-}
+const selectedId = ref(instanceFromHash());
 
-function textOf(value: unknown, fallback = '—'): string {
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return value === null || value === undefined ? fallback : JSON.stringify(value);
+function readHash(): void {
+  if (location.hash.split('?')[0] !== '#/onebot') return;
+  const instance = instanceFromHash();
+  selectedId.value = instance || entries.value[0]?.summary.instance_id || '';
 }
+onMounted(() => {
+  readHash();
+  window.addEventListener('hashchange', readHash);
+});
+onUnmounted(() => window.removeEventListener('hashchange', readHash));
+watch(entries, (list) => {
+  if (!list.length) { selectedId.value = ''; return; }
+  if (!list.some((item) => item.summary.instance_id === selectedId.value)) selectedId.value = list[0]!.summary.instance_id;
+}, { immediate: true });
+watch(selectedId, (id) => {
+  const base = location.hash.split('?')[0] || '#/onebot';
+  if (base !== '#/onebot') return;
+  history.replaceState(null, '', id ? `${base}?instance=${id}` : base);
+});
 
-function yesNo(value: unknown): string {
-  return value === true ? '是' : value === false ? '否' : '未知';
-}
+const entry = computed(() => entries.value.find((item) => item.summary.instance_id === selectedId.value) ?? entries.value[0] ?? null);
+const data = computed(() => record(entry.value?.view?.data) ?? {});
+const storeId = computed(() => text(data.value.store_id));
+const identity = computed(() => JSON.stringify([entry.value?.summary.instance_id, entry.value?.summary.generation, storeId.value]));
+const binding = computed(() => record(data.value.binding) ?? {});
+const connection = computed(() => record(data.value.connection_metrics));
+const runtimeError = computed(() => text(record(data.value.runtime_config)?.error));
+const revokeLimit = computed(() => record(record(data.value.capability_limits)?.revoke_message));
 
-function heartbeat(entry: PanelEntry): string {
-  const metrics = dataOf(entry).connection_metrics;
-  if (typeof metrics !== 'object' || metrics === null) return '未提供';
-  const rtt = (metrics as Record<string, unknown>).heartbeat_rtt_ms;
-  return typeof rtt === 'number' ? formatReading(rtt, '毫秒') : '未提供';
-}
+const scope = computed(() => {
+  const value = record(data.value.scope);
+  return { group_ids: strings(value?.group_ids), private_user_ids: strings(value?.private_user_ids), source: text(value?.source, 'host') };
+});
 
-function detailEntries(entry: PanelEntry): KeyValueEntry[] {
-  const data = dataOf(entry);
-  const lastError = data.last_error;
-  return [
-    { label: '当前连接', value: yesNo(data.connected) },
-    { label: '账号已核验', value: yesNo(data.account_verified) },
-    { label: '身份命名空间', value: textOf(data.identity_namespace), mono: true },
-    { label: '本次启动', value: formatFull(textOf(data.started_at, '')), mono: true },
-    {
-      label: '最近错误',
-      value: lastError === null || lastError === undefined ? '无' : textOf(lastError),
-      mono: true,
+const managed = computed(() => {
+  const value = record(data.value.managed_process);
+  const saved = record(value?.saved) ?? {};
+  const active = record(value?.active) ?? {};
+  return {
+    saved: {
+      enabled: saved.enabled === true,
+      command: text(saved.command),
+      args: strings(saved.args),
+      cwd: text(saved.cwd),
+      env_vars: strings(saved.env_vars),
     },
-  ];
+    active: {
+      state: text(active.state, 'disabled'),
+      pid: number(active.pid) ?? undefined,
+      exit_code: number(active.exit_code),
+      error: text(active.error),
+    },
+    logs: strings(active.logs),
+  };
+});
+
+const intercepts = computed(() => Array.isArray(data.value.intercepts) ? data.value.intercepts.flatMap((value) => {
+  const item = record(value);
+  if (!item) return [];
+  const kind = text(item.kind);
+  if (kind !== 'group' && kind !== 'private') return [];
+  return [{ time: text(item.time), kind, conversation: text(item.conversation) }];
+}) : []);
+
+const rtt = computed(() => {
+  const value = number(connection.value?.heartbeat_rtt_ms);
+  return value === null ? '未提供' : formatReading(value, '毫秒');
+});
+
+const processLabels: Record<string, string> = {
+  disabled: '未启用', external: '外部进程', starting: '启动中', running: '运行中',
+  unready: '未监听', exited: '已退出', stopped: '已停止',
+};
+
+const infoEntries = computed<KeyValueEntry[]>(() => [
+  { label: '账号', value: text(data.value.account_id, '—'), mono: true },
+  { label: '命名空间', value: text(data.value.identity_namespace, '—'), mono: true },
+  { label: '实现', value: text(binding.value.app_name, '未提供'), mono: true },
+  { label: '协议版本', value: text(binding.value.protocol_version, '未提供'), mono: true },
+  { label: '账号核验', value: data.value.account_verified === true ? '已核验' : '未核验' },
+  { label: '本次启动', value: formatDateTime(text(data.value.started_at)), mono: true },
+  { label: '最近错误', value: text(data.value.last_error, '无'), mono: true },
+  { label: '接收帧', value: display(connection.value?.received_frames), mono: true },
+  { label: '已发请求', value: display(connection.value?.sent_requests), mono: true },
+  { label: '采集来源', value: scope.value.source === 'runtime' ? '插件配置' : '宿主配置' },
+]);
+
+function display(value: unknown): string {
+  return typeof value === 'number' || typeof value === 'string' ? String(value) : '未提供';
 }
 
-const counters = ['已接纳事件', '重复事件', '排队事件', '接收帧', '已发请求'];
+const busy = ref(false);
+const notice = ref('');
+const failure = ref('');
+const settingsOpen = ref(false);
+const logsOpen = ref(false);
+const needsRefresh = ref(false);
+const controlsBusy = computed(() => busy.value || loading.value || needsRefresh.value || !entry.value?.view);
+let observedEntry = false;
+watch(identity, (_value, previous) => {
+  settingsOpen.value = false; logsOpen.value = false; failure.value = ''; needsRefresh.value = false;
+  notice.value = observedEntry && previous && entry.value ? '实例、代次或存储已改变；旧编辑与确认已清除，请核对当前面板后再操作。' : '';
+  observedEntry = Boolean(entry.value);
+});
+watch(updatedAt, () => { if (entry.value?.view) needsRefresh.value = false; });
+
+async function run(action: string, params: unknown, success: string): Promise<void> {
+  const current = entry.value;
+  if (!current?.view || controlsBusy.value) return;
+  const target = identity.value;
+  busy.value = true;
+  notice.value = '';
+  failure.value = '';
+  const outcome = await act(props.client, current.summary, storeId.value, action, params);
+  if (target === identity.value) {
+    if (!outcome.ok) failure.value = outcome.message;
+    else {
+      const failed = resultFailed(outcome.result);
+      if (failed) failure.value = failed;
+      else {
+        notice.value = success;
+        const savedScope = record(outcome.result.scope);
+        if (savedScope && Array.isArray(savedScope.group_ids) && savedScope.group_ids.every((id) => typeof id === 'string')
+          && Array.isArray(savedScope.private_user_ids) && savedScope.private_user_ids.every((id) => typeof id === 'string')) {
+          entries.value = entries.value.map((item) => item.summary.instance_id === current.summary.instance_id
+            && item.summary.generation === current.summary.generation && text(item.view?.data.store_id) === storeId.value && item.view
+            ? { ...item, view: { ...item.view, data: { ...item.view.data, scope: savedScope } } } : item);
+        }
+      }
+    }
+    needsRefresh.value = true;
+  }
+  try { await load(); } finally { busy.value = false; }
+}
+
+function saveScope(next: { group_ids: string[]; private_user_ids: string[] }): void {
+  void run('save-runtime-filters', next, '白名单已保存并即时生效。');
+}
+
+function resetScope(): void {
+  void run('reset-runtime-config', {}, '已恢复宿主配置中的白名单。');
+}
+
+function allow(kind: 'group' | 'private', id: string): void {
+  void run('allow-conversation', { kind, id }, '已加入白名单并即时生效。');
+}
+
+function saveManaged(value: { enabled: boolean; command?: string; args: string[]; cwd?: string; env_vars: string[] }): void {
+  void run('save-managed-process', value, '伴生进程设置已保存；启动或重启后生效。');
+}
+
+function selectInstance(value: string): void {
+  selectedId.value = value;
+}
 </script>
 
 <template>
   <main class="page">
-    <PageHeader title="OneBot" description="当前连接、账号核验与收发指标；未测得的读数显示为未提供。">
+    <PageHeader title="OneBot" description="连接、采集范围与伴生进程；名单外的消息会被拦截并记录。">
       <template #actions>
         <span class="hidden text-[11px] text-[var(--faint)] sm:inline">
           {{ paused ? '已暂停刷新' : '更新于' }}
@@ -65,75 +190,133 @@ const counters = ['已接纳事件', '重复事件', '排队事件', '接收帧'
 
     <ErrorNotice v-if="error" :error="error" retry @retry="load" />
 
+    <div v-if="entries.length > 1" class="flex items-center gap-2">
+      <label class="label" for="onebot-instance">实例</label>
+      <select id="onebot-instance" class="input max-w-72" :value="selectedId" @change="selectInstance((($event.target as HTMLSelectElement).value))">
+        <option v-for="item in entries" :key="item.summary.instance_id" :value="item.summary.instance_id">
+          {{ item.summary.title }} · {{ item.summary.instance_id }}
+        </option>
+      </select>
+    </div>
+
     <EmptyState
       v-if="!entries.length && !loading && !error"
       title="该插件尚未登记可读面板"
-      description="插件运行时注册面板后，这里会显示连接与收发指标。"
+      description="插件运行时注册面板后，这里会显示连接与采集范围。"
     />
 
-    <PanelFrame
-      v-for="entry in entries"
-      :key="entry.summary.instance_id"
-      :title="entry.summary.title"
-      :instance-id="entry.summary.instance_id"
-      :module="entry.summary.module"
-      :generation="entry.summary.generation"
-      :tone="entry.view?.status.tone ?? 'unknown'"
-      :label="entry.view?.status.label ?? '读取失败'"
-    >
-      <ErrorNotice v-if="entry.failure" :error="entry.failure" retry @retry="load" />
-      <ErrorNotice
-        v-else-if="entry.detail?.error"
-        :error="entry.detail.error"
-        title="面板读取失败"
-        :detail="`${entry.detail.error.code}${entry.detail.error.message ? ` — ${entry.detail.error.message}` : ''}`"
-      />
-
-      <template v-else-if="entry.view">
-        <div class="grid gap-4 sm:grid-cols-3">
-          <div class="min-w-0">
-            <p class="label">账号</p>
-            <p class="mt-0.5 font-mono text-lg font-semibold leading-tight">{{ textOf(dataOf(entry).account_id) }}</p>
+    <template v-if="entry">
+      <section class="panel overflow-hidden">
+        <header class="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
+          <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+            <h2 class="text-sm font-semibold">{{ entry.summary.title }}</h2>
+            <span class="font-mono text-[11px] text-[var(--faint)]">{{ entry.summary.instance_id }}</span>
           </div>
-          <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2">
+            <Chip :tone="entry.view?.status.tone ?? 'unknown'" :label="entry.view?.status.label ?? '读取失败'" />
+            <Chip :tone="managed.saved.enabled ? 'idle' : 'unknown'" :label="'伴生进程 · ' + (processLabels[managed.active.state] ?? managed.active.state)" />
+          </div>
+        </header>
+
+        <div class="grid gap-4 p-4 lg:grid-cols-3">
+          <div>
             <p class="label">心跳 RTT</p>
-            <p class="mt-0.5 font-mono text-lg font-semibold leading-tight">{{ heartbeat(entry) }}</p>
-            <p class="mt-0.5 text-[11px] text-[var(--faint)]">未测得时为未提供，不用 0 伪装正常</p>
+            <p class="mt-0.5 font-mono text-lg font-semibold">{{ rtt }}</p>
           </div>
-          <div class="min-w-0">
-            <p class="label">本次启动</p>
-            <p class="mt-0.5 text-lg font-semibold leading-tight">
-              <RelativeTime :value="textOf(dataOf(entry).started_at, '')" />
+          <div>
+            <p class="label">已接纳 / 重复 / 排队</p>
+            <p class="mt-0.5 font-mono text-lg font-semibold tabular-nums">
+              {{ display(data.accepted_events) }} / {{ display(data.duplicate_events) }} / {{ display(data.queued_events) }}
             </p>
-            <p class="mt-0.5 font-mono text-[11px] text-[var(--faint)]">{{ formatDateTime(textOf(dataOf(entry).started_at, '')) }}</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 lg:justify-end">
+            <button type="button" class="btn btn-sm" :disabled="controlsBusy" @click="run('reconnect', {}, '已请求重新连接。')">刷新连接</button>
+            <button type="button" class="btn btn-sm" :disabled="controlsBusy" @click="settingsOpen = true">进程设置</button>
+            <button type="button" class="btn btn-sm" :disabled="!managed.logs.length" @click="logsOpen = true">运行日志</button>
           </div>
         </div>
 
-        <div class="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-[var(--line)] pt-4 sm:grid-cols-5">
-          <div v-for="label in counters" :key="label" class="min-w-0">
-            <p class="label">{{ label }}</p>
-            <p class="mt-0.5 font-mono text-base font-semibold tabular-nums">{{ metricOf(entry, label) }}</p>
-          </div>
+        <div v-if="managed.saved.enabled" class="flex flex-wrap items-center gap-2 border-t border-[var(--line)] px-4 py-3">
+          <span class="text-[11px] text-[var(--muted)]">伴生进程</span>
+          <button type="button" class="btn btn-sm" :disabled="controlsBusy || managed.active.state === 'running' || managed.active.state === 'external'" @click="run('start-managed-process', {}, '已请求启动伴生进程。')">启动</button>
+          <button type="button" class="btn btn-sm" :disabled="controlsBusy || !['running', 'starting', 'unready'].includes(managed.active.state)" @click="run('stop-managed-process', {}, '已请求停止伴生进程。')">停止</button>
+          <button type="button" class="btn btn-sm" :disabled="controlsBusy || managed.active.state === 'external'" @click="run('restart-managed-process', {}, '已请求重启伴生进程。')">重启</button>
+          <span v-if="managed.active.state === 'external'" class="text-[11px] text-[var(--muted)]">端口已有进程，当前为 attach 模式，不托管。</span>
+          <span v-else-if="managed.active.state === 'exited' && managed.active.error" class="break-all font-mono text-[11px] text-[var(--bad)]">{{ managed.active.error }}</span>
         </div>
 
-        <div class="mt-5 border-t border-[var(--line)] pt-2">
-          <KeyValueList :entries="detailEntries(entry)" />
+        <div class="border-t border-[var(--line)] p-4">
+          <KeyValueList :entries="infoEntries" />
         </div>
+      </section>
 
-        <details class="mt-3">
-          <summary class="cursor-pointer text-xs font-medium text-[var(--muted)]">原始面板数据</summary>
-          <div class="mt-2">
-            <JsonBlock :value="entry.view.data" :max-height="280" />
-          </div>
-        </details>
-      </template>
+      <p v-if="runtimeError" class="notice-warn">
+        <template v-if="runtimeError === 'runtime_config_write_failed'">
+          插件私有配置写入失败（{{ runtimeError }}），该实例已暂停采集；请先核验私有配置，再重启实例。
+        </template>
+        <template v-else>
+          插件私有配置无法读取（{{ runtimeError }}），已回退到宿主配置；保存一次即可覆盖损坏文件。
+        </template>
+      </p>
 
-      <template v-else-if="entry.detail">
-        <p class="mb-2 text-xs text-[var(--muted)]">该面板未使用声明式格式，显示原始数据。</p>
-        <JsonBlock :value="entry.detail.data" :max-height="320" />
-      </template>
+      <p v-if="revokeLimit && revokeLimit.available === false" class="notice-warn">
+        QQ 撤回当前不可用：{{ text(revokeLimit.reason, '未说明') }}。其余已授权能力仍可使用。
+      </p>
 
-      <p v-else class="text-[13px] text-[var(--muted)]">面板暂无可读数据。</p>
-    </PanelFrame>
+      <ScopeEditor :key="identity" :scope="scope" :busy="controlsBusy" @save="saveScope" @reset="resetScope" />
+      <InterceptList :items="intercepts" :busy="controlsBusy" @allow="allow" />
+      <QQInspector v-if="entry.view && storeId" :key="identity" :client="client" :instance-id="entry.summary.instance_id" :store-id="storeId" />
+
+      <p v-if="notice" role="status" class="notice-warn">{{ notice }}</p>
+      <p v-if="failure" role="alert" class="notice-bad">{{ failure }}</p>
+      <p v-if="needsRefresh && !busy" class="notice-warn">请刷新并核对最新面板后再操作。</p>
+
+      <details class="panel p-4">
+        <summary class="cursor-pointer text-xs font-medium text-[var(--muted)]">原始面板数据</summary>
+        <div class="mt-2">
+          <JsonBlock :value="entry.view?.data" :max-height="360" />
+        </div>
+      </details>
+    </template>
+
+    <ProcessDrawer
+      v-if="settingsOpen && entry"
+      :key="identity"
+      :saved="managed.saved"
+      :active="managed.active"
+      :busy="controlsBusy"
+      :notice="notice"
+      :failure="failure"
+      :needs-refresh="needsRefresh && !busy"
+      @refresh="load"
+      @close="settingsOpen = false"
+      @save="saveManaged"
+      @start="run('start-managed-process', {}, '已请求启动伴生进程。')"
+      @stop="run('stop-managed-process', {}, '已请求停止伴生进程。')"
+      @restart="run('restart-managed-process', {}, '已请求重启伴生进程。')"
+    />
+    <LogDrawer v-if="logsOpen && entry" :key="identity" :logs="managed.logs" @close="logsOpen = false" />
   </main>
 </template>
+
+<style scoped>
+.notice-warn,
+.notice-bad {
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.notice-warn {
+  border: 1px solid color-mix(in oklab, var(--warn) 35%, var(--line));
+  background: color-mix(in oklab, var(--warn) 8%, var(--surface));
+  color: var(--warn);
+}
+
+.notice-bad {
+  border: 1px solid color-mix(in oklab, var(--bad) 35%, var(--line));
+  background: color-mix(in oklab, var(--bad) 8%, var(--surface));
+  color: var(--bad);
+}
+</style>

@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterView } from 'vue-router';
-import { authenticated, clearToken, login, sessionMessage, setToken } from './api';
+import { authenticated, clearToken, expireSession, login, sessionMessage, setToken } from './api';
 import { ctx } from './context';
-import { loadPluginClients } from './loader';
+import { loadPluginClients, viewSignature } from './loader';
 import { gatewayHealth, health, stale, startHealth, stopHealth, togglePolling, updatedText } from './health';
 import { theme, toggleTheme } from './theme';
-import { Chip, Icon, describeFailure, shortId, type Tone } from '@imbrex/ui-contract/ui';
+import { Chip, Icon, describeFailure, failureOf, shortId, type Tone } from '@imbrex/ui-contract/ui';
 
 const input = ref('');
 const error = ref('');
@@ -33,19 +33,49 @@ const rollup = computed<{ tone: Tone; label: string }>(() => {
   return { tone: 'ok', label: '全部正常' };
 });
 
+// Signature of the client entries currently registered, so a plugin that
+// stops or starts later removes or adds its views without a page reload.
+let synced = '';
+let pendingSync = false;
+
 async function loadViews(): Promise<void> {
+  if (loadingViews.value) return;
   loadingViews.value = true;
   loadError.value = '';
   try {
     const result = await loadPluginClients();
     failures.value = result.failures;
+    synced = viewSignature(result.info);
     startHealth();
   } catch (cause) {
-    loadError.value = describeFailure(cause);
+    const status = failureOf(cause).status;
+    if (status === 403) {
+      stopHealth();
+      synced = '';
+      expireSession('管理凭据缺少 admin:inspect 权限，或 Origin 与网关监听地址不一致。');
+    } else {
+      loadError.value = describeFailure(cause);
+    }
   } finally {
     loadingViews.value = false;
+    if (pendingSync) {
+      pendingSync = false;
+      void loadViews();
+    }
   }
 }
+
+watch(() => viewSignature(health.info), (value) => {
+  if (!authenticated.value) return;
+  if (loadingViews.value) {
+    // Do not mark this signature as synced; the current run may be fetching an
+    // older plugin list. Reconcile again once it settles.
+    pendingSync = true;
+    return;
+  }
+  if (value === synced) return;
+  void loadViews();
+});
 
 async function submit(): Promise<void> {
   const value = input.value.trim();
@@ -64,6 +94,22 @@ async function submit(): Promise<void> {
   }
 }
 
+function selectView(id: string): void {
+  healthOpen.value = false;
+  ctx.views.select(id);
+}
+
+function onDocumentPointer(event: PointerEvent): void {
+  if (!healthOpen.value) return;
+  const target = event.target;
+  if (target instanceof Element && target.closest('[data-health-toggle], .health-pop')) return;
+  healthOpen.value = false;
+}
+
+function onDocumentKey(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && healthOpen.value) healthOpen.value = false;
+}
+
 function disconnect(): void {
   clearToken();
   stopHealth();
@@ -71,7 +117,14 @@ function disconnect(): void {
 }
 
 onMounted(() => {
+  document.addEventListener('pointerdown', onDocumentPointer, true);
+  document.addEventListener('keydown', onDocumentKey);
   if (authenticated.value) void loadViews();
+});
+
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', onDocumentPointer, true);
+  document.removeEventListener('keydown', onDocumentKey);
 });
 </script>
 
@@ -132,7 +185,7 @@ onMounted(() => {
           :class="{ 'is-active': active?.id === view.id }"
           :aria-current="active?.id === view.id ? 'page' : undefined"
           :title="view.title"
-          @click="ctx.views.select(view.id)"
+          @click="selectView(view.id)"
         >
           <Icon :name="view.icon ?? 'dot'" :size="18" />
           <span class="sr-only">{{ view.title }}</span>
@@ -167,6 +220,7 @@ onMounted(() => {
           </div>
           <button
             type="button"
+            data-health-toggle
             class="rounded-full sm:hidden"
             :aria-expanded="healthOpen"
             aria-haspopup="true"
@@ -225,7 +279,7 @@ onMounted(() => {
           class="mobile-nav-item"
           :class="{ 'is-active': active?.id === view.id }"
           :aria-current="active?.id === view.id ? 'page' : undefined"
-          @click="ctx.views.select(view.id)"
+          @click="selectView(view.id)"
         >
           <Icon :name="view.icon ?? 'dot'" :size="14" />
           {{ view.title }}
@@ -448,6 +502,13 @@ onMounted(() => {
   .band {
     height: 52px;
     padding: 0 12px;
+  }
+
+  .health-pop {
+    /* Sit below the mobile nav so the nav stays usable while the popover is open. */
+    top: calc(100% + 50px);
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
   }
 
   .mobile-nav {

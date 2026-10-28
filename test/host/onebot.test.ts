@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, open, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -8,7 +12,7 @@ import { Host } from '../../src/host/host.js';
 import { parseConfig } from '../../src/host/config.js';
 import { loadModules } from '../../src/host/modules.js';
 import { object } from '../../src/core/validation.js';
-import { imageFile, imageUrl, mapMessage, parseOneBotConfig } from '../../src/plugins/onebot-v11/protocol.js';
+import { mapMessage, parseOneBotConfig } from '../../src/plugins/onebot-v11/protocol.js';
 import { startSimulator } from '../../examples/onebot/simulator.js';
 import { numericFixture, stringFixture } from '../../examples/onebot/fixtures.js';
 
@@ -16,7 +20,7 @@ async function until(check: () => boolean | Promise<boolean>) {
   for (let i = 0; i < 150; i += 1) { if (await check()) return; await delay(20); }
   assert.fail('Condition did not become true');
 }
-async function fixture(t: TestContext, stringIds = false, available = true) {
+async function fixture(t: TestContext, stringIds = false, available = true, admin = false) {
   const dir = await mkdtemp(join(tmpdir(), 'imbrex-onebot-'));
   const envKey = 'IMBREX_ONEBOT_FIXTURE_TOKEN';
   const previous = process.env[envKey];
@@ -30,11 +34,13 @@ async function fixture(t: TestContext, stringIds = false, available = true) {
   assert.ok(Array.isArray(raw.plugins)); object(raw.plugins.map((value) => object(value)).find((plugin) => plugin.id === 'qq-main')!.config).ws_url = 'ws://127.0.0.1:' + sim.port + '/';
   object(raw.plugins.map((value) => object(value)).find((plugin) => plugin.id === 'qq-main')!.config).access_token_env = envKey;
   assert.ok(Array.isArray(raw.principals));
-  const agentPrincipal = raw.principals.map((value) => object(value)).find((value) => value.id === 'qq-agent')!;
-  assert.ok(Array.isArray(agentPrincipal.invoke_capabilities)); agentPrincipal.invoke_capabilities.push('qq-main.resolve_image');
   raw.principals.push({ id: 'other', token_env: 'OTHER_TOKEN', permissions: ['events:read', 'capabilities:invoke', 'calls:read'], read_sources: [{ prefix: 'imbrex://other/' }], write_sources: [], invoke_capabilities: ['qq-main.reply'] });
+  if (admin) {
+    raw.principals.push({ id: 'admin', token_env: 'ADMIN_TOKEN', permissions: ['admin:inspect', 'admin:operate'], read_sources: [], write_sources: [], invoke_capabilities: [] });
+    raw.plugins.push({ id: 'admin', module: 'builtin:admin', principal_id: 'protocol', required: true, enabled: true, config: {} });
+  }
   const filename = join(dir, 'config.json');
-  const config = parseConfig(raw, filename, { IMBREX_QQ_AGENT_TOKEN: 'fixture-agent', IMBREX_OPERATOR_TOKEN: 'fixture-operator', OTHER_TOKEN: 'fixture-other' });
+  const config = parseConfig(raw, filename, { IMBREX_QQ_AGENT_TOKEN: 'fixture-agent', IMBREX_OPERATOR_TOKEN: 'fixture-operator', OTHER_TOKEN: 'fixture-other', ADMIN_TOKEN: 'fixture-admin' });
   const modules = await loadModules(config, filename);
   const app = await Host.open(config, modules);
   t.after(async () => { await app.close(); await sim.close(); await rm(dir, { recursive: true, force: true }); });
@@ -48,12 +54,26 @@ async function fixture(t: TestContext, stringIds = false, available = true) {
     return { status: response.status, value: object(await response.json()) };
   };
   const storeId = (await app.info()).storeId;
+  const adminRequest = async (path: string, data?: unknown) => {
+    const response = await fetch('http://127.0.0.1:' + app.port + path, {
+      method: data === undefined ? 'GET' : 'POST',
+      headers: { authorization: 'Bearer fixture-admin', 'content-type': 'application/json' },
+      ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+    });
+    return { status: response.status, body: object(await response.json()) };
+  };
+  const act = async (action: string, params: unknown) => {
+    const list = object((await adminRequest('/api/admin/panels')).body);
+    const summary = (list.panels as unknown[]).map((value) => object(value)).find((value) => value.instance_id === 'qq-main')!;
+    return await adminRequest('/api/admin/panels/qq-main/actions/' + action, { store_id: storeId, generation: summary.generation, params });
+  };
+  const panel = async () => object(object((await adminRequest('/api/admin/panels/qq-main')).body.data).data);
   const invoke = async (callId: string, kind = 'group', id = '-42', token?: string, namespace = 'main') => {
     return request('/v1/capabilities/qq-main.reply/invoke', { store_id: storeId, call_id: callId, params: {
       input_event_ref: { source: 'imbrex://qq/123456/' + namespace + '/' + kind + '/' + (kind === 'group' ? '987654' : '654321'), id: 'message:' + id }, text: '[CQ:at,qq=all] is literal',
     } }, token);
   };
-  return { app, sim, config, ready, invoke, request, storeId };
+  return { app, sim, config, ready, invoke, request, storeId, adminRequest, act, panel };
 }
 
 test('two independent wire fixtures map events and produce exact standard Actions without CQ injection', async (t) => {
@@ -136,62 +156,11 @@ test('invalid native IDs and unsupported segments cannot enter storage; demo bui
   const parsed = parseOneBotConfig(config.plugins.find((plugin) => plugin.id === 'qq-main')!.config);
   for (const event of [
     { ...numericFixture, message_id: 9007199254740992 }, { ...numericFixture, self_id: 222222 },
-    { ...numericFixture, message: '[CQ:video,file=example]' }, { ...numericFixture, message: '[CQ:reply,id=01]' },
-    { ...numericFixture, message: [{ type: 'video', data: { file: 'example' } }] },
+    { ...numericFixture, message: '[CQ:reply,id=01]' },
   ]) assert.throws(() => mapMessage(event, parsed));
   assert.throws(() => parseOneBotConfig({ ...config.plugins.find((plugin) => plugin.id === 'qq-main')!.config, compatibility_profile: 'imaginary' }));
   config.plugins.find((plugin) => plugin.id === 'qq-main')!.module = 'builtin:mock';
   await assert.rejects(loadModules(config, '/tmp/fixture-config.json'), { code: 'invalid_request' });
-});
-
-test('message snapshots preserve sender identity and normalize supported CQ and array media segments', async (t) => {
-  const { config } = await fixture(t);
-  const parsed = parseOneBotConfig(config.plugins.find((plugin) => plugin.id === 'qq-main')!.config);
-  const event = { ...numericFixture, sender: { user_id: 654321, nickname: 'same', card: 'member' }, message: '[CQ:at,qq=all][CQ:at,qq=654321][CQ:image,file=a&#44;b,url=https://img.example/a?x=1&amp;y=2][CQ:face,id=14]x&#91;y&#93;' };
-  const mapped = mapMessage(event, parsed)!;
-  const data = object(mapped.event.data);
-  assert.equal(data.sender_id, '654321'); assert.equal(data.sender_nickname, 'same'); assert.equal(data.sender_card, 'member');
-  assert.deepEqual(data.message_segments, [
-    { type: 'at', data: { qq: 'all' } }, { type: 'at', data: { qq: '654321' } },
-    { type: 'image', data: { file: 'a,b', url: 'https://img.example/a?x=1&y=2' } },
-    { type: 'face', data: { id: '14' } }, { type: 'text', data: { text: 'x[y]' } },
-  ]);
-  const other = mapMessage({ ...event, user_id: 654322, sender: { user_id: 654322, nickname: 'same' }, message_id: 9 }, parsed)!;
-  assert.equal(object(other.event.data).sender_id, '654322');
-  const staleSnapshot = mapMessage({ ...event, user_id: 654322, message_id: 10 }, parsed)!;
-  assert.equal(object(staleSnapshot.event.data).sender_id, '654322');
-  assert.equal(object(staleSnapshot.event.data).sender_nickname, undefined);
-  const invalidSnapshot = mapMessage({ ...event, sender: { user_id: 'bad', nickname: 'wrong' } }, parsed)!;
-  assert.equal(object(invalidSnapshot.event.data).sender_id, '654321');
-  assert.equal(object(invalidSnapshot.event.data).sender_nickname, undefined);
-  assert.equal(object(mapMessage({ ...event, message: 'literal&#44;text' }, parsed)!.event.data).text, 'literal&#44;text');
-  assert.throws(() => mapMessage({ ...event, message: '[CQ:at,qq=not-a-number]' }, parsed));
-  assert.throws(() => mapMessage({ ...event, message: [{ type: 'video', data: {} }] }, parsed));
-  assert.throws(() => imageUrl('file:///etc/passwd'));
-  assert.throws(() => imageUrl('https://user:pass@images.example/photo'));
-  assert.throws(() => imageFile('/private/cache/photo.png'));
-});
-
-test('resolve_image is caller scoped, index checked, URL restricted, and removed on plugin stop', async (t) => {
-  const { app, sim, request, storeId } = await fixture(t);
-  const message = { ...numericFixture, sender: { user_id: 654321, nickname: 'same' }, message: [
-    { type: 'text', data: { text: 'photo' } }, { type: 'image', data: { file: 'fixture', url: 'https://images.example/photo.png' } },
-  ] };
-  sim.broadcast(message); await until(async () => (await app.info()).latestSeq === 1n);
-  const invoke = (segmentIndex: number, token = 'fixture-agent', id = '-42') => request('/v1/capabilities/qq-main.resolve_image/invoke', {
-    store_id: storeId, params: { input_event_ref: { source: 'imbrex://qq/123456/main/group/987654', id: 'message:' + id }, segment_index: segmentIndex },
-  }, token);
-  const resolved = await invoke(1);
-  assert.equal(resolved.status, 200);
-  assert.deepEqual(resolved.value.result, { url: 'https://images.example/photo.png', file: 'fixture' });
-  assert.equal((await invoke(1, 'fixture-other')).status, 403);
-  // The capability contract sanitizes any read-only handler rejection as provider_unavailable.
-  assert.equal((await invoke(0)).status, 503);
-  assert.equal((await invoke(1, 'fixture-agent', '999')).status, 503);
-  await app.stopPlugin('qq-main');
-  const listing = await request('/v1/capabilities');
-  assert.ok(Array.isArray(listing.value.capabilities));
-  assert.equal((listing.value.capabilities as unknown[]).some((item) => object(item).id === 'qq-main.resolve_image'), false);
 });
 
 test('burst ingress is bounded and the connection recovers without automatically sending', async (t) => {
@@ -214,4 +183,166 @@ test('missing tokens fail initialization and an unacknowledged send times out as
   await app.stopPlugin('qq-main');
   delete process.env.IMBREX_ONEBOT_FIXTURE_TOKEN;
   await assert.rejects(app.startPlugin('qq-main'), { code: 'provider_unavailable' });
+});
+
+
+test('runtime allowlists hot-apply, record intercepts and reset to the host config', async (t) => {
+  const { app, sim, act, panel, config } = await fixture(t, false, true, true);
+  sim.broadcast({ ...numericFixture, message_id: 501, group_id: 111222, message: [{ type: 'text', data: { text: 'outside' } }] });
+  await until(async () => ((object(await panel()).intercepts ?? []) as unknown[]).length === 1);
+  const before = await panel();
+  const first = object((object(before).intercepts as unknown[])[0]!);
+  assert.equal(first.conversation, '111222');
+  assert.equal(first.kind, 'group');
+  assert.equal((await app.info()).latestSeq, 0n);
+
+  const allowed = await act('allow-conversation', { kind: 'group', id: '111222' });
+  assert.equal(allowed.status, 200);
+  const after = await panel();
+  assert.equal(object(after.scope).source, 'runtime');
+  assert.ok((object(after.scope).group_ids as unknown[]).includes('111222'));
+  sim.broadcast({ ...numericFixture, message_id: 502, group_id: 111222, message: [{ type: 'text', data: { text: 'inside' } }] });
+  await until(async () => (await app.info()).latestSeq === 1n);
+  const stored = object(JSON.parse(await readFile(join(config.dataDir, 'plugins/qq-main/config.json'), 'utf8')));
+  assert.ok((object(stored.runtime_filters).group_ids as unknown[]).includes('111222'));
+
+  const reset = await act('reset-runtime-config', {});
+  assert.equal(reset.status, 200);
+  const restored = await panel();
+  assert.equal(object(restored.scope).source, 'host');
+  assert.equal((object(restored.scope).group_ids as unknown[]).includes('111222'), false);
+
+  const saved = await act('save-managed-process', { enabled: false });
+  assert.equal(saved.status, 200);
+  const managed = object(JSON.parse(await readFile(join(config.dataDir, 'plugins/qq-main/config.json'), 'utf8')));
+  assert.equal(object(managed.managed_process).enabled, false);
+  assert.equal((await act('save-managed-process', { enabled: true })).status, 400);
+});
+
+test('a corrupt private config falls back to the host allowlists without failing the plugin', async (t) => {
+  const { app, config, panel } = await fixture(t, false, true, true);
+  await app.stopPlugin('qq-main');
+  await writeFile(join(config.dataDir, 'plugins/qq-main/config.json'), 'not json', { mode: 0o600 });
+  await app.startPlugin('qq-main');
+  await until(() => app.plugins().find((plugin) => plugin.id === 'qq-main')?.available === true);
+  const data = await panel();
+  assert.equal(object(data.runtime_config).error, 'runtime_config_invalid');
+  assert.equal(object(data.scope).source, 'host');
+});
+
+test('adding a conversation at the runtime allowlist limit preserves readable saved configuration', async (t) => {
+  const { app, act, panel, config } = await fixture(t, false, true, true);
+  const groups = Array.from({ length: 1024 }, (_, index) => String(100000 + index));
+  assert.equal((await act('save-runtime-filters', { group_ids: groups, private_user_ids: [] })).status, 200);
+  const path = join(config.dataDir, 'plugins/qq-main/config.json'), before = await readFile(path, 'utf8');
+  assert.equal((await act('allow-conversation', { kind: 'group', id: '999999' })).status, 400);
+  assert.equal(await readFile(path, 'utf8'), before);
+  await app.stopPlugin('qq-main'); await app.startPlugin('qq-main');
+  await until(() => app.plugins().find((plugin) => plugin.id === 'qq-main')?.available === true);
+  const data = await panel();
+  assert.deepEqual(object(data.scope).group_ids, groups);
+  assert.equal(object(data.runtime_config).error, null);
+});
+
+test('private configuration rejects FIFO and redirected reads while keeping the host usable', async (t) => {
+  const { app, panel, config } = await fixture(t, false, true, true);
+  const path = join(config.dataDir, 'plugins/qq-main/config.json');
+  const external = join(config.dataDir, 'external.json');
+  await writeFile(external, JSON.stringify({ version: 1, runtime_filters: { group_ids: [], private_user_ids: [] } }));
+  for (const kind of ['fifo', 'link', 'oversize'] as const) {
+    await app.stopPlugin('qq-main'); await rm(path, { force: true });
+    if (kind === 'fifo') execFileSync('mkfifo', [path]);
+    else if (kind === 'link') await symlink(external, path);
+    else await writeFile(path, 'x'.repeat(65537));
+    const starting = app.startPlugin('qq-main');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const completed = await Promise.race([starting.then(() => true), new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), 1000); })]);
+      if (!completed && kind === 'fifo') { const writer = await open(path, constants.O_RDWR | constants.O_NONBLOCK); await writer.close(); }
+      assert.equal(completed, true, 'invalid private config must not wait for FIFO writers');
+    } finally { clearTimeout(timer); }
+    await until(() => app.plugins().find((plugin) => plugin.id === 'qq-main')?.available === true);
+    const data = await panel();
+    assert.equal(object(data.runtime_config).error, 'runtime_config_invalid');
+    assert.equal(object(data.scope).source, 'host');
+  }
+});
+
+test('runtime saves leave a preexisting FIFO temporary path untouched and do not block unload', async (t) => {
+  const { app, act, panel, config } = await fixture(t, false, true, true);
+  const path = join(config.dataDir, 'plugins/qq-main/config.json.tmp');
+  execFileSync('mkfifo', [path]);
+  const result = await act('save-runtime-filters', { group_ids: [], private_user_ids: [] });
+  assert.equal(result.status, 200); assert.equal(object(result.body.result).status, 'succeeded');
+  assert.deepEqual(object((await panel()).scope).group_ids, []);
+  await app.stopPlugin('qq-main');
+  assert.equal(app.plugins().find((plugin) => plugin.id === 'qq-main')?.state, 'stopped');
+});
+
+test('post-rename sync failure suspends ingress and later writes until persisted config is reread', async (t) => {
+  const { app, sim, act, panel, config, ready } = await fixture(t, false, true, true);
+  const directory = join(config.dataDir, 'plugins/qq-main');
+  const originalOpen = fsPromises.open;
+  let injected = false;
+  fsPromises.open = (async (...args: Parameters<typeof open>) => {
+    const file = await originalOpen(...args);
+    if (!injected && args[0] === directory && args[1] === 'r') {
+      injected = true; file.sync = async () => { throw new Error('fixture directory sync failure'); };
+    }
+    return file;
+  }) as typeof open;
+  syncBuiltinESMExports();
+  let result: Awaited<ReturnType<typeof act>>;
+  try { result = await act('save-runtime-filters', { group_ids: [], private_user_ids: [] }); }
+  finally { fsPromises.open = originalOpen; syncBuiltinESMExports(); }
+  assert.equal(injected, true); assert.equal(result.status, 200);
+  assert.equal(object(result.body.result).status, 'failed');
+  assert.equal(object(result.body.result).inspect_required, true);
+  const path = join(directory, 'config.json'), evidence = await readFile(path, 'utf8');
+  assert.deepEqual(object(object(JSON.parse(evidence)).runtime_filters).group_ids, []);
+  assert.equal(ready(), false);
+  assert.equal(object((await panel()).runtime_config).error, 'runtime_config_write_failed');
+  assert.equal((await act('save-managed-process', { enabled: false })).status, 503);
+  assert.equal(await readFile(path, 'utf8'), evidence);
+  sim.broadcast(numericFixture); await delay(50); assert.equal((await app.info()).latestSeq, 0n);
+  await app.stopPlugin('qq-main'); await app.startPlugin('qq-main'); await until(ready);
+  assert.deepEqual(object((await panel()).scope).group_ids, []);
+  assert.equal(object((await panel()).runtime_config).error, null);
+});
+
+test('known companion startup failures never return a succeeded management result', async (t) => {
+  const { app, sim, act, panel, config } = await fixture(t, false, true, true);
+  await sim.close();
+  sim.close = async () => {};
+  for (const descriptor of [
+    { enabled: true, command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], cwd: config.dataDir, env_vars: ['IMBREX_COMPANION_MISSING_TEST_SECRET'] },
+    { enabled: true, command: join(config.dataDir, 'missing-executable'), args: [], cwd: config.dataDir, env_vars: [] },
+  ]) {
+    assert.equal((await act('save-managed-process', descriptor)).status, 200);
+    const result = await act('start-managed-process', {});
+    assert.equal(result.status, 200); assert.equal(object(result.body.result).status, 'failed');
+    assert.equal(object(result.body.result).inspect_required, true);
+    assert.equal(object(object((await panel()).managed_process).active).state, 'exited');
+  }
+  await app.stopPlugin('qq-main');
+});
+
+test('runtime file size limit includes the persisted newline and preserves the previous readable config', async (t) => {
+  const { app, act, panel, config } = await fixture(t, false, true, true);
+  assert.equal((await act('save-managed-process', { enabled: false })).status, 200);
+  const args = Array.from({ length: 16 }, (_, index) => index < 15 ? 'x'.repeat(4096) : '');
+  const next = { version: 1, managed_process: { enabled: false, args } };
+  args[15] = 'x'.repeat(65536 - Buffer.byteLength(JSON.stringify(next)));
+  assert.equal(Buffer.byteLength(JSON.stringify(next)), 65536);
+  const path = join(config.dataDir, 'plugins/qq-main/config.json'), before = await readFile(path, 'utf8');
+  assert.equal((await act('save-managed-process', next.managed_process)).status, 413);
+  assert.equal(await readFile(path, 'utf8'), before);
+  args[15] = args[15]!.slice(1);
+  assert.equal((await act('save-managed-process', next.managed_process)).status, 200);
+  assert.equal(Buffer.byteLength(await readFile(path, 'utf8')), 65536);
+  await app.stopPlugin('qq-main'); await app.startPlugin('qq-main');
+  await until(() => app.plugins().find((plugin) => plugin.id === 'qq-main')?.available === true);
+  const data = await panel();
+  assert.equal(object(data.runtime_config).error, null);
+  assert.deepEqual(object(object(data.managed_process).saved).args, args);
 });

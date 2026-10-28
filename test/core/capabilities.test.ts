@@ -111,6 +111,47 @@ test('handler event lookup retains actual caller scope rather than provider priv
   assert.equal((await store.getCall(id, principal.id, 'scope'))?.status, 'unknown');
 });
 
+test('metadata source checks use actual caller permissions without requiring an event', async (t) => {
+  const { capabilities, id, owner } = await fixture(t);
+  let reads = 0;
+  capabilities.register(owner, {
+    ...definition((_params, invocation) => {
+      invocation.requireReadSource('imbrex://allowed');
+      reads += 1;
+      return { metadata: true };
+    }, false),
+  });
+  const result = await capabilities.invoke(principal, id, 'mock.echo', { text: 'fixture' });
+  assert.equal(result.kind, 'result');
+  assert.equal(reads, 1);
+  await assert.rejects(capabilities.invoke({ ...principal, readSources: [{ exact: 'imbrex://other' }] }, id, 'mock.echo', { text: 'fixture' }), { code: 'forbidden' });
+  await assert.rejects(capabilities.invoke({ ...principal, permissions: principal.permissions.filter((value) => value !== 'events:read') }, id, 'mock.echo', { text: 'fixture' }), { code: 'forbidden' });
+  assert.equal(reads, 1, 'denied metadata requests must not reach the provider read');
+});
+
+test('one unavailable capability stays visible to administration but cannot be discovered or dispatched', async (t) => {
+  const { capabilities, id, owner } = await fixture(t);
+  let available = false, calls = 0;
+  capabilities.register(owner, { ...definition(() => { calls += 1; return null; }, false), available: () => available });
+  assert.deepEqual(capabilities.list(principal), []);
+  assert.equal(capabilities.inspect({ ...principal, permissions: [...principal.permissions, 'admin:inspect'] })[0]!.available, false);
+  await assert.rejects(capabilities.invoke(principal, id, 'mock.echo', { text: 'fixture' }), { code: 'provider_unavailable' });
+  assert.equal(calls, 0);
+  available = true;
+  assert.equal(capabilities.list(principal).length, 1);
+  assert.equal((await capabilities.invoke(principal, id, 'mock.echo', { text: 'fixture' })).kind, 'result');
+  assert.equal(calls, 1);
+});
+
+test('read-only provider errors retain known codes without exposing provider messages', async (t) => {
+  const { capabilities, id, owner } = await fixture(t);
+  const remove = capabilities.register(owner, definition(() => { throw new GatewayError('forbidden', 'private fixture message'); }, false));
+  await assert.rejects(capabilities.invoke(principal, id, 'mock.echo', { text: 'fixture' }), { code: 'forbidden', message: 'forbidden' });
+  remove();
+  capabilities.register(owner, definition(() => { throw new Error('private fixture message'); }, false));
+  await assert.rejects(capabilities.invoke(principal, id, 'mock.echo', { text: 'fixture' }), { code: 'provider_unavailable', message: 'provider_unavailable' });
+});
+
 test('failed call persistence never dispatches and failed result persistence never claims success', async (t) => {
   const { store, events, id, owner } = await fixture(t);
   let sends = 0;

@@ -1,9 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Context, type Fiber } from 'cordis';
 import { Capabilities } from '../core/capabilities.js';
 import { Events } from '../core/events.js';
-import { requirePermission } from '../core/access.js';
+import { matchesSource, requirePermission } from '../core/access.js';
 import { fail, GatewayError, publicError, type ErrorCode } from '../core/errors.js';
 import { limits, namespacePattern, readOptions } from '../core/validation.js';
 import { SqliteStore } from '../storage/store.js';
@@ -14,11 +15,12 @@ import { inspectConfig } from './admin-config.js';
 import type { HostConfig, PluginConfig } from './config.js';
 import { protocolModules, serverHttpModule, type PluginModule } from './modules.js';
 import type { PluginApi } from './plugin-api.js';
-import type { JsonObject, Principal } from '../core/types.js';
+import type { JsonObject, JsonValue, Principal } from '../core/types.js';
 
 type State = 'waiting' | 'loading' | 'active' | 'failed' | 'stopping' | 'stopped';
 interface Runtime {
   config: PluginConfig; module?: PluginModule; state: State; available: boolean; controller?: AbortController; fiber?: Fiber;
+  operation?: Promise<JsonValue>; lifecycleOperation?: Promise<JsonValue>; revision: string;
   cleanup: Set<() => void>; errors: number; stopFailed: boolean; lastError?: { code: string; message: string };
 }
 interface HostOptions {
@@ -69,7 +71,16 @@ export class Host {
         authenticate: (authorization) => { if (!this.accepting || api.signal.aborted || this.closing) fail('provider_unavailable'); return this.config.authenticate(authorization); },
         store: { info: () => this.store.info() }, events: this.events, capabilities: this.capabilities,
         plugins: () => this.plugins(), report: (code, requestId) => this.report(code, { request_id: requestId }),
-        ...(runtime.config.module === 'builtin:admin' ? { admin: { registry: this.admin, configuration: (principal: Principal) => inspectConfig(this.config, principal, this.root.get('http')?.origin ?? null) } } : {}),
+        ...(runtime.config.module === 'builtin:admin' ? { admin: {
+          registry: this.admin,
+          operate: (principal: Principal, instance: string, generation: string, action: string, input: unknown) => this.operate(principal, instance, generation, action, input),
+          configuration: (principal: Principal) => inspectConfig(this.config, principal, this.root.get('http')?.origin ?? null),
+          diagnostics: (principal: Principal, subject: string) => this.diagnostics(principal, subject),
+          lifecycle: (principal: Principal, instance: string, revision: string, action: string) => {
+            if (instance === runtime.config.id || this.runtimes.get(instance)?.config.module === serverHttpModule) fail('feature_unavailable', 'The serving management endpoint must be controlled offline.');
+            return this.lifecycle(principal, instance, revision, action);
+          },
+        } } : {}),
       };
     }, reportRequest: (ctx: Context, code: ErrorCode, requestId: string) => {
       if (this.runtimeFor(ctx.fiber)?.config.module !== serverHttpModule) fail('forbidden');
@@ -81,6 +92,7 @@ export class Host {
     this.root.on('internal/status', (fiber) => {
       for (const runtime of this.runtimes.values()) {
         if (runtime.fiber !== fiber || runtime.state !== 'active') continue;
+        runtime.revision = randomUUID();
         if (fiber.state === 5 || fiber.state === 3) {
           runtime.controller?.abort();
           for (const dispose of runtime.cleanup) dispose();
@@ -100,6 +112,7 @@ export class Host {
     return undefined;
   }
   private stopFailed(runtime: Runtime): void {
+    runtime.revision = randomUUID();
     runtime.state = 'failed'; runtime.stopFailed = true; runtime.available = false;
     runtime.lastError = { code: 'stop_failed', message: 'Plugin cleanup did not complete.' };
     runtime.controller?.abort();
@@ -117,7 +130,7 @@ export class Host {
       host.events = new Events(host.store, (code) => host.report(code));
       host.capabilities = new Capabilities(host.store, host.events, config.externalWritesEnabled);
       for (const plugin of config.plugins) host.runtimes.set(plugin.id, {
-        config: plugin, module: modules.get(plugin.id), state: 'stopped', available: false, cleanup: new Set(), errors: 0, stopFailed: false,
+        config: plugin, module: modules.get(plugin.id), state: 'stopped', available: false, cleanup: new Set(), errors: 0, stopFailed: false, revision: randomUUID(),
       });
       for (const plugin of config.plugins) if (plugin.enabled) await host.startPlugin(plugin.id);
       if (host.failed) fail('storage_unavailable');
@@ -134,6 +147,11 @@ export class Host {
   private moduleName(runtime: Runtime): string {
     return runtime.module?.name && namespacePattern.test(runtime.module.name) ? runtime.module.name : 'external';
   }
+  private state(runtime: Runtime): State {
+    return runtime.state === 'active' && runtime.fiber
+      ? (['waiting', 'loading', 'active', 'failed', 'stopped', 'stopping'] as const)[runtime.fiber.state] ?? 'failed'
+      : runtime.state;
+  }
   plugins() {
     return [...this.runtimes.values()].map((runtime) => {
       const moduleName = this.moduleName(runtime);
@@ -143,9 +161,10 @@ export class Host {
         : client?.url;
       return {
         id: runtime.config.id,
+        lifecycle_revision: runtime.revision,
         module_name: moduleName,
-        enabled: runtime.config.enabled,
-        state: runtime.state === 'active' && runtime.fiber ? (['waiting', 'loading', 'active', 'failed', 'stopped', 'stopping'][runtime.fiber.state] ?? 'failed') : runtime.state,
+        enabled: runtime.config.enabled || runtime.state === 'active',
+        state: this.state(runtime),
         required: runtime.config.required, available: runtime.state === 'active' && runtime.fiber?.state === 2 && runtime.available,
         ...(clientEntry ? { client_entry: clientEntry } : {}),
         ...(runtime.lastError ? { last_error: runtime.lastError } : {}),
@@ -173,6 +192,21 @@ export class Host {
       storeId, instanceId: runtime.config.id, dataDir: join(this.config.dataDir, 'plugins', runtime.config.id), signal: controller.signal,
       whenReady: async () => { ensure(); await this.ready.promise; ensure(); },
       registerAdminPanel: (panel) => { ensure(); return track(this.admin.register(runtime.config.id, this.moduleName(runtime), controller.signal, panel)); },
+      agentEndpoint: (principalId) => {
+        ensure();
+        requirePermission(principal, 'events:read');
+        if (!this.root.get('mcp')) fail('provider_unavailable');
+        const caller = this.config.principals.find((entry) => entry.id === principalId) ?? fail('invalid_request');
+        requirePermission(caller, 'events:read');
+        if (caller.permissions.some((permission) => permission.startsWith('admin:'))) fail('forbidden');
+        for (const scope of principal.readSources) {
+          const covered = 'exact' in scope ? matchesSource(caller.readSources, scope.exact) : caller.readSources.some((rule) => 'prefix' in rule && scope.prefix.startsWith(rule.prefix));
+          if (!covered) fail('forbidden');
+        }
+        const tokenEnv = this.config.credentialReferences[principalId] ?? fail('invalid_request');
+        const origin = this.root.get('http')?.origin ?? fail('provider_unavailable');
+        return { url: origin + '/v1/mcp', tokenEnv };
+      },
       events: {
         readScope: () => { ensure(); requirePermission(principal, 'events:read'); return { principalId: principal.id, sources: structuredClone(principal.readSources) }; },
         info: async () => { ensure(); const info = await this.store.info(); return { storeId: info.storeId, latestSeq: info.latestSeq }; },
@@ -198,10 +232,60 @@ export class Host {
     this.bindings.set(ctx.fiber, api);
     return api;
   }
+  private async operate(principal: Principal, id: string, generation: string, action: string, input: unknown): Promise<JsonValue> {
+    requirePermission(principal, 'admin:operate');
+    const runtime = this.runtimes.get(id) ?? fail('not_found');
+    if (this.closing || runtime.state !== 'active' || runtime.controller?.signal.aborted) fail('provider_unavailable');
+    if (runtime.operation || runtime.lifecycleOperation) fail('busy');
+    const operation = this.admin.execute(principal, id, generation, action, input);
+    runtime.operation = operation;
+    try { return await operation; } finally { runtime.operation = undefined; }
+  }
+  private diagnostics(principal: Principal, subjectId: string): JsonValue {
+    requirePermission(principal, 'admin:inspect');
+    const subject = this.config.principals.find((item) => item.id === subjectId) ?? fail('not_found');
+    return {
+      principal: { id: subject.id, permissions: [...subject.permissions], read_sources: structuredClone(subject.readSources), invoke_capabilities: [...subject.invokeCapabilities] },
+      external_writes_enabled: this.config.externalWritesEnabled,
+      capabilities: this.capabilities.inspect(principal).map((item) => ({
+        id: item.id, available: item.available,
+        invoke_authorized: subject.permissions.includes('capabilities:invoke') && subject.invokeCapabilities.includes(item.id),
+        events_read_permitted: subject.permissions.includes('events:read'),
+        external_write_enabled: !item.isSideEffectful || this.config.externalWritesEnabled,
+      })),
+    };
+  }
+  private async lifecycle(principal: Principal, id: string, revision: string, action: string): Promise<JsonValue> {
+    requirePermission(principal, 'admin:operate');
+    if (!['start', 'stop', 'restart'].includes(action)) fail('not_found');
+    const runtime = this.runtimes.get(id) ?? fail('not_found');
+    if (this.closing || runtime.stopFailed) fail('provider_unavailable');
+    if (runtime.operation || runtime.lifecycleOperation) fail('busy');
+    if (revision !== runtime.revision) fail('admin_conflict');
+    const state = this.state(runtime);
+    if (['loading', 'stopping'].includes(state)) fail('busy');
+    if ((action === 'start' && !['stopped', 'failed'].includes(state)) || (action !== 'start' && runtime.state !== 'active')) fail('admin_conflict');
+    const work = Promise.resolve().then(async (): Promise<JsonValue> => {
+      try {
+        if (action !== 'start' || runtime.state === 'active') await this.stopPlugin(id);
+        if (action !== 'stop') await this.startPlugin(id);
+        const resultState = this.state(runtime);
+        return { status: resultState === (action === 'stop' ? 'stopped' : 'active') ? 'succeeded' : 'failed',
+          lifecycle_revision: runtime.revision, state: resultState,
+          ...(runtime.lastError === undefined ? {} : { reason: runtime.lastError }), inspect_required: resultState === 'failed' };
+      } catch (error) {
+        return { status: 'failed', lifecycle_revision: runtime.revision, state: this.state(runtime),
+          reason: { code: runtime.lastError?.code ?? publicError(error).code }, inspect_required: true };
+      }
+    });
+    runtime.lifecycleOperation = work;
+    try { return await work; } finally { runtime.lifecycleOperation = undefined; }
+  }
   async startPlugin(id: string): Promise<void> {
     if (this.closing) fail('provider_unavailable');
     const runtime = this.runtimes.get(id) ?? fail('not_found');
     if (runtime.stopFailed || ['loading', 'active', 'stopping'].includes(runtime.state)) fail('invalid_request', 'Plugin is already running or failed to stop');
+    runtime.revision = randomUUID();
     runtime.state = 'loading'; runtime.available = true; runtime.lastError = undefined;
     runtime.controller = new AbortController(); runtime.cleanup = new Set();
     try {
@@ -223,12 +307,12 @@ export class Host {
       runtime.fiber = runtime.fiber.ctx.fiber;
       await this.bounded(runtime.fiber.await());
       if (runtime.fiber.state !== 2) fail('provider_unavailable', 'Required plugin services are missing');
-      runtime.state = 'active';
+      runtime.state = 'active'; runtime.revision = randomUUID();
     } catch {
       runtime.controller.abort();
       for (const dispose of runtime.cleanup) dispose();
       if (runtime.fiber) await this.bounded(runtime.fiber.dispose()).catch(() => { this.stopFailed(runtime); });
-      runtime.state = 'failed'; runtime.available = false;
+      runtime.state = 'failed'; runtime.available = false; runtime.revision = randomUUID();
       if (!runtime.stopFailed) runtime.lastError = { code: 'plugin_start_failed', message: 'Plugin initialization failed.' };
       this.report('plugin_start_failed', { plugin_instance_id: id });
       if (runtime.config.required) fail('provider_unavailable', 'Required plugin initialization failed');
@@ -240,15 +324,16 @@ export class Host {
     if (runtime.state === 'stopped' || runtime.state === 'failed') return;
     if (runtime.state === 'loading') fail('invalid_request', 'Plugin is still starting');
     if (runtime.state === 'stopping') fail('invalid_request');
-    runtime.state = 'stopping'; runtime.available = false;
+    runtime.state = 'stopping'; runtime.available = false; runtime.revision = randomUUID();
     runtime.controller?.abort();
     const errors = runtime.errors;
     try {
+      if (runtime.operation) await this.bounded(runtime.operation.catch(() => {}));
       for (const dispose of runtime.cleanup) dispose();
       await this.bounded(this.capabilities.drain(id));
       if (runtime.fiber) await this.bounded(runtime.fiber.dispose());
       if (runtime.errors > errors || runtime.stopFailed) fail('internal_error', 'stop_failed');
-      runtime.state = 'stopped';
+      runtime.state = 'stopped'; runtime.revision = randomUUID();
     } catch {
       this.stopFailed(runtime);
       throw new GatewayError('internal_error', 'stop_failed');
