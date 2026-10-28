@@ -10,6 +10,7 @@ import { parseConfig } from '../../src/host/config.js';
 import { loadModules } from '../../src/host/modules.js';
 import type { PluginApi } from '../../src/host/plugin-api.js';
 import { object } from '../../src/core/validation.js';
+import { parseMemoryConfig } from '../../src/plugins/memory/config.js';
 
 const sourceA = 'imbrex://qq/123456/main/group/987654';
 const sourceB = 'imbrex://qq/123456/main/group/987655';
@@ -130,14 +131,14 @@ async function fixture(t: TestContext, extraInstance = false) {
   assert.ok(Array.isArray(raw.principals));
   raw.principals.push(
     { id: 'memory-admin', token_env: 'MEMORY_ADMIN_TOKEN', permissions: ['admin:inspect'], read_sources: [], write_sources: [], invoke_capabilities: [] },
-    { id: 'memory-reader', permissions: ['events:read', 'capabilities:invoke'], read_sources: [{ prefix: 'imbrex://qq/123456/main/' }], write_sources: [], invoke_capabilities: ['image-resolver.resolve_image'] },
+    { id: 'memory-reader', permissions: ['events:read', 'capabilities:invoke'], read_sources: [{ prefix: 'imbrex://qq/123456/main/' }], write_sources: [], invoke_capabilities: ['image-resolver.get_message'] },
     { id: 'memory-agent', token_env: 'MEMORY_AGENT_TOKEN', permissions: ['events:read', 'capabilities:list', 'capabilities:invoke', 'calls:read'], read_sources: [{ prefix: 'imbrex://qq/123456/main/' }], write_sources: [], invoke_capabilities: ['memory.search', 'memory.context', 'memory.get', 'memory.status', 'memory.operation', 'memory.remember', 'memory.update', 'memory.forget', 'memory.rebuild'] },
     { id: 'memory-other', token_env: 'MEMORY_OTHER_TOKEN', permissions: ['events:read', 'capabilities:list', 'capabilities:invoke'], read_sources: [{ exact: sourceB }], write_sources: [], invoke_capabilities: ['memory.search'] },
     { id: 'memory-writer', permissions: ['events:write'], read_sources: [], write_sources: [{ prefix: 'imbrex://qq/123456/main/' }], invoke_capabilities: [] },
   );
   raw.plugins.push(
     { id: 'admin', module: 'builtin:admin', principal_id: 'protocol', required: true, enabled: false, config: {} },
-    { id: 'memory', module: 'builtin:memory', principal_id: 'memory-reader', required: true, enabled: true, config: { service_url: `http://127.0.0.1:${address.port}`, service_token_env: 'MEMORY_SERVICE_TOKEN', sources: [sourceA, sourceB], image_resolvers: { 'imbrex://qq/123456/main/': 'image-resolver.resolve_image' }, request_timeout_ms: 1000, poll_ms: 100, batch_wait_ms: 100 } },
+    { id: 'memory', module: 'builtin:memory', principal_id: 'memory-reader', required: true, enabled: true, config: { service_url: `http://127.0.0.1:${address.port}`, service_token_env: 'MEMORY_SERVICE_TOKEN', sources: [sourceA, sourceB], message_readers: { 'imbrex://qq/123456/main/': 'image-resolver.get_message' }, request_timeout_ms: 1000, poll_ms: 100, batch_wait_ms: 100 } },
     { id: 'memory-writer', module: 'builtin:fixture', principal_id: 'memory-writer', required: true, enabled: true, config: {} },
     { id: 'image-resolver', module: 'builtin:fixture', principal_id: 'memory-reader', required: true, enabled: true, config: {} },
   );
@@ -150,9 +151,23 @@ async function fixture(t: TestContext, extraInstance = false) {
   modules.set('memory-writer', { name: 'memory-test-writer', apply: (ctx) => { writer = ctx.imbrex.forPlugin(ctx); } });
   modules.set('image-resolver', { name: 'memory-image-resolver', inject: ['imbrex'], apply: (ctx) => {
     const api = ctx.imbrex.forPlugin(ctx);
-    ctx.effect(() => api.capabilities.register({ localName: 'resolve_image', description: 'Test image resolver', schemaVersion: '1', isSideEffectful: false,
-      inputSchema: { type: 'object', properties: { input_event_ref: { type: 'object', properties: { source: { type: 'string' }, id: { type: 'string' } }, required: ['source', 'id'], additionalProperties: false }, segment_index: { type: 'integer', minimum: 0 } }, required: ['input_event_ref', 'segment_index'], additionalProperties: false },
-      handler: async (params) => { const value = object(params); resolverRequests.push(value); await resolverWait; return { url: 'https://resolved.example/image', file: `file-${String(object(value.input_event_ref).id).replace('message:', '')}` }; } }));
+    ctx.effect(() => api.capabilities.register({ localName: 'get_message', description: 'Test scoped message reader', schemaVersion: '1', isSideEffectful: false,
+      inputSchema: { type: 'object', properties: {
+        input_event_ref: { type: 'object', properties: { source: { type: 'string' }, id: { type: 'string' } }, required: ['source', 'id'], additionalProperties: false },
+        message_id: { type: 'string' }, target: { type: 'object', properties: { type: { enum: ['group', 'private'] }, id: { type: 'string' } }, required: ['type', 'id'], additionalProperties: false },
+      }, required: ['input_event_ref', 'target', 'message_id'], additionalProperties: false },
+      handler: async (params, invocation) => {
+        const value = object(params); resolverRequests.push(value); await resolverWait;
+        const ref = object(value.input_event_ref);
+        const record = await invocation.readEvent({ source: String(ref.source), id: String(ref.id) });
+        const body = object(record.event.data);
+        assert.deepEqual(value.target, { type: body.conversation_type, id: body.conversation_id });
+        assert.equal(value.message_id, body.native_message_id);
+        return { native_message_id: body.native_message_id, conversation_type: body.conversation_type, conversation_id: body.conversation_id, sender_id: body.sender_id,
+          segments: (body.message_segments as unknown[]).map((raw) => {
+            const segment = object(raw); return segment.type === 'image' ? { type: 'image', data: { ...object(segment.data), url: 'https://resolved.example/image' } } : segment;
+          }) };
+      } }));
   } });
   app = await Host.open(config, modules);
   const storeId = (await app.info()).storeId;
@@ -175,6 +190,12 @@ async function fixture(t: TestContext, extraInstance = false) {
     loseNextOperationResponses(count: number) { loseOperationResponses = count; }, rejectNextIngests(count: number) { rejectIngests = count; },
     resolverRequests, blockResolver() { resolverWait = new Promise<void>((resolve) => { releaseResolver = resolve; }); }, releaseResolver() { releaseResolver(); resolverWait = Promise.resolve(); } };
 }
+
+test('legacy image resolver configuration is rejected before its incompatible protocol can be invoked', () => {
+  const base = { service_url: 'http://127.0.0.1:8090', service_token_env: 'MEMORY_SERVICE_TOKEN', sources: [sourceA] };
+  assert.throws(() => parseMemoryConfig({ ...base, image_resolvers: { 'imbrex://qq/123456/main/': 'qq.resolve_image' } }));
+  assert.throws(() => parseMemoryConfig({ ...base, message_readers: { 'imbrex://qq/123456/main/group/': 'qq.get_message' } }));
+});
 
 test('memory admin snapshots are isolated, local, redacted and scoped to plugin lifetimes', async (t) => {
   const f = await fixture(t, true);
@@ -433,6 +454,7 @@ test('slow image resolution runs independently from text ingestion and persists 
   assert.equal(object(material.event_ref).id, imageEvent.eventRef.id);
   assert.equal(material.payload, undefined, 'the unresolved ref is durable before capability invocation completes');
 
+  f.setImageOperationState('queued');
   f.releaseResolver();
   await until(() => f.requests.some((request) => object(request).kind === 'images'));
   const imageWrite = object(f.requests.find((request) => object(request).kind === 'images')!);
@@ -443,6 +465,19 @@ test('slow image resolution runs independently from text ingestion and persists 
   assert.deepEqual(payload.input_event_ref, imageEvent.eventRef);
   assert.deepEqual(payload.images, [{ segment_index: 1, file: 'file-slow-image', url: 'https://resolved.example/image' }]);
   assert.equal(f.contractErrors.length, 0, f.contractErrors.join(', '));
+  // Already-persisted material payloads must survive the reader protocol change and restart unchanged.
+  await f.app.stopPlugin('memory');
+  const pending = object(JSON.parse(await readFile(statePath, 'utf8')));
+  assert.ok(Array.isArray(pending.materials));
+  assert.deepEqual(object(pending.materials[0]).payload, payload);
+  const lookups = f.resolverRequests.length;
+  const operationQueries = () => f.requests.filter((request) => request.kind === 'operation' && object(request.params).operation_id === imageWrite.request_id).length;
+  const queriesBefore = operationQueries();
+  await f.app.startPlugin('memory');
+  await until(() => operationQueries() > queriesBefore);
+  assert.equal(f.resolverRequests.length, lookups, 'accepted material must not be re-resolved under a new protocol');
+  assert.equal(f.requests.filter((request) => request.kind === 'images').length, 1, 'restart must query the original accepted operation');
+  f.setImageOperationState('succeeded');
   await until(async () => { const current = object(JSON.parse(await readFile(statePath, 'utf8'))); return Array.isArray(current.materials) && current.materials.length === 0; });
   assert.ok(f.requests.some((request) => object(request).kind === 'operation' && object(object(request).params).operation_id === imageWrite.request_id),
     'material task remains until its operation reports succeeded');

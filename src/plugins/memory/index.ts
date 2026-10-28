@@ -251,35 +251,51 @@ class MemoryPlugin {
     return { request_id: digest({ scope: source, event_ref: eventRef, generation, kind: 'images' }), parent_request_id: parentRequestId,
       source, event_ref: eventRef, generation, images };
   }
-  private async resolverInvoke(task: MaterialTask, segmentIndex: number): Promise<JsonObject | undefined> {
-    const resolver = Object.entries(this.config.imageResolvers).find(([key]) => task.source.startsWith(key))?.[1];
-    if (!resolver || this.stopped || this.api.signal.aborted) return;
+  private async resolveMaterial(task: MaterialTask): Promise<JsonObject> {
+    const images = task.images.map((image): JsonObject => ({ segment_index: image.segment_index!, file: image.file ?? '' }));
+    const payload: JsonObject = { input_event_ref: { ...task.event_ref }, images };
+    const reader = Object.entries(this.config.messageReaders)
+      .filter(([key]) => task.source === key || (key.endsWith('/') && task.source.startsWith(key)))
+      .sort(([left], [right]) => right.length - left.length)[0]?.[1];
+    if (!reader || this.stopped || this.api.signal.aborted) return payload;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let onAbort: (() => void) | undefined;
-    const aborted = new Promise<never>((_, reject) => {
-      onAbort = () => reject(new MemoryError('provider_stopped'));
-      this.api.signal.addEventListener('abort', onAbort, { once: true });
-    });
-    const timedOut = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new MemoryError('image_resolver_timeout')), this.config.requestTimeoutMs); });
     try {
-      const result = await Promise.race([this.api.capabilities.invoke(resolver, { input_event_ref: task.event_ref, segment_index: segmentIndex }), timedOut, aborted]);
-      if (result.kind !== 'result' || !result.result || typeof result.result !== 'object' || Array.isArray(result.result)) return;
+      const original = await this.api.events.lookup(task.event_ref);
+      const identity = validateInbound(original, this.config);
+      if (JSON.stringify(this.imageMetadata(original)) !== JSON.stringify(task.images) || this.stopped || this.api.signal.aborted) return payload;
+      const body = object(original.event.data);
+      const aborted = new Promise<never>((_, reject) => {
+        onAbort = () => reject(new MemoryError('provider_stopped'));
+        this.api.signal.addEventListener('abort', onAbort, { once: true });
+      });
+      const timedOut = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new MemoryError('memory_message_timeout')), this.config.requestTimeoutMs); });
+      const result = await Promise.race([this.api.capabilities.invoke(reader, {
+        target: { type: identity.conversation_type, id: identity.conversation_id },
+        message_id: String(body.native_message_id), input_event_ref: task.event_ref,
+      }), timedOut, aborted]);
+      if (result.kind !== 'result' || !result.result || typeof result.result !== 'object' || Array.isArray(result.result)) return payload;
       const value = result.result as Record<string, JsonValue>;
-      const original = task.images.find((image) => image.segment_index === segmentIndex);
-      if (typeof value.url === 'string' && typeof value.file === 'string' && value.file === original?.file) return { url: value.url, file: value.file };
-    } catch { /* Image lookup failure keeps text and file metadata available. */ }
+      if (value.native_message_id !== body.native_message_id || value.conversation_type !== identity.conversation_type
+        || value.conversation_id !== identity.conversation_id || value.sender_id !== identity.sender_id || !Array.isArray(value.segments)) return payload;
+      const originalSegments = Array.isArray(body.message_segments) ? body.message_segments : [];
+      for (const image of images) {
+        const index = safeInt(image.segment_index, 0, 127, 'memory_state_invalid');
+        const segment = value.segments[index];
+        if (!segment || typeof segment !== 'object' || Array.isArray(segment) || segment.type !== 'image') continue;
+        const details = segment.data;
+        if (!details || typeof details !== 'object' || Array.isArray(details)) continue;
+        if ((typeof details.file === 'string' ? details.file : '') !== image.file || typeof details.url !== 'string' || Buffer.byteLength(details.url) > 2048) continue;
+        // Without a stable file locator only the original URL proves this is the same image.
+        if (image.file === '' && object(object(originalSegments[index]).data).url !== details.url) continue;
+        try {
+          const url = new URL(details.url);
+          if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) image.url = url.href;
+        } catch { /* A malformed locator does not discard other images in the message. */ }
+      }
+    } catch { /* Message lookup failure leaves explicit missing material without blocking text. */ }
     finally { clearTimeout(timer); if (onAbort) this.api.signal.removeEventListener('abort', onAbort); }
-    return;
-  }
-  private async resolveMaterial(task: MaterialTask): Promise<JsonObject> {
-    const images: JsonValue[] = [];
-    for (const raw of task.images) {
-      const image = object(raw) as JsonObject;
-      const index = safeInt(image.segment_index, 0, 4096, 'memory_state_invalid');
-      const resolved = await this.resolverInvoke(task, index);
-      images.push({ segment_index: index, file: resolved?.file ?? image.file ?? '', ...(resolved?.url === undefined ? {} : { url: resolved.url }) });
-    }
-    return { input_event_ref: { source: task.event_ref.source, id: task.event_ref.id }, images };
+    return payload;
   }
   private async updateState(change: (current: MemoryState) => MemoryState): Promise<boolean> {
     let changed = false;

@@ -4,7 +4,7 @@
   "external_writes_enabled": false,
   "principals": [
     { "id": "protocol", "permissions": [], "read_sources": [], "write_sources": [], "invoke_capabilities": [] },
-    { "id": "memory-reader", "permissions": ["events:read", "capabilities:invoke"], "read_sources": [{ "prefix": "imbrex://qq/123456/main/" }], "write_sources": [], "invoke_capabilities": ["qq-main.resolve_image"] },
+    { "id": "memory-reader", "permissions": ["events:read", "capabilities:invoke"], "read_sources": [{ "prefix": "imbrex://qq/123456/main/" }], "write_sources": [], "invoke_capabilities": ["qq-main.get_message"] },
     { "id": "memory-agent", "token_env": "IMBREX_MEMORY_AGENT_TOKEN", "permissions": ["events:read", "capabilities:list", "capabilities:invoke", "calls:read"], "read_sources": [{ "prefix": "imbrex://qq/123456/main/" }], "write_sources": [], "invoke_capabilities": ["memory.context", "memory.search", "memory.get", "memory.status", "memory.operation", "memory.remember", "memory.update", "memory.forget"] },
     { "id": "memory-maintenance", "token_env": "IMBREX_MEMORY_MAINTENANCE_TOKEN", "permissions": ["events:read", "capabilities:list", "capabilities:invoke", "calls:read"], "read_sources": [{ "prefix": "imbrex://qq/123456/main/" }], "write_sources": [], "invoke_capabilities": ["memory.status", "memory.operation", "memory.rebuild"] }
   ],
@@ -12,7 +12,7 @@
     { "id": "http", "module": "builtin:server-http", "principal_id": "protocol", "required": true, "enabled": true, "config": { "host": "127.0.0.1", "port": 8080 } },
     { "id": "rest", "module": "builtin:api-rest", "principal_id": "protocol", "required": true, "enabled": true, "config": {} },
     { "id": "mcp", "module": "builtin:adapter-mcp", "principal_id": "protocol", "required": true, "enabled": true, "config": {} },
-    { "id": "memory", "module": "builtin:memory", "principal_id": "memory-reader", "required": true, "enabled": true, "config": { "service_url": "http://127.0.0.1:8090", "service_token_env": "MEMORY_SERVICE_TOKEN", "sources": ["imbrex://qq/123456/main/group/987654"], "image_resolvers": {"imbrex://qq/123456/main/": "qq-main.resolve_image"}, "request_timeout_ms": 5000, "poll_ms": 1000, "batch_wait_ms": 5000 } },
+    { "id": "memory", "module": "builtin:memory", "principal_id": "memory-reader", "required": true, "enabled": true, "config": { "service_url": "http://127.0.0.1:8090", "service_token_env": "MEMORY_SERVICE_TOKEN", "sources": ["imbrex://qq/123456/main/group/987654"], "message_readers": {"imbrex://qq/123456/main/": "qq-main.get_message"}, "request_timeout_ms": 5000, "poll_ms": 1000, "batch_wait_ms": 5000 } },
     { "id": "agent", "module": "builtin:agent-chat", "principal_id": "memory-agent", "required": true, "enabled": true, "config": { "input_id": "qq-inbound", "source_prefix": "imbrex://qq/123456/main/", "max_event_age_seconds": 300, "memory_context": { "capability": "memory.context", "timeout_ms": 2000, "max_bytes": 8192 }, "agent": { "command": "pi-acp", "args": [], "cwd": "/absolute/path/to/agent-workspace", "env_vars": ["IMBREX_MEMORY_AGENT_TOKEN"] } } }
   ]
 }

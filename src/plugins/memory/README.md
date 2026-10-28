@@ -37,7 +37,7 @@ flowchart LR
 
 ## 配置与启动
 
-网关配置片段见 [`examples/memory/imbrex.json`](../../../examples/memory/imbrex.json)，应合并到已有 OneBot 网关并保留原 `data_dir`；片段本身不包含连接器或平台历史采集。示例假设已有实例 `qq-main`，内部 reader 获准调用 `qq-main.resolve_image`；名称不同时同步修改 `image_resolvers` 与允许列表。插件配置包括私有服务 URL、`MEMORY_SERVICE_TOKEN` 环境变量名、明确的完整 QQ `sources`、超时、轮询和批处理窗口。配置 `memory.context` 的 `agent-chat.memory_context` 时，只提交当前事件引用，最大等待 2000 ms，最大上下文 8192 字节；其失败不会中断原事件处理，也不改变旧的 ConsumerState 绑定。
+网关配置片段见 [`examples/memory/imbrex.json`](../../../examples/memory/imbrex.json)，应合并到已有 OneBot 网关并保留原 `data_dir`；片段本身不包含连接器或平台历史采集。示例假设已有实例 `qq-main`，内部 reader 获准调用 `qq-main.get_message`；名称不同时同步修改 `message_readers` 与允许列表。插件配置包括私有服务 URL、`MEMORY_SERVICE_TOKEN` 环境变量名、明确的完整 QQ `sources`、超时、轮询和批处理窗口。配置 `memory.context` 的 `agent-chat.memory_context` 时，只提交当前事件引用，最大等待 2000 ms，最大上下文 8192 字节；其失败不会中断原事件处理，也不改变旧的 ConsumerState 绑定。
 
 Python 服务的完整配置字段见 [`examples/memory/service.json`](../../../examples/memory/service.json)：
 
@@ -84,6 +84,14 @@ Memory 后端经绑定的 `registerAdminPanel()` 登记本地只读快照；自�
 
 Admin 晚启动或重启不改变 Memory 的消费进度；Memory 停止时宿主撤销面板与旧回调，重新启动产生新面板登记代次。页面的轮询及请求在视图拆卸时取消。未启用 Memory 时不装载此页面，禁用 Admin 时 Memory 保持工作。此页面只负责观测，记忆写入仍经授权能力，版本检查、稳定 call_id 与 accepted/applied 语义保持不变。
 
+## 既有 QQ 接口与配置迁移
+
+Memory 接入 [PR #27](https://github.com/ycychome/Imbrex/pull/27) 的既有 QQ 能力，与 [PR #28](https://github.com/ycychome/Imbrex/pull/28) 的控制台视图共存；管理面继续由各插件拥有。`message_readers` 的键为完整账号/命名空间前缀（以 `/` 结束）或完整会话 source，值为实现 `get_message` 信封的已授权能力 ID；多个键匹配时优先完整会话。Memory reader 同时需要对应 `events:read/read_sources` 和 `capabilities:invoke/invoke_capabilities`，仍由网关绑定实际 caller，不接受自行提供 caller 或读取平台历史。
+
+旧版 `image_resolvers` / `<实例>.resolve_image` 配置必须在启动前改为 `message_readers` / `<实例>.get_message`，同时替换 reader 的允许列表；旧字段会被严格配置校验拒绝，不静默切换协议。保留原 store、实例 ID、source 与数据目录，不删除或改写 `memory-state.json`。素材任务的状态版本、稳定 request_id 和已有 payload 均不改变；已持久化的请求先查询并继续使用原正文，不因适配而重新生成已接手的操作。
+
+既有 OneBot 消息事实不包含 `sender_nickname` / `sender_card` 时，Memory 保持未知，不将裸账号当作昵称，也不把当前查询结果补写为历史别名。Agent 若需要当前资料，可按自身授权显式调用既有 `get_user_info`（携带获准群/私聊 context）或 `get_group_member_info`；它们表达查询时的资料，不能证明原消息发生时的昵称。
+
 ## Python 私有服务协议
 
 Python API 是 TypeScript 插件与服务之间的私有接口，不是 Agent API。所有请求均需 `Authorization: Bearer $MEMORY_SERVICE_TOKEN`。提供 `GET /health`、`POST /v1/query` 和 `POST /v1/operations`：
@@ -119,6 +127,6 @@ Python API 是 TypeScript 插件与服务之间的私有接口，不是 Agent AP
 
 视觉模型或能力 profile 改变时，服务为新 fingerprint 排队处理已完成图像的变体；状态为 unknown/隔离的视觉任务须先经 rebuild 恢复。原始媒体只在 7 天、最多 512 MiB 的有界缓存内保留；缓存过期后服务标注 `original_cache_expired_cannot_reprocess`，不会声称能从已清理的原图重新处理。GIF 取首帧。图像下载、解码、像素、临时文件、请求和缓存有独立资源预算，和模型能力 profile 分开配置；图像识别并非 OCR 才可进行的通用拒绝门槛。
 
-图片 locator 由 TypeScript Memory 插件的独立 material worker 异步解析，不占用文本事件摄取轮次。只有为 source 配置了已授权的 `image_resolvers` capability 时，worker 才会以当前事件引用和 segment index 请求解析；Python 私有 API 收到 `kind:"images"`、`payload:{"input_event_ref":...,"images":[{"segment_index":0,"file":"...","url":"..."}]}` 后，会将材料绑定到此前已索引的事件和原始 file locator。该私有操作用于插件到服务的传输，不增加公开能力；公开能力仍为上表九项。图片解析没有授权或失败时，文本记忆仍可用，图片状态会标记缺失。
+图片 locator 由 TypeScript Memory 插件的独立 material worker 异步解析，不占用文本事件摄取轮次。只有为 source 配置了已授权的 `message_readers` capability 时，worker 才会重新核验原事件，以 `{target:{type,id}, message_id, input_event_ref}` 调用已有的 `<实例>.get_message`，一次读取解析该消息的全部图片。返回的规范消息 ID、会话类型/ID、发送者必须与原事件一致；图片须仍在相同段序号且 file 标识相同。原图没有 file 标识时，仅接受与原事件完全相同的 URL。Memory 仅接受无嵌入凭据的 HTTP(S) 地址，下载仍逐跳执行 Python 媒体策略；Python 私有 API 收到 `kind:"images"`、`payload:{"input_event_ref":...,"images":[{"segment_index":0,"file":"...","url":"..."}]}` 后，会将材料绑定到此前已索引的事件和原始 file locator。该私有操作用于插件到服务的传输，不增加公开能力；公开能力仍为上表九项。图片解析没有授权、目标或发送者/图片段不匹配、下载定位失败时，文本记忆仍可用，图片状态会标记缺失。Memory 不在 OneBot 插件注册新能力，不修改其事件映射、前端或状态文件。
 
 回填只建立记忆索引，不提交历史 Agent prompt，因此不会触发历史回复。中文 QA 与 PNG 图像夹具见 [`examples/memory/qa-fixtures.json`](../../../examples/memory/qa-fixtures.json)：30 项各自有独立预期答案，5 项图像 evidence 只包含中性场景文字和图像路径。真实模型、Graphiti/Neo4j 验证与尚未覆盖的范围见 [验收记录](../../../docs/progress/memory-validation.md)，不能用 OCR 完成或单元测试通过替代质量门槛。质量结果和管理页面验证分别记录，页面可用不代表真实模型质量门槛通过。

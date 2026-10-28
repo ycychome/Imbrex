@@ -30,8 +30,15 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
   const original = new Map(Object.keys(values).map((key) => [key, process.env[key]]));
   for (const [key, value] of Object.entries(values)) process.env[key] = value;
   let app: Host | undefined;
+  let memoryGate: Promise<void> | undefined;
+  let releaseMemory = () => {};
+  const holdMemory = () => {
+    memoryGate = new Promise<void>((resolve) => { releaseMemory = resolve; });
+    return () => { releaseMemory(); memoryGate = undefined; };
+  };
   const sim = await startSimulator(0);
   t.after(async () => {
+    releaseMemory();
     try { await app?.close(); }
     finally {
       await sim.close();
@@ -79,6 +86,7 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
       const saved = object(JSON.parse(await readFile(stateFile, 'utf8')));
       const ref = object(object(params).input_event_ref);
       await appendFile(join(fake, 'memory.jsonl'), JSON.stringify({ ref, in_flight: saved.in_flight }) + '\n');
+      if (memoryGate) await memoryGate;
       if (control.memory_mode === 'hang') await delay(100);
       if (control.memory_mode === 'invalid') return { unexpected: true };
       if (control.memory_mode === 'stale') return { context: '', indexed: false };
@@ -125,7 +133,7 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
     });
     return { status: response.status, body: object(await response.json()) };
   };
-  return { directory, fake, sim, panel, action, host, config, modules, raw, filename, values, status, state, stateFile, logs, memoryLogs, setControl, input, append, writer: () => writer, restart };
+  return { directory, fake, sim, panel, action, host, config, modules, raw, filename, values, status, state, stateFile, logs, memoryLogs, holdMemory, setControl, input, append, writer: () => writer, restart };
 }
 
 test('optional memory context is read before in_flight, bounded, marked untrusted and keeps original event', async (t) => {
@@ -161,6 +169,27 @@ test('memory timeout and stale results continue the original turn with safe mark
   await f.setControl({ memory_mode: 'invalid' });
   await f.append(904); await until(async () => (await f.state()).last_seq === '3');
   assert.match(JSON.stringify((await f.logs('prompt'))[2]), /unavailable/i);
+  assert.equal((await f.state()).in_flight, null);
+});
+
+test('management cannot reset the active session while memory context is pending before in_flight', async (t) => {
+  const f = await fixture(t, 'normal', false, 5000, true);
+  f.config.plugins.find((plugin) => plugin.id === 'agent')!.config.memory_context = { capability: 'writer.lookup' };
+  const release = f.holdMemory();
+  await f.host().startPlugin('agent'); await until(() => f.status().available);
+  await f.append(905);
+  await until(async () => (await f.memoryLogs()).length === 1);
+  const source = 'imbrex://qq/123456/main/group/987654';
+  const before = await f.state(), session = object(before.sessions)[source];
+  assert.equal(typeof session, 'string'); assert.equal(before.in_flight, null);
+  assert.equal((await f.logs('prompt')).length, 0);
+  assert.equal((await f.action('reset-session', { source, session_id: session, reason: 'fixture reset during memory lookup' })).status, 409);
+  assert.deepEqual(await f.state(), before);
+  release();
+  await until(async () => (await f.state()).last_seq === '1');
+  assert.deepEqual((await f.logs('prompt')).map((entry) => entry.id), ['message:905']);
+  assert.match(JSON.stringify((await f.logs('prompt'))[0]), /fixture memory evidence/);
+  assert.equal(object((await f.state()).sessions)[source], session);
   assert.equal((await f.state()).in_flight, null);
 });
 
