@@ -1,0 +1,33 @@
+services:
+  neo4j:
+    image: neo4j:5.26.24-community@sha256:f66304b9511c60d33555a2c451f88e03d82d1ebc893f32d84c98a6b326096435
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD}
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
+    volumes: [neo4j-data:/data]
+    healthcheck:
+      test: [CMD-SHELL, 'wget -q --spider http://localhost:7474 || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 40
+  memory:
+    build: .
+    init: true
+    environment:
+      MEMORY_CONFIG_FILE: /config/memory.json
+      MEMORY_SERVICE_TOKEN: ${MEMORY_SERVICE_TOKEN:?set MEMORY_SERVICE_TOKEN}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?set NEO4J_PASSWORD}
+      MEMORY_EXTRACTION_KEY: ${MEMORY_EXTRACTION_KEY:?set MEMORY_EXTRACTION_KEY}
+      MEMORY_EMBEDDING_KEY: ${MEMORY_EMBEDDING_KEY:?set MEMORY_EMBEDDING_KEY}
+      MEMORY_VISION_KEY: ${MEMORY_VISION_KEY:-}
+    ports: ["127.0.0.1:8090:8090"]
+    volumes:
+      - memory-data:/data
+      - ${MEMORY_CONFIG_PATH:-../../examples/memory/service.json}:/config/memory.json:ro
+    depends_on:
+      neo4j: {condition: service_healthy}
+volumes:
+  neo4j-data:
+  memory-data:

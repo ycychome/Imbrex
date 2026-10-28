@@ -17,3 +17,10 @@ node_modules/
 /ui-contract/dist/
 /coverage/
 *.tsbuildinfo
+
+# Independent Memory service environments and generated caches
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

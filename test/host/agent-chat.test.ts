@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { access, mkdtemp, mkdir, readFile, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdtemp, mkdir, readFile, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -30,8 +30,15 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
   const original = new Map(Object.keys(values).map((key) => [key, process.env[key]]));
   for (const [key, value] of Object.entries(values)) process.env[key] = value;
   let app: Host | undefined;
+  let memoryGate: Promise<void> | undefined;
+  let releaseMemory = () => {};
+  const holdMemory = () => {
+    memoryGate = new Promise<void>((resolve) => { releaseMemory = resolve; });
+    return () => { releaseMemory(); memoryGate = undefined; };
+  };
   const sim = await startSimulator(0);
   t.after(async () => {
+    releaseMemory();
     try { await app?.close(); }
     finally {
       await sim.close();
@@ -50,7 +57,7 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
   raw.data_dir = join(directory, 'gateway'); raw.external_writes_enabled = true; object(((raw.plugins as unknown[]).map((value) => object(value)).find((plugin) => plugin.module === 'builtin:server-http')!).config).port = 0;
   assert.ok(Array.isArray(raw.plugins)); object(raw.plugins.map((value) => object(value)).find((plugin) => plugin.id === 'qq-main')!.config).ws_url = 'ws://127.0.0.1:' + sim.port + '/';
   assert.ok(Array.isArray(raw.principals));
-  raw.principals.push({ id: 'qq-consumer', permissions: ['events:read'], read_sources: [{ prefix: 'imbrex://qq/123456/main/' }], write_sources: [], invoke_capabilities: [] });
+  raw.principals.push({ id: 'qq-consumer', permissions: ['events:read', 'capabilities:invoke'], read_sources: [{ prefix: 'imbrex://qq/123456/main/' }], write_sources: [], invoke_capabilities: ['writer.lookup'] });
   raw.principals.push({ id: 'test-writer', permissions: ['events:read', 'events:write'], read_sources: [{ prefix: 'imbrex://' }], write_sources: [{ prefix: 'imbrex://' }], invoke_capabilities: [] });
   raw.plugins.push({ id: 'agent', module: 'builtin:agent-chat', principal_id: 'qq-consumer', required: true, enabled, config: {
     input_id: 'qq-inbound', source_prefix: 'imbrex://qq/123456/main/', max_event_age_seconds: 300, turn_timeout_ms: turnTimeout,
@@ -71,7 +78,21 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
   const modules = await loadModules(config, filename);
   let writer!: PluginApi;
   config.plugins.push({ id: 'writer', module: 'test-writer', principalId: 'test-writer', required: true, enabled: true, config: {} });
-  modules.set('writer', { name: 'test-writer', apply: (ctx) => { writer = ctx.imbrex.forPlugin(ctx); } });
+  modules.set('writer', { name: 'test-writer', apply: (ctx) => { writer = ctx.imbrex.forPlugin(ctx); writer.capabilities.register({
+    localName: 'lookup', description: 'Test memory lookup', schemaVersion: '1', isSideEffectful: false,
+    inputSchema: { type: 'object', properties: { input_event_ref: { type: 'object', properties: { source: { type: 'string' }, id: { type: 'string' } }, required: ['source', 'id'], additionalProperties: false }, timeout_ms: { type: 'integer', minimum: 1, maximum: 2000 }, max_bytes: { type: 'integer', minimum: 1, maximum: 8192 } }, required: ['input_event_ref', 'timeout_ms', 'max_bytes'], additionalProperties: false },
+    handler: async (params) => {
+      const control = object(JSON.parse(await readFile(controlFile, 'utf8')));
+      const saved = object(JSON.parse(await readFile(stateFile, 'utf8')));
+      const ref = object(object(params).input_event_ref);
+      await appendFile(join(fake, 'memory.jsonl'), JSON.stringify({ ref, in_flight: saved.in_flight }) + '\n');
+      if (memoryGate) await memoryGate;
+      if (control.memory_mode === 'hang') await delay(100);
+      if (control.memory_mode === 'invalid') return { unexpected: true };
+      if (control.memory_mode === 'stale') return { context: '', indexed: false };
+      return { context: 'fixture memory evidence' };
+    },
+  }); } });
   app = await Host.open(config, modules);
   const host = () => app!;
   const status = () => host().plugins().find((plugin) => plugin.id === 'agent')!;
@@ -84,6 +105,10 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
       const entries = (await readFile(join(fake, 'agent.jsonl'), 'utf8')).trim().split('\n').filter(Boolean).map((line) => object(JSON.parse(line)));
       return event === undefined ? entries : entries.filter((entry) => entry.event === event);
     } catch { return []; }
+  };
+  const memoryLogs = async (): Promise<Record<string, unknown>[]> => {
+    try { return (await readFile(join(fake, 'memory.jsonl'), 'utf8')).trim().split('\n').filter(Boolean).map((line) => object(JSON.parse(line))); }
+    catch { return []; }
   };
   const onebot = parseOneBotConfig(config.plugins.find((plugin) => plugin.id === 'qq-main')!.config);
   const input = (id: number, kind: 'group' | 'private' = 'group', override: Record<string, unknown> = {}) => {
@@ -108,8 +133,65 @@ async function fixture(t: TestContext, mode = 'normal', enabled = true, turnTime
     });
     return { status: response.status, body: object(await response.json()) };
   };
-  return { directory, fake, sim, panel, action, host, config, modules, raw, filename, values, status, state, stateFile, logs, setControl, input, append, writer: () => writer, restart };
+  return { directory, fake, sim, panel, action, host, config, modules, raw, filename, values, status, state, stateFile, logs, memoryLogs, holdMemory, setControl, input, append, writer: () => writer, restart };
 }
+
+test('optional memory context is read before in_flight, bounded, marked untrusted and keeps original event', async (t) => {
+  const f = await fixture(t, 'normal', false);
+  const agentConfig = f.config.plugins.find((plugin) => plugin.id === 'agent')!.config;
+  agentConfig.memory_context = { capability: 'writer.lookup' };
+  await f.host().startPlugin('agent'); await until(() => f.status().available);
+  await f.append(901);
+  await until(async () => (await f.state()).last_seq === '1');
+  const prompt = (await f.logs('prompt'))[0]!;
+  assert.equal((await f.memoryLogs()).length, 1);
+  assert.equal((await f.memoryLogs())[0]!.in_flight, null);
+  assert.equal(object((await f.memoryLogs())[0]!.ref).id, 'message:901');
+  assert.equal(prompt.id, 'message:901');
+  const promptText = JSON.stringify(prompt);
+  assert.match(promptText, /fixture memory evidence/);
+  assert.match(promptText, /untrusted/i);
+  assert.equal((await f.state()).in_flight, null);
+  assert.deepEqual(parseConsumerConfig({ input_id: 'x', source_prefix: 'imbrex://qq/123456/main/', max_event_age_seconds: 1, agent: { command: 'x', args: [], cwd: tmpdir() } }).memoryContext, undefined);
+  assert.throws(() => parseConsumerConfig({ input_id: 'x', source_prefix: 'imbrex://qq/123456/main/', max_event_age_seconds: 1, memory_context: { capability: 'writer.lookup', timeout_ms: 2001 }, agent: { command: 'x', args: [], cwd: tmpdir() } }));
+});
+
+test('memory timeout and stale results continue the original turn with safe markers', async (t) => {
+  const f = await fixture(t, 'normal', false);
+  f.config.plugins.find((plugin) => plugin.id === 'agent')!.config.memory_context = { capability: 'writer.lookup', timeout_ms: 20 };
+  await f.host().startPlugin('agent'); await until(() => f.status().available);
+  await f.setControl({ memory_mode: 'hang' });
+  await f.append(902); await until(async () => (await f.state()).last_seq === '1');
+  assert.match(JSON.stringify((await f.logs('prompt'))[0]), /unavailable/i);
+  await f.setControl({ memory_mode: 'stale' });
+  await f.append(903); await until(async () => (await f.state()).last_seq === '2');
+  assert.match(JSON.stringify((await f.logs('prompt'))[1]), /stale/i);
+  await f.setControl({ memory_mode: 'invalid' });
+  await f.append(904); await until(async () => (await f.state()).last_seq === '3');
+  assert.match(JSON.stringify((await f.logs('prompt'))[2]), /unavailable/i);
+  assert.equal((await f.state()).in_flight, null);
+});
+
+test('management cannot reset the active session while memory context is pending before in_flight', async (t) => {
+  const f = await fixture(t, 'normal', false, 5000, true);
+  f.config.plugins.find((plugin) => plugin.id === 'agent')!.config.memory_context = { capability: 'writer.lookup' };
+  const release = f.holdMemory();
+  await f.host().startPlugin('agent'); await until(() => f.status().available);
+  await f.append(905);
+  await until(async () => (await f.memoryLogs()).length === 1);
+  const source = 'imbrex://qq/123456/main/group/987654';
+  const before = await f.state(), session = object(before.sessions)[source];
+  assert.equal(typeof session, 'string'); assert.equal(before.in_flight, null);
+  assert.equal((await f.logs('prompt')).length, 0);
+  assert.equal((await f.action('reset-session', { source, session_id: session, reason: 'fixture reset during memory lookup' })).status, 409);
+  assert.deepEqual(await f.state(), before);
+  release();
+  await until(async () => (await f.state()).last_seq === '1');
+  assert.deepEqual((await f.logs('prompt')).map((entry) => entry.id), ['message:905']);
+  assert.match(JSON.stringify((await f.logs('prompt'))[0]), /fixture memory evidence/);
+  assert.equal(object((await f.state()).sessions)[source], session);
+  assert.equal((await f.state()).in_flight, null);
+});
 
 test('consumer starts at now, filters inputs, saves before prompting and keeps platform sessions separate', async (t) => {
   const f = await fixture(t, 'normal', false);

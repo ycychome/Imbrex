@@ -219,3 +219,10 @@ node examples/agent/check-managed.mjs /absolute/path/to/pi /absolute/path/to/pi-
 ~~~
 
 它只启动隔离的实际 pi/pi-acp 与本地模拟模型 HTTP 服务，使用临时目录和模拟凭据，不连接真实平台或付费模型；检查同一会话两轮 model-a → model-b、请求中的系统提示词改变、已应用本地窗口为 500000，以及实际 ACP usage_update 的 size，最后关闭宿主与受控 Agent 资源并移除临时数据。该模拟不证明远端容量。
+
+
+## 可选记忆上下文
+
+`memory_context` 是可选对象 `{ "capability": "<authorized-instance>.<name>", "timeout_ms": 2000, "max_bytes": 8192 }`；后两项可省略，默认值分别为 2000 ms 与 8192 字节，最大也分别为 2000 与 8192。Consumer 以只读 `api.capabilities.invoke` 传入 `{ input_event_ref: { source, id }, timeout_ms, max_bytes }`，不传历史事件、会话映射或跨会话键。配置的调用方 Principal 必须已有 `capabilities:invoke` 及该能力授权。成功的 `{ context: string, ... }` 作为独立、明确标记为不可信证据的 ACP 内容块；原始事件内容仍单独传递。超时、错误、无效结果和未索引状态附 `memory unavailable` 或 `memory stale` 标记，照常运行原事件轮次。停止信号在记忆读取后会阻止继续提交 prompt。这个配置不改变 selection/binding，也不改写或迁移现有 version=1 ConsumerState。
+
+Memory 能力与服务配置见 [Memory 插件](../memory/README.md)。

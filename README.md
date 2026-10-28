@@ -21,6 +21,7 @@ Imbrex 是一个面向个人数字生活与 AI Agent 的可扩展事件与能力
 - **轻重双轨消费模型**
   - **进程内轻量插件**：通过事件钩子实时响应，几十行代码即可实现群消息过滤或简单转发。
   - **进程外独立应用**：应用通过 HTTP 或 MCP 主动读取并调用工具，自己决定何时处理、处理到哪。自带模型循环的 Agent 只是其中一种形态，不是必需角色。
+  - **可选长期记忆**：Memory 插件提取有出处的长期记忆，agent-chat 可按授权为当前事件注入不可信记忆证据；配置与恢复见[Memory 插件文档](src/plugins/memory/README.md)。
 - **轻量极简，拒绝过度设计**
   无分布式中间件依赖，使用单机 SQLite (WAL)，提供可运行的本地配置与演示。
 
@@ -92,6 +93,7 @@ flowchart LR
 - **[能力与工具系统](docs/design/capabilities.md)**：能力注册、Schema 校验、调用幂等与状态机设计。
 - **[存储与持久化](docs/design/storage-and-recovery.md)**：SQLite 表结构设计、事务边界与运维备份。
 - **[Cordis 插件开发指南](docs/design/plugins.md)**：插件开发规范、服务注入与连接器模板。
+- **[长期记忆](src/plugins/memory/README.md)**：Memory 能力、服务配置、图像处理、管理面板与恢复。
 - **[应用消费契约](docs/design/applications.md)**：任何应用如何独立消费事件、保存责任状态与恢复。
 - **[配置与运维指南](docs/ops/operations.md)**：主体鉴权、权限配置、单实例启动与优雅停机。
 - **[验证与验收](docs/progress/validation.md)**：T01—T09 用例、M2 退出检查与证据索引。

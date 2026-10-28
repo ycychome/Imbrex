@@ -8,11 +8,12 @@ import { nativeId } from '../onebot-v11/protocol.js';
 export const consumerLimits = { sessions: 32, frameBytes: 32 * 1024 * 1024, stateBytes: 256 * 1024, setupTimeoutMs: 5000, pollMs: 1000 } as const;
 export interface AgentConfig { command: string; args: string[]; cwd: string; envVars: string[] }
 export interface ConsumerFilter { group_ids: string[]; private_user_ids: string[] }
+export interface MemoryContextConfig { capability: string; timeoutMs: number; maxBytes: number }
 export interface PiSettings { model: string; context_window: number; system_prompt: string; max_tokens?: number }
 export interface ManagedPi extends PiSettings { provider: string; api: string; base_url: string; api_key_env: string; pi_command: string; mcp_principal_id: string }
 export interface ConsumerConfig {
   inputId: string; sourcePrefix: string; accountId: string; identityNamespace: string;
-  maxAgeSeconds: number; turnTimeoutMs: number; agent: AgentConfig; filter?: ConsumerFilter; managedPi?: ManagedPi;
+  maxAgeSeconds: number; turnTimeoutMs: number; agent: AgentConfig; filter?: ConsumerFilter; managedPi?: ManagedPi; memoryContext?: MemoryContextConfig;
 }
 export class ConsumerError extends Error {
   constructor(readonly code: string) { super(code); }
@@ -48,7 +49,7 @@ export function parsePiSettings(input: unknown): PiSettings {
 export function parseConsumerConfig(input: unknown): ConsumerConfig {
   const value = object(json(input, limits.valueBytes, 'invalid_request'));
   const required = ['input_id', 'source_prefix', 'max_event_age_seconds', 'agent'];
-  fields(value, [...required, 'turn_timeout_ms', 'filter', 'managed_pi'], required);
+  fields(value, [...required, 'turn_timeout_ms', 'filter', 'managed_pi', 'memory_context'], required);
   const inputId = string(value.input_id, 64);
   if (!namespacePattern.test(inputId)) fail('invalid_request');
   const sourcePrefix = string(value.source_prefix, 1024);
@@ -75,6 +76,17 @@ export function parseConsumerConfig(input: unknown): ConsumerConfig {
     managedPi = { ...parsePiSettings({ model: managed.model, context_window: managed.context_window, system_prompt: managed.system_prompt, ...(managed.max_tokens === undefined ? {} : { max_tokens: managed.max_tokens }) }),
       provider, api, base_url: endpoint.href, api_key_env: credential, pi_command: argument(managed.pi_command), mcp_principal_id: principal };
   }
+  let memoryContext: MemoryContextConfig | undefined;
+  if (value.memory_context !== undefined) {
+    const memory = object(value.memory_context);
+    fields(memory, ['capability', 'timeout_ms', 'max_bytes'], ['capability']);
+    memoryContext = {
+      capability: string(memory.capability, 256),
+      timeoutMs: integer(memory.timeout_ms ?? 2000, 1, 2000),
+      maxBytes: integer(memory.max_bytes ?? 8192, 1, 8192),
+    };
+    if (!/^[a-z][a-z0-9_-]{0,63}\.[a-z][a-z0-9_-]{0,63}$/.test(memoryContext.capability)) fail('invalid_request');
+  }
   const agent = object(value.agent);
   fields(agent, ['command', 'args', 'cwd', 'env_vars'], ['command', 'args', 'cwd']);
   if (!Array.isArray(agent.args) || agent.args.length > 64) fail('invalid_request');
@@ -90,6 +102,7 @@ export function parseConsumerConfig(input: unknown): ConsumerConfig {
     turnTimeoutMs: integer(value.turn_timeout_ms ?? 120000, 10, 600000),
     ...(filter === undefined ? {} : { filter }),
     ...(managedPi === undefined ? {} : { managedPi }),
+    ...(memoryContext === undefined ? {} : { memoryContext }),
     agent: { command: argument(agent.command), args: agent.args.map((item) => argument(item, true)), cwd, envVars: names.sort() },
   };
 }

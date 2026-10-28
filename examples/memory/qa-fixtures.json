@@ -1,0 +1,195 @@
+{
+  "notice": "Synthetic evaluation fixtures only. Each expected answer is independent ground truth; these examples have not been run against a real model or Graphiti service.",
+  "items": [
+    {
+      "id": "qa01",
+      "question": "小林明确表示不喝什么？",
+      "evidence": "小林明确说自己不喝咖啡。",
+      "expected": "咖啡。"
+    },
+    {
+      "id": "qa02",
+      "question": "小林更喜欢哪种饮料？",
+      "evidence": "小林说比起汽水，他更喜欢乌龙茶。",
+      "expected": "乌龙茶。"
+    },
+    {
+      "id": "qa03",
+      "question": "林青喜欢怎样的代码评审？",
+      "evidence": "林青偏好先指出风险，再给可执行的短建议。",
+      "expected": "先指出风险，再给简短、可执行的建议。"
+    },
+    {
+      "id": "qa04",
+      "question": "林青和陈老师分别负责什么？",
+      "evidence": "林青负责发布；陈老师负责指导项目并接收周报。",
+      "expected": "林青负责发布；陈老师指导项目并接收周报。"
+    },
+    {
+      "id": "qa05",
+      "question": "小林在忙碌时希望别人怎么提醒他？",
+      "evidence": "小林说忙的时候请先发一句摘要，不要连续催问。",
+      "expected": "先发摘要，不要连续催问。"
+    },
+    {
+      "id": "qa06",
+      "question": "团队如何称呼这个项目？",
+      "evidence": "团队内部把项目叫作“青柠”，这是项目代号，不是产品名。",
+      "expected": "青柠是项目代号。"
+    },
+    {
+      "id": "qa07",
+      "question": "谁承诺在周五下班前完成发布检查？",
+      "evidence": "林青答应周五下班前完成发布检查。",
+      "expected": "林青，周五下班前。"
+    },
+    {
+      "id": "qa08",
+      "question": "小林对临时会议有什么偏好？",
+      "evidence": "小林不喜欢没有议程的临时会，希望先看到讨论目标。",
+      "expected": "先提供讨论目标；他不喜欢无议程临时会。"
+    },
+    {
+      "id": "qa09",
+      "question": "团队分享的反应图与什么场景有关？",
+      "evidence": "团队分享了一张关于“等待构建”的反应图。",
+      "expected": "等待构建。"
+    },
+    {
+      "id": "qa10",
+      "question": "周五项目会几点开始？",
+      "evidence": "周五项目会于14:30开始。",
+      "expected": "14:30。"
+    },
+    {
+      "id": "qa11",
+      "question": "图里这个表情表达什么情绪？",
+      "evidence": "图像来自团队讨论“周一工作状态”的表情合集。",
+      "expected": "无奈、厌倦地面对周一。",
+      "image": "images/meme-eye-roll.png",
+      "evidence_kind": "image"
+    },
+    {
+      "id": "qa12",
+      "question": "图中猫咪为什么盯着屏幕？",
+      "evidence": "图像来自团队调试代码时分享的反应图。",
+      "expected": "猫在认真找代码里的分号。",
+      "image": "images/meme-cat.png",
+      "evidence_kind": "image"
+    },
+    {
+      "id": "qa13",
+      "question": "这张图的笑点是什么？",
+      "evidence": "图像来自构建进度等待的讨论。",
+      "expected": "进度接近完成却仍需等待，与“最后一点马上好”的文字形成反差。",
+      "image": "images/meme-loading.png",
+      "evidence_kind": "image"
+    },
+    {
+      "id": "qa14",
+      "question": "图里的角色对再开会是什么态度？",
+      "evidence": "图像来自团队连续开会后的聊天。",
+      "expected": "角色电量耗尽，却还要继续开会，表达精力不足的自嘲。",
+      "image": "images/meme-battery.png",
+      "evidence_kind": "image"
+    },
+    {
+      "id": "qa15",
+      "question": "这张梗图想表达什么？",
+      "evidence": "图像来自团队讨论合并冲突后的反应图。",
+      "expected": "冲突已经解决，恐龙却还在，以意外残留形成反差。",
+      "image": "images/meme-merge.png",
+      "evidence_kind": "image"
+    },
+    {
+      "id": "qa16",
+      "question": "谁负责保管测试数据，并由谁维护测试环境？",
+      "evidence": "测试数据由数据管理员许宁保管；测试环境由顾言维护。",
+      "expected": "许宁保管测试数据，顾言维护测试环境。"
+    },
+    {
+      "id": "qa17",
+      "question": "两位同事午休时间有什么共同安排？",
+      "evidence": "小林和林青都按团队安排在12:15到13:15午休。",
+      "expected": "12:15到13:15。"
+    },
+    {
+      "id": "qa18",
+      "question": "借用设备归还时要记录什么？",
+      "evidence": "归还设备时在登记表写明归还时间和设备状态。",
+      "expected": "归还时间和设备状态。"
+    },
+    {
+      "id": "qa19",
+      "question": "小林希望周报采用什么表达风格？",
+      "evidence": "小林希望周报先写结论，再列风险和需要协助的事项。",
+      "expected": "先写结论，再列风险和需要协助的事项。"
+    },
+    {
+      "id": "qa20",
+      "question": "维护窗口的频率和时间是什么？",
+      "evidence": "服务维护窗口安排在每月第二个周三晚间。",
+      "expected": "每月第二个周三晚间。"
+    },
+    {
+      "id": "qa21",
+      "question": "演示机运行哪个系统，默认打印用什么纸？",
+      "evidence": "演示机运行 Ubuntu 24.04；打印机默认使用 A4 再生纸。",
+      "expected": "Ubuntu 24.04；A4 再生纸。"
+    },
+    {
+      "id": "qa22",
+      "question": "访客网络口令多久更新一次？",
+      "evidence": "访客网络口令每季度更新。",
+      "expected": "每季度。"
+    },
+    {
+      "id": "qa23",
+      "question": "测试环境的维护者是谁？",
+      "evidence": "测试环境由顾言维护。",
+      "expected": "顾言。"
+    },
+    {
+      "id": "qa24",
+      "question": "提交代码前项目要求运行什么？",
+      "evidence": "提交前运行 npm run typecheck。",
+      "expected": "npm run typecheck。"
+    },
+    {
+      "id": "qa25",
+      "question": "活动集合地点在哪里？",
+      "evidence": "志愿者在图书馆东门集合。",
+      "expected": "图书馆东门。"
+    },
+    {
+      "id": "qa26",
+      "question": "合同档案位置是什么？",
+      "evidence": "签好的纸质合同归入二层档案柜C-04。",
+      "expected": "二层档案柜 C-04。"
+    },
+    {
+      "id": "qa27",
+      "question": "客户喜欢先看什么，再进行什么？",
+      "evidence": "客户希望先看简短录屏，再进行现场问答。",
+      "expected": "先看简短录屏，再现场问答。"
+    },
+    {
+      "id": "qa28",
+      "question": "周会取消后需要在哪里留下记录，并通知谁？",
+      "evidence": "周会取消需在团队日历备注，并在项目群通知。",
+      "expected": "在团队日历备注，并通知项目群。"
+    },
+    {
+      "id": "qa29",
+      "question": "每日备份保留多少天？",
+      "evidence": "每日备份保留30天。",
+      "expected": "30天。"
+    },
+    {
+      "id": "qa30",
+      "question": "新版本发布的先后环境是什么？",
+      "evidence": "新版本先部署到 staging，确认后才进入 production。",
+      "expected": "先部署到 staging，确认后再进入 production。"
+    }
+  ]
+}

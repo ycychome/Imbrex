@@ -34,7 +34,7 @@
 ## 4. 进行中
 
 - `docs/` 分层重构：设计（`design/`）与进度（`progress/`）分离，历史验收记录移出 Git。
-- 分支 `feat/graphiti-memory`（PR #22）：Graphiti 对话记忆插件，尚未评审。
+- 分支 `feat/graphiti-memory`（PR #22）：Graphiti 对话记忆插件，适配基线为堆叠 PR #28 `dd6b334`（含 #27 `b283f1b`），撤销独立 OneBot 扩展，素材复用既有授权 `get_message`；保留插件自带只读面板。此次 Linux `npm run check` 182 项通过，覆盖真实 OneBot 模块的群/私聊素材适配、越权与错配拒绝、旧任务恢复及 Memory/管理操作并发；未调用付费模型或连接真实 QQ。合并与正式验收独立进行，历史模型结果见 [Memory 验证](memory-validation.md)。
 - 分支 `feat/m2-qq-control-backend`（PR #27）：QQ/MCP/管理控制后端与契约、模拟回归和独立审阅；不代表 M2-04 或前端交付完成。
 - 分支 `feat/m2-qq-console-frontend`（PR #28）：控制台前端堆叠在 PR #27 之上，尚未合入；不替代后端契约、真实 QQ 联调或完整 T08 验收。
 

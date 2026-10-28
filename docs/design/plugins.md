@@ -118,6 +118,7 @@ host.startPlugin/stopPlugin 当前是受信内部控制入口，供生命周期�
 | mock | 注册 mock.echo；测试环境另配可控副作用提供者 | 验证发现、schema、授权与调用记录 | — |
 | onebot-v11 | 通过标准 v11 接口接纳 QQ 事实与封装 reply | 验证不同服务实现可复用同一插件 | [README](../../src/plugins/onebot-v11/README.md) |
 | agent-chat | 读取入站事件，通过 ACP stdio 驱动现成 Agent | 保留会话、进度与未决语义，M2 增加管理描述和受控配置应用 | [README](../../src/plugins/agent-chat/README.md) |
+| memory | 按授权消费会话事件并提供可追溯的长期记忆能力 | TS 插件经独立 Python/Graphiti 服务索引；素材复用绑定的 `get_message`，不扩展 OneBot 或新增 MCP 入口 | [README](../../src/plugins/memory/README.md) |
 | server-http | 提供 ctx.http 共享监听与路由注册 | 路由随插件注销，统一请求预算和连接清理 | — |
 | api-rest / adapter-mcp | 从 adapters 迁移现有 REST/MCP 入口 | 路径、授权和结果语义不变 | [HTTP 契约 §13](contracts.md#13-mcp-入口) |
 | admin（M2） | 管理 API 与静态资产注册；前端视图契约与构建包在 `ui-contract/`，M2-02 消费宿主 AdminRegistry | Admin 晚启动、卸载和重启不影响业务实例 | [Admin 契约](admin.md) |
