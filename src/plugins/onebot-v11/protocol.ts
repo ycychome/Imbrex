@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { fail } from '../../core/errors.js';
 import { fields, json, limits, namespacePattern, object, string } from '../../core/validation.js';
 import type { EventInput, EventRecord, JsonObject } from '../../core/types.js';
@@ -39,34 +40,70 @@ export function parseOneBotConfig(input: unknown): OneBotConfig {
   return { wsUrl, tokenEnv, accountId: nativeId(value.account_id), identityNamespace, privateIds: ids(value.allow_private_ids), groupIds: ids(value.allow_group_ids) };
 }
 
-function segments(value: unknown): JsonObject[] {
-  const decode = (text: string) => text.replaceAll('&#91;', '[').replaceAll('&#93;', ']').replaceAll('&amp;', '&');
+export function messageSegments(value: unknown): JsonObject[] {
+  const decode = (text: string) => text.replaceAll('&#44;', ',').replaceAll('&#91;', '[').replaceAll('&#93;', ']').replaceAll('&amp;', '&');
   if (typeof value === 'string') {
-    string(value, limits.valueBytes, 'invalid_event', true);
+    if (Buffer.byteLength(value) > limits.valueBytes) fail('payload_too_large');
     const result: JsonObject[] = [];
     let offset = 0;
     for (const match of value.matchAll(/\[CQ:([^\]]*)\]/g)) {
       const prefix = value.slice(offset, match.index);
       if (prefix.includes('[CQ:')) fail('invalid_event', 'Malformed CQ segment');
       if (prefix) result.push({ type: 'text', data: { text: decode(prefix) } });
-      const reply = /^reply,id=(0|-?[1-9][0-9]*)$/.exec(match[1]!);
-      if (!reply) fail('invalid_event', 'Unsupported message segment');
-      result.push({ type: 'reply', data: { id: nativeId(reply[1], true) } });
+      const [type, ...pairs] = match[1]!.split(',');
+      const data: JsonObject = {};
+      let valid = true;
+      for (const pair of pairs) {
+        const equal = pair.indexOf('=');
+        if (equal < 1 || Object.hasOwn(data, pair.slice(0, equal))) { valid = false; break; }
+        Object.defineProperty(data, pair.slice(0, equal), { value: decode(pair.slice(equal + 1)), enumerable: true });
+      }
+      if (!valid && (type === 'text' || type === 'reply')) fail('invalid_event');
+      result.push({ type: type!, data: valid ? data : null });
       offset = match.index + match[0].length;
     }
     const suffix = value.slice(offset);
     if (suffix.includes('[CQ:')) fail('invalid_event', 'Malformed CQ segment');
     if (suffix) result.push({ type: 'text', data: { text: decode(suffix) } });
-    return segments(result);
+    return messageSegments(result);
   }
   if (!Array.isArray(value) || value.length > 128) fail('invalid_event', 'Unsupported message segments');
   return value.map((entry): JsonObject => {
     const segment = object(entry, 'invalid_event');
-    const data = object(segment.data, 'invalid_event');
+    const type = string(segment.type, 64, 'invalid_event');
+    const unsupported: JsonObject = { type: 'unsupported', data: { type } };
+    if (type !== 'text' && type !== 'reply' && segment.data !== undefined &&
+        (segment.data === null || typeof segment.data !== 'object' || Array.isArray(segment.data))) return unsupported;
+    const data = segment.data === undefined ? {} : object(segment.data, 'invalid_event');
     if (segment.type === 'text') return { type: 'text', data: { text: string(data.text, limits.valueBytes, 'invalid_event', true) } };
     if (segment.type === 'reply') return { type: 'reply', data: { id: nativeId(data.id, true) } };
-    return fail('invalid_event', 'Unsupported message segment');
+    if (type === 'at') {
+      try { return { type, data: { qq: data.qq === 'all' ? 'all' : nativeId(data.qq) } }; }
+      catch { return unsupported; }
+    }
+    if (type === 'forward') {
+      const id = metadataString(data.id, 256);
+      return id ? { type, data: { id } } : unsupported;
+    }
+    if (type === 'image') {
+      const media: JsonObject = {};
+      if (typeof data.file === 'string' && /^[A-Za-z0-9_.-]{1,256}$/.test(data.file)) media.file = data.file;
+      const url = metadataString(data.url, 2048);
+      if (url && (url.toLowerCase().startsWith('https://') || url.toLowerCase().startsWith('http://'))) media.url = url;
+      const summary = metadataString(data.summary, 256);
+      if (summary !== undefined) media.summary = summary;
+      return { type, data: media };
+    }
+    if (type === 'face' && (typeof data.id === 'string' || typeof data.id === 'number')) {
+      const id = metadataString(String(data.id), 16);
+      if (id) return { type, data: { id } };
+    }
+    return unsupported;
   });
+}
+
+function metadataString(value: unknown, maxBytes: number): string | undefined {
+  return typeof value === 'string' && value.isWellFormed() && Buffer.byteLength(value) <= maxBytes ? value : undefined;
 }
 
 export function sourceFor(config: OneBotConfig, kind: string, conversation: string): string {
@@ -81,11 +118,12 @@ export function mapMessage(input: unknown, config: OneBotConfig): EventInput | u
   if (kind !== 'group' && kind !== 'private') return;
   if (kind === 'group' && value.sub_type !== 'normal') return;
   const sender = nativeId(value.user_id);
-  const conversation = kind === 'group' ? nativeId(value.group_id) : sender;
+  if (kind === 'private' && sender === config.accountId && value.target_id === undefined) return;
+  const conversation = kind === 'group' ? nativeId(value.group_id) : sender === config.accountId ? nativeId(value.target_id) : sender;
   if (!(kind === 'group' ? config.groupIds : config.privateIds).includes(conversation)) return;
   const messageId = nativeId(value.message_id, true);
-  const messageSegments = segments(value.message);
-  const text = messageSegments.filter((segment) => segment.type === 'text').map((segment) => object(segment.data).text).join('');
+  const normalized = messageSegments(value.message);
+  const text = normalized.filter((segment) => segment.type === 'text').map((segment) => object(segment.data).text).join('');
   let time: string | undefined;
   if (value.time !== undefined) {
     if (typeof value.time !== 'number' || !Number.isSafeInteger(value.time) || value.time < 0 || value.time > 253402300799) fail('invalid_event', 'Invalid source timestamp');
@@ -94,12 +132,47 @@ export function mapMessage(input: unknown, config: OneBotConfig): EventInput | u
   const data: JsonObject = {
     account_id: config.accountId, identity_namespace: config.identityNamespace, conversation_type: kind,
     conversation_id: conversation, sender_id: sender, native_message_id: messageId,
-    direction: sender === config.accountId ? 'outbound' : 'inbound', text, message_segments: messageSegments,
+    direction: sender === config.accountId ? 'outbound' : 'inbound', text, message_segments: normalized,
   };
   json(data, limits.valueBytes, 'invalid_event');
   return { event: {
     specversion: '1.0', datacontenttype: 'application/json', source: sourceFor(config, kind, conversation),
     id: 'message:' + messageId, type: 'qq.message.' + kind, data, ...(time === undefined ? {} : { time }),
+  }, parents: [] };
+}
+
+export function requestId(config: OneBotConfig, kind: string, conversation: string, user: string, subtype: string, flag: string): string {
+  const digest = createHash('sha256').update(JSON.stringify([config.accountId, config.identityNamespace, kind, conversation, user, subtype, flag])).digest('hex');
+  return 'request:' + kind + ':' + conversation + ':' + digest;
+}
+
+export function mapRequest(input: unknown, config: OneBotConfig): EventInput | undefined {
+  const value = object(input, 'invalid_event');
+  if (value.post_type !== 'request') return;
+  if (nativeId(value.self_id) !== config.accountId) fail('invalid_event');
+  const kind = value.request_type;
+  if (kind !== 'friend' && kind !== 'group') return;
+  const user = nativeId(value.user_id);
+  const conversation = kind === 'group' ? nativeId(value.group_id) : user;
+  const subtype = kind === 'group' ? string(value.sub_type, 16, 'invalid_event') : 'friend';
+  if (kind === 'group' && !['add', 'invite'].includes(subtype)) fail('invalid_event');
+  if (!(kind === 'group' ? config.groupIds : config.privateIds).includes(conversation)) return;
+  const flag = string(value.flag, 2048, 'invalid_event');
+  const data: JsonObject = {
+    account_id: config.accountId, identity_namespace: config.identityNamespace,
+    request_type: kind, sub_type: subtype, user_id: user, conversation_id: conversation,
+    flag, comment: value.comment === undefined ? '' : string(value.comment, 4096, 'invalid_event', true),
+    ...(kind === 'group' ? { group_id: conversation } : {}),
+  };
+  let time: string | undefined;
+  if (value.time !== undefined) {
+    if (typeof value.time !== 'number' || !Number.isSafeInteger(value.time) || value.time < 0 || value.time > 253402300799) fail('invalid_event');
+    time = new Date(value.time * 1000).toISOString();
+  }
+  return { event: { specversion: '1.0', datacontenttype: 'application/json',
+    source: sourceFor(config, kind === 'group' ? 'group' : 'private', conversation),
+    id: requestId(config, kind, conversation, user, subtype, flag), type: 'qq.request.' + kind,
+    data, ...(time === undefined ? {} : { time }),
   }, parents: [] };
 }
 

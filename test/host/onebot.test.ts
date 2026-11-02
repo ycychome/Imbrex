@@ -151,17 +151,82 @@ test('account mismatch, oversized input and implementation changes remain unavai
   assert.equal(saved.app_name, 'standard-numeric-fixture');
 });
 
-test('invalid native IDs and unsupported segments cannot enter storage; demo builtins still reject configuration', async (t) => {
+test('invalid identity and reply references remain rejected; demo builtins still reject configuration', async (t) => {
   const { config } = await fixture(t);
   const parsed = parseOneBotConfig(config.plugins.find((plugin) => plugin.id === 'qq-main')!.config);
   for (const event of [
     { ...numericFixture, message_id: 9007199254740992 }, { ...numericFixture, self_id: 222222 },
-    { ...numericFixture, message: '[CQ:image,file=example]' }, { ...numericFixture, message: '[CQ:reply,id=01]' },
-    { ...numericFixture, message: [{ type: 'image', data: { file: 'example' } }] },
+    { ...numericFixture, message: '[CQ:reply,id=01]' },
+    { ...numericFixture, user_id: '01' }, { ...numericFixture, group_id: '01' },
+    { ...numericFixture, message: '[CQ:reply,id=42,id=43]' },
+    { ...numericFixture, message: '[CQ:reply]' },
+    { ...numericFixture, message: '[CQ:reply,id=42,__proto__=x,__proto__=y]' },
+    { ...numericFixture, message: 'before\ud800[CQ:image,file=fixture.jpg]after' },
+    { ...numericFixture, message: [{ type: 'reply', data: { id: '01' } }] },
   ]) assert.throws(() => mapMessage(event, parsed));
   assert.throws(() => parseOneBotConfig({ ...config.plugins.find((plugin) => plugin.id === 'qq-main')!.config, compatibility_profile: 'imaginary' }));
   config.plugins.find((plugin) => plugin.id === 'qq-main')!.module = 'builtin:mock';
   await assert.rejects(loadModules(config, '/tmp/fixture-config.json'), { code: 'invalid_request' });
+});
+
+test('optional message metadata degrades without losing text, segment positions or the connection', async (t) => {
+  const { app, sim, request, storeId, ready } = await fixture(t);
+  const connection = [...sim.server.clients][0]!;
+  let disconnected = false;
+  connection.once('close', () => { disconnected = true; });
+  const message = [
+    { type: 'text', data: { text: 'before' } },
+    { type: 'at', data: { qq: '01' } },
+    { type: 'image', data: { file: 'fixture.jpg', url: 'https://example.invalid/' + 'x'.repeat(2048), summary: '图'.repeat(100) } },
+    { type: 'face', data: { id: '1'.repeat(17) } },
+    { type: 'extension', data: {} },
+    { type: 'at', data: { qq: 'all' } },
+    { type: 'image', data: { file: 'valid.jpg', url: 'https://example.invalid/image', summary: '图片' } },
+    { type: 'forward', data: { id: 'forward-a' } },
+    { type: 'image', data: { url: 42, summary: '\ud800' } },
+    { type: 'extension', data: null },
+    { type: 'text', data: { text: 'after' } },
+  ];
+  sim.broadcast({ ...numericFixture, message });
+  await until(async () => (await app.info()).latestSeq === 1n);
+  sim.broadcast({ ...numericFixture, message_id: 43, message: 'a[CQ:at,qq=01][CQ:extension,broken][CQ:image,file=cq.jpg][CQ:face,id=42]b' });
+  await until(async () => (await app.info()).latestSeq === 2n);
+  sim.broadcast({ ...numericFixture, message_id: 44, message: 'before[CQ:image,file=fixture.jpg,summary=\ud800]after' });
+  await until(async () => (await app.info()).latestSeq === 3n);
+  sim.broadcast({ ...numericFixture, message_id: 45, message: 'before[CQ:image,file=fixture.jpg,__proto__=x,__proto__=y]after' });
+  await until(async () => (await app.info()).latestSeq === 4n);
+  const page = await request('/v1/events?store_id=' + storeId + '&after_seq=0');
+  assert.ok(Array.isArray(page.value.records));
+  const data = page.value.records.map((record) => object(object(object(record).event).data));
+  assert.equal(data[0]!.text, 'beforeafter');
+  assert.deepEqual(data[0]!.message_segments, [
+    message[0], { type: 'unsupported', data: { type: 'at' } },
+    { type: 'image', data: { file: 'fixture.jpg' } },
+    { type: 'unsupported', data: { type: 'face' } },
+    { type: 'unsupported', data: { type: 'extension' } },
+    message[5], message[6], message[7], { type: 'image', data: {} },
+    { type: 'unsupported', data: { type: 'extension' } }, message[10],
+  ]);
+  assert.equal(data[1]!.text, 'ab');
+  assert.deepEqual(data[1]!.message_segments, [
+    { type: 'text', data: { text: 'a' } },
+    { type: 'unsupported', data: { type: 'at' } },
+    { type: 'unsupported', data: { type: 'extension' } },
+    { type: 'image', data: { file: 'cq.jpg' } },
+    { type: 'face', data: { id: '42' } }, { type: 'text', data: { text: 'b' } },
+  ]);
+  assert.equal(disconnected, false); assert.ok(sim.server.clients.has(connection)); assert.ok(ready());
+  assert.equal(data[2]!.text, 'beforeafter');
+  assert.deepEqual(data[2]!.message_segments, [
+    { type: 'text', data: { text: 'before' } }, { type: 'image', data: { file: 'fixture.jpg' } },
+    { type: 'text', data: { text: 'after' } },
+  ]);
+  assert.equal(data[3]!.text, 'beforeafter');
+  assert.deepEqual(data[3]!.message_segments, [
+    { type: 'text', data: { text: 'before' } }, { type: 'unsupported', data: { type: 'image' } },
+    { type: 'text', data: { text: 'after' } },
+  ]);
+  assert.equal(sim.actions.length, 0);
 });
 
 test('burst ingress is bounded and the connection recovers without automatically sending', async (t) => {

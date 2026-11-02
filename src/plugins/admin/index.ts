@@ -9,7 +9,7 @@ import { fields, object, string } from '../../core/validation.js';
 import type { JsonObject } from '../../core/types.js';
 import type { CallQuery } from '../../core/store.js';
 import type { HttpRequest } from '../server-http/server.js';
-import { readQuery, wireCall, wireCapability, wirePage } from '../api-rest/dto.js';
+import { invokeBody, readQuery, wireCall, wireCapability, wireInvocation, wirePage } from '../../core/wire.js';
 
 function bundledAssetsDir(): string | undefined {
   try {
@@ -55,8 +55,33 @@ export async function apply(ctx: Context, input: JsonObject): Promise<void> {
     request.send(200, wirePage(await service.events.inspect(principal, query.storeId, query.options)));
   });
   http.register('GET', '/api/admin/capabilities', async (request) => {
+    const principal = inspect(request);
+    const keys = [...request.query.keys()];
+    if (keys.some((key) => key !== 'principal_id') || keys.length > 1) fail('invalid_request');
+    const subject = request.query.get('principal_id');
+    request.send(200, { store_id: (await service.store.info()).storeId, capabilities: service.capabilities.inspect(principal).map((item) => ({ ...wireCapability(item), available: item.available })),
+      ...(subject === null ? {} : { diagnostics: admin.diagnostics(principal, string(subject, 64)) }),
+    });
+  });
+  http.register('POST', '/api/admin/capabilities/:capability/invoke', async (request) => {
     const principal = inspect(request); empty(request);
-    request.send(200, { store_id: (await service.store.info()).storeId, capabilities: service.capabilities.inspect(principal).map((item) => ({ ...wireCapability(item), available: item.available })) });
+    const invocation = invokeBody(await request.readBody());
+    request.ensureActive();
+    const result = await service.capabilities.invoke(principal, invocation.storeId, request.params.capability!, invocation.params, invocation.callId);
+    request.send(200, wireInvocation(result));
+  });
+  http.register('POST', '/api/admin/instances/:instance/actions/:action', async (request) => {
+    const principal = service.authenticate(request.request.headers.authorization);
+    requirePermission(principal, 'admin:operate');
+    if (request.request.headers.origin !== undefined && request.request.headers.origin !== request.origin) fail('forbidden');
+    request.response.setHeader('cache-control', 'no-store'); empty(request);
+    const body = object(await request.readBody());
+    fields(body, ['store_id', 'lifecycle_revision'], ['store_id', 'lifecycle_revision']);
+    const storeId = string(body.store_id, 256);
+    if ((await service.store.info()).storeId !== storeId) fail('store_mismatch');
+    request.ensureActive();
+    const result = await admin.lifecycle(principal, request.params.instance!, string(body.lifecycle_revision, 256), request.params.action!);
+    request.send(200, { store_id: storeId, instance_id: request.params.instance, result });
   });
   http.register('GET', '/api/admin/calls', async (request) => {
     const principal = inspect(request);
