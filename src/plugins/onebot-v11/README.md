@@ -90,7 +90,7 @@ flowchart LR
 
 首版必须有 generic 配置；不预先承诺 napcat/snowluma 等命名 profile 已实现。只有确有差异且有测试时才加入相应 profile，未知 profile 拒绝启动。
 
-当前实现拒绝 ws_url 中的用户名、密码、query 与 fragment；认证只从 access_token_env 读取。账号、群号、用户号配置为无前导零的正十进制字符串，最大 `Number.MAX_SAFE_INTEGER`；消息 ID 接受 int32 范围（包括负数）。Action 的 group_id/user_id 编码为精确整数，reply.id 为字符串。白名单各至多 1024 项，消息至多 128 段；只接受 text/reply 数组段或对应 CQ 字符串，其他段拒收。群聊只接收 `sub_type=normal`，自身群消息保存为 outbound；不声明完整自发消息覆盖。
+当前实现拒绝 ws_url 中的用户名、密码、query 与 fragment；认证只从 access_token_env 读取。账号、群号、用户号配置为无前导零的正十进制字符串，最大 `Number.MAX_SAFE_INTEGER`；消息 ID 接受 int32 范围（包括负数）。Action 的 group_id/user_id 编码为精确整数，reply.id 为字符串。白名单各至多 1024 项，消息至多 128 段；接受 text、reply、at、image、forward、face 数组段或对应 CQ 字符串，其他段保留 unsupported 占位。群聊只接收 `sub_type=normal`，自身群消息保存为 outbound；不声明完整自发消息覆盖。
 
 握手和单次 Action 等待上限为 5 秒；断线后间隔 1 秒重连，15 秒发送一次 WS ping、下个周期仍无 pong 则关闭。每个连接最多 8 个未决请求、512 KiB 帧和 32 条待写事件，规范事件仍有 64 KiB 上限；溢出关连接并报告诊断，未持久化输入可能丢失。没有自动补取历史或自动重发。绑定文件 onebot-binding.json 通过文件 fsync、rename、目录 fsync 保存；观察到实现名称变化时拒绝恢复，版本升级保留记录但不等于兼容声明。
 
@@ -109,6 +109,10 @@ identity_namespace 是该账号一段经过验证的原生事件身份范围，�
 ## 5. 事件映射与来源覆盖
 
 事件 type 为 `qq.message.group` / `qq.message.private`；data 至少包含 account_id、identity_namespace、conversation_type、conversation_id、sender_id、native_message_id、direction、text 及受控 message_segments。
+
+消息段保留原位置：非法 at、forward、face、未知类型或非 text/reply 段的畸形 data 转为 `{type: "unsupported", data: {type: <原类型>}}`，不挤动后续图片/转发的 segment_index。image 保留合法 file、至多 2048 UTF-8 字节的 HTTP(S) url 和至多 256 UTF-8 字节的 summary；类型错误、超限或非法 Unicode 的附加字段省略，不截断 URL 或标识符。该规则也用于查询返回的消息与转发节点；素材使用仍须通过能力层的引用及 URL 校验。
+
+CQ 字符串按相同消息段规则处理；非 text/reply 扩展的参数缺少等号或重复时，整段转为 unsupported。账号、会话、发送者和消息 ID、text/reply、CQ 括号结构、消息段数量及整体大小继续严格校验。非关键附加信息降级不触发连接重连，也不放宽身份或回复引用校验。
 
 只接纳配置账号与允许范围内的事件。self_id/登录账号冲突时报告身份错误；自身消息标 outbound，不伪装成新的入站触发。只有指定连接器主体能发布这个 source 范围，Agent 派生事件使用自己的来源。
 

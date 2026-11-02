@@ -52,12 +52,14 @@ export function messageSegments(value: unknown): JsonObject[] {
       if (prefix) result.push({ type: 'text', data: { text: decode(prefix) } });
       const [type, ...pairs] = match[1]!.split(',');
       const data: JsonObject = {};
+      let valid = true;
       for (const pair of pairs) {
         const equal = pair.indexOf('=');
-        if (equal < 1 || Object.hasOwn(data, pair.slice(0, equal))) fail('invalid_event');
+        if (equal < 1 || Object.hasOwn(data, pair.slice(0, equal))) { valid = false; break; }
         data[pair.slice(0, equal)] = decode(pair.slice(equal + 1));
       }
-      result.push({ type: type!, data });
+      if (!valid && (type === 'text' || type === 'reply')) fail('invalid_event');
+      result.push({ type: type!, data: valid ? data : null });
       offset = match.index + match[0].length;
     }
     const suffix = value.slice(offset);
@@ -69,24 +71,39 @@ export function messageSegments(value: unknown): JsonObject[] {
   return value.map((entry): JsonObject => {
     const segment = object(entry, 'invalid_event');
     const type = string(segment.type, 64, 'invalid_event');
+    const unsupported: JsonObject = { type: 'unsupported', data: { type } };
+    if (type !== 'text' && type !== 'reply' && segment.data !== undefined &&
+        (segment.data === null || typeof segment.data !== 'object' || Array.isArray(segment.data))) return unsupported;
     const data = segment.data === undefined ? {} : object(segment.data, 'invalid_event');
     if (segment.type === 'text') return { type: 'text', data: { text: string(data.text, limits.valueBytes, 'invalid_event', true) } };
     if (segment.type === 'reply') return { type: 'reply', data: { id: nativeId(data.id, true) } };
-    if (type === 'at') return { type, data: { qq: data.qq === 'all' ? 'all' : nativeId(data.qq) } };
-    if (type === 'forward') return { type, data: { id: string(data.id, 256, 'invalid_event') } };
+    if (type === 'at') {
+      try { return { type, data: { qq: data.qq === 'all' ? 'all' : nativeId(data.qq) } }; }
+      catch { return unsupported; }
+    }
+    if (type === 'forward') {
+      const id = metadataString(data.id, 256);
+      return id ? { type, data: { id } } : unsupported;
+    }
     if (type === 'image') {
       const media: JsonObject = {};
       if (typeof data.file === 'string' && /^[A-Za-z0-9_.-]{1,256}$/.test(data.file)) media.file = data.file;
-      if (data.url !== undefined) {
-        const url = string(data.url, 2048, 'invalid_event');
-        if (url.toLowerCase().startsWith('https://') || url.toLowerCase().startsWith('http://')) media.url = url;
-      }
-      if (data.summary !== undefined) media.summary = string(data.summary, 256, 'invalid_event', true);
+      const url = metadataString(data.url, 2048);
+      if (url && (url.toLowerCase().startsWith('https://') || url.toLowerCase().startsWith('http://'))) media.url = url;
+      const summary = metadataString(data.summary, 256);
+      if (summary !== undefined) media.summary = summary;
       return { type, data: media };
     }
-    if (type === 'face' && (typeof data.id === 'string' || typeof data.id === 'number')) return { type, data: { id: string(String(data.id), 16, 'invalid_event') } };
-    return { type: 'unsupported', data: { type } };
+    if (type === 'face' && (typeof data.id === 'string' || typeof data.id === 'number')) {
+      const id = metadataString(String(data.id), 16);
+      if (id) return { type, data: { id } };
+    }
+    return unsupported;
   });
+}
+
+function metadataString(value: unknown, maxBytes: number): string | undefined {
+  return typeof value === 'string' && value.isWellFormed() && Buffer.byteLength(value) <= maxBytes ? value : undefined;
 }
 
 export function sourceFor(config: OneBotConfig, kind: string, conversation: string): string {
