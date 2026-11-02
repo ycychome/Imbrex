@@ -160,6 +160,8 @@ test('invalid identity and reply references remain rejected; demo builtins still
     { ...numericFixture, user_id: '01' }, { ...numericFixture, group_id: '01' },
     { ...numericFixture, message: '[CQ:reply,id=42,id=43]' },
     { ...numericFixture, message: '[CQ:reply]' },
+    { ...numericFixture, message: '[CQ:reply,id=42,__proto__=x,__proto__=y]' },
+    { ...numericFixture, message: 'before\ud800[CQ:image,file=fixture.jpg]after' },
     { ...numericFixture, message: [{ type: 'reply', data: { id: '01' } }] },
   ]) assert.throws(() => mapMessage(event, parsed));
   assert.throws(() => parseOneBotConfig({ ...config.plugins.find((plugin) => plugin.id === 'qq-main')!.config, compatibility_profile: 'imaginary' }));
@@ -189,6 +191,10 @@ test('optional message metadata degrades without losing text, segment positions 
   await until(async () => (await app.info()).latestSeq === 1n);
   sim.broadcast({ ...numericFixture, message_id: 43, message: 'a[CQ:at,qq=01][CQ:extension,broken][CQ:image,file=cq.jpg][CQ:face,id=42]b' });
   await until(async () => (await app.info()).latestSeq === 2n);
+  sim.broadcast({ ...numericFixture, message_id: 44, message: 'before[CQ:image,file=fixture.jpg,summary=\ud800]after' });
+  await until(async () => (await app.info()).latestSeq === 3n);
+  sim.broadcast({ ...numericFixture, message_id: 45, message: 'before[CQ:image,file=fixture.jpg,__proto__=x,__proto__=y]after' });
+  await until(async () => (await app.info()).latestSeq === 4n);
   const page = await request('/v1/events?store_id=' + storeId + '&after_seq=0');
   assert.ok(Array.isArray(page.value.records));
   const data = page.value.records.map((record) => object(object(object(record).event).data));
@@ -210,6 +216,16 @@ test('optional message metadata degrades without losing text, segment positions 
     { type: 'face', data: { id: '42' } }, { type: 'text', data: { text: 'b' } },
   ]);
   assert.equal(disconnected, false); assert.ok(sim.server.clients.has(connection)); assert.ok(ready());
+  assert.equal(data[2]!.text, 'beforeafter');
+  assert.deepEqual(data[2]!.message_segments, [
+    { type: 'text', data: { text: 'before' } }, { type: 'image', data: { file: 'fixture.jpg' } },
+    { type: 'text', data: { text: 'after' } },
+  ]);
+  assert.equal(data[3]!.text, 'beforeafter');
+  assert.deepEqual(data[3]!.message_segments, [
+    { type: 'text', data: { text: 'before' } }, { type: 'unsupported', data: { type: 'image' } },
+    { type: 'text', data: { text: 'after' } },
+  ]);
   assert.equal(sim.actions.length, 0);
 });
 

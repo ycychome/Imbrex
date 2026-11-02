@@ -43,7 +43,7 @@ export function parseOneBotConfig(input: unknown): OneBotConfig {
 export function messageSegments(value: unknown): JsonObject[] {
   const decode = (text: string) => text.replaceAll('&#44;', ',').replaceAll('&#91;', '[').replaceAll('&#93;', ']').replaceAll('&amp;', '&');
   if (typeof value === 'string') {
-    string(value, limits.valueBytes, 'invalid_event', true);
+    if (Buffer.byteLength(value) > limits.valueBytes) fail('payload_too_large');
     const result: JsonObject[] = [];
     let offset = 0;
     for (const match of value.matchAll(/\[CQ:([^\]]*)\]/g)) {
@@ -56,7 +56,7 @@ export function messageSegments(value: unknown): JsonObject[] {
       for (const pair of pairs) {
         const equal = pair.indexOf('=');
         if (equal < 1 || Object.hasOwn(data, pair.slice(0, equal))) { valid = false; break; }
-        data[pair.slice(0, equal)] = decode(pair.slice(equal + 1));
+        Object.defineProperty(data, pair.slice(0, equal), { value: decode(pair.slice(equal + 1)), enumerable: true });
       }
       if (!valid && (type === 'text' || type === 'reply')) fail('invalid_event');
       result.push({ type: type!, data: valid ? data : null });
